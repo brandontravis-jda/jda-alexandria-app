@@ -1,0 +1,60 @@
+# JDA Catalyst — Cursor Rules
+
+## Project
+Next.js 16 App Router. TypeScript strict mode. Tailwind CSS v4. Sanity CMS.
+All content fetched via GROQ in server components.
+
+## File Structure
+- Components: `/src/components/` — PascalCase directories
+- Page builder modules: `/src/components/modules/`
+- Global components (nav, footer): `/src/components/global/`
+- UI primitives (button, container): `/src/components/ui/`
+- Sanity schemas: `/src/sanity/schemas/documents/` and `/src/sanity/schemas/objects/`
+- GROQ queries: `/src/sanity/lib/queries.ts` or co-located with page
+- Utilities: `/src/lib/`
+
+## Components
+- One directory per component with `index.tsx` and optional `types.ts`
+- Default exports only
+- Props interface named `[ComponentName]Props`
+- Use `cn()` from `@/lib/utils` for conditional Tailwind classes
+- All images use `SanityImage` component (not next/image directly)
+
+## Sanity Schemas
+- Use `defineType`, `defineField`, `defineArrayMember` from `sanity`
+- Document types in `/schemas/documents/`, object types in `/schemas/objects/`
+- All image fields must include `alt` as a required string field
+- All slugs use `isUnique` validator from `@/sanity/lib/isUnique`
+- Page builder field: `defineField({ name: 'modules', type: 'pageBuilder' })`
+
+## Data Fetching
+- Fetch ONLY in server components using `sanityFetch()` from `@/sanity/lib/client`
+- Never fetch in client components — pass data as props
+- Use `revalidateTag` for ISR cache invalidation
+- GROQ queries use tagged template literals for syntax highlighting
+
+## Styling
+- Tailwind utility classes exclusively. No custom CSS files
+- Use design tokens from `src/app/globals.css` (`@theme` block) — never hardcode colors or spacing
+- Responsive: mobile-first (`sm:`, `md:`, `lg:`, `xl:`)
+- Dark mode: not implemented by default (add per project if needed)
+
+## TypeScript
+- Strict mode. Never use `any`
+- Sanity query results typed with manually defined interfaces (add sanity-typegen later)
+- Prefer `interface` over `type` for object shapes
+
+## Accessibility
+- Semantic HTML elements: nav, main, article, section, aside, header, footer
+- All interactive elements keyboard accessible
+- ARIA attributes on custom widgets (accordion, carousel, dropdown)
+- Skip-to-content link in root layout
+- Heading hierarchy enforced by component structure, not editor choice
+
+## Avoid
+- Pages Router (use App Router only)
+- CSS modules or styled-components
+- Fetching in client components
+- `use client` unless genuinely needed for interactivity
+- Installing packages without checking if functionality exists in current stack
+- Hardcoded strings (use Sanity fields or constants)

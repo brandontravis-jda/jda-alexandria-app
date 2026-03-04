@@ -6,6 +6,7 @@ Step-by-step instructions for configuring a new client site after scaffolding fr
 
 ## Table of Contents
 
+0. [Developer Prerequisites](#0-developer-prerequisites)
 1. [Scaffold the Project](#1-scaffold-the-project)
 2. [Sanity CMS](#2-sanity-cms)
 3. [Design Tokens (Branding)](#3-design-tokens-branding)
@@ -18,6 +19,76 @@ Step-by-step instructions for configuring a new client site after scaffolding fr
 10. [Staging Environment](#10-staging-environment)
 11. [Launch Checklist](#11-launch-checklist)
 12. [Client Offboarding](#12-client-offboarding)
+
+---
+
+## 0. Developer Prerequisites
+
+### Requirements
+
+- Node.js 20+
+- npm 10+
+- A Sanity account ([sanity.io](https://sanity.io))
+- SSH access to the JDA-Worldwide GitHub org
+
+### SSH setup for the JDA-Worldwide GitHub org
+
+JDA repos live under the `JDA-Worldwide` GitHub organization. If you use a personal GitHub account for other work, you'll need a separate SSH key so git knows which credentials to use for JDA repos.
+
+**1. Generate an SSH key:**
+
+```bash
+ssh-keygen -t ed25519 -C "jda-worldwide" -f ~/.ssh/id_ed25519_jda -N ""
+```
+
+**2. Add the public key to GitHub:**
+
+```bash
+cat ~/.ssh/id_ed25519_jda.pub
+```
+
+Copy the output, then:
+
+1. Log in to the GitHub account that has access to the JDA-Worldwide org
+2. Go to [github.com/settings/keys](https://github.com/settings/keys)
+3. Click **New SSH key** → Key type: **Authentication key**
+4. Paste the public key and save
+
+**3. Create (or add to) your SSH config:**
+
+Open `~/.ssh/config` and add:
+
+```
+# JDA-Worldwide GitHub account
+Host github-jda
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_jda
+  IdentitiesOnly yes
+```
+
+If you also have a personal GitHub account, add another block:
+
+```
+# Personal GitHub account
+Host github-personal
+  HostName github.com
+  User git
+  IdentityFile ~/.ssh/id_ed25519_personal
+  IdentitiesOnly yes
+```
+
+**4. Use the alias when cloning or setting remotes:**
+
+```bash
+# Clone using the JDA alias
+git clone git@github-jda:JDA-Worldwide/jda-catalyst.git
+
+# Or update an existing repo's remote
+git remote set-url origin git@github-jda:JDA-Worldwide/some-client-repo.git
+```
+
+The `github-jda` host alias ensures git uses the JDA SSH key for any repo under the JDA-Worldwide org, regardless of what other GitHub accounts you have configured.
 
 ---
 
@@ -248,15 +319,15 @@ CONTACT_FORM_RECIPIENT=info@acme-corp.com
 
 ## 6. GitHub Repository
 
-1. Create a new **private** repo in the JDA GitHub org
+1. Create a new **private** repo in the JDA-Worldwide GitHub org
 2. Name it after the client (e.g., `acme-corp-website`)
-3. Push the scaffolded project:
+3. Push the scaffolded project using the `github-jda` SSH alias (see [Developer Prerequisites](#0-developer-prerequisites)):
 
 ```bash
 git init
 git add .
 git commit -m "Initial scaffold from jda-catalyst template"
-git remote add origin git@github.com:jda-org/acme-corp-website.git
+git remote add origin git@github-jda:JDA-Worldwide/acme-corp-website.git
 git branch -M main
 git push -u origin main
 ```

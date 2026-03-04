@@ -72,9 +72,10 @@ src/
 │   └── PageBuilder.tsx      # Module resolver/renderer
 ├── sanity/
 │   ├── schemas/             # Document + object type definitions
-│   ├── lib/                 # Client, image helper, GROQ queries
+│   ├── lib/                 # Client, queries, resolve, structure
 │   ├── studio/
-│   │   └── logo.tsx         # Custom Studio logo component
+│   │   ├── logo.tsx         # Custom Studio logo component
+│   │   └── WelcomeWidget.tsx # Dashboard overview widget
 │   └── sanity.config.ts     # Studio configuration
 └── lib/
     ├── utils.ts             # cn() helper, formatDate

@@ -149,9 +149,9 @@ NEXT_PUBLIC_SANITY_API_VERSION=2024-01-01
 SANITY_API_TOKEN=your-editor-token
 ```
 
-### Update Sanity Studio config
+### Update Sanity Studio config (if needed)
 
-Open `src/sanity/sanity.config.ts` and update the `title` to match the client:
+If you used the CLI (`npm create jda-catalyst`), the Studio name and title are already set from your answers. If you need to change them later, open `src/sanity/sanity.config.ts`:
 
 ```typescript
 export default defineConfig({
@@ -174,9 +174,12 @@ export default defineConfig({
 npm run dev
 ```
 
-Visit `http://localhost:3000/studio` — you should see Sanity Studio with all schema types loaded.
+Visit `http://localhost:3000/studio` — you should see Sanity Studio load with the Dashboard tab showing content counts and project info.
 
-The **Structure** tab is your primary content editing interface. The **Presentation** tab provides live visual editing — it loads your site in an iframe with click-to-edit overlays. This works automatically once the API token is set; no additional configuration is needed.
+- **Dashboard** — landing tab with an overview of your content
+- **Structure** — primary content editing interface (pages, blog posts, settings)
+- **Presentation** — live visual editing with click-to-edit overlays (works automatically once the API token is set)
+- **Vision** — GROQ query playground for testing queries
 
 ---
 

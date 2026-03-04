@@ -5,12 +5,8 @@ import { presentationTool } from "sanity/presentation";
 import { schemaTypes } from "./schemas";
 import StudioLogo from "./studio/logo";
 
-const siteUrl =
-  typeof window !== "undefined"
-    ? window.location.origin
-    : process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
-
 export default defineConfig({
+  basePath: "/studio",
   name: "jda-catalyst",
   title: "JDA Catalyst",
   projectId: process.env.NEXT_PUBLIC_SANITY_PROJECT_ID!,
@@ -19,7 +15,11 @@ export default defineConfig({
   plugins: [
     structureTool(),
     presentationTool({
-      previewUrl: siteUrl,
+      previewUrl: {
+        previewMode: {
+          enable: "/api/draft-mode/enable",
+        },
+      },
     }),
     visionTool(),
   ],

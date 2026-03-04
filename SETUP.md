@@ -136,8 +136,8 @@ This creates the project, selects a dataset, and writes credentials to `.env.loc
 1. In [sanity.io/manage](https://www.sanity.io/manage), open the project
 2. Go to **Settings → API → Tokens**
 3. Click **Add API token**
-4. Name: `Next.js Write` (or similar)
-5. Permissions: **Editor** — the token needs write access to create `formSubmission` documents from the contact form
+4. Name: `Next.js Editor` (or similar)
+5. Permissions: **Editor** — the token needs write access to create `formSubmission` documents from the contact form, and it is also used by the Presentation tool for live visual editing in draft mode
 6. Copy the token
 
 ### Update `.env.local`
@@ -175,6 +175,8 @@ npm run dev
 ```
 
 Visit `http://localhost:3000/studio` — you should see Sanity Studio with all schema types loaded.
+
+The **Structure** tab is your primary content editing interface. The **Presentation** tab provides live visual editing — it loads your site in an iframe with click-to-edit overlays. This works automatically once the API token is set; no additional configuration is needed.
 
 ---
 

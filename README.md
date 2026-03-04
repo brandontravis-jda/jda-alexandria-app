@@ -58,7 +58,7 @@ src/
 │   │   ├── [slug]/          # Dynamic pages
 │   │   └── blog/            # Blog listing + posts
 │   ├── studio/              # Embedded Sanity Studio
-│   ├── api/                 # API routes (contact, revalidate, turnstile)
+│   ├── api/                 # API routes (contact, draft-mode, revalidate, turnstile)
 │   ├── layout.tsx           # Root layout (skip link, metadata)
 │   ├── sitemap.ts           # Dynamic sitemap
 │   └── robots.ts            # Robots.txt
@@ -127,7 +127,7 @@ Brand colors, fonts, spacing, and other tokens are defined in `src/app/globals.c
 | `NEXT_PUBLIC_SANITY_PROJECT_ID` | Sanity project ID |
 | `NEXT_PUBLIC_SANITY_DATASET` | Sanity dataset (usually `production`) |
 | `NEXT_PUBLIC_SANITY_API_VERSION` | Sanity API version |
-| `SANITY_API_TOKEN` | Sanity write token (for form submissions) |
+| `SANITY_API_TOKEN` | Sanity editor token (form submissions + Presentation visual editing) |
 | `RESEND_API_KEY` | Resend API key for email |
 | `CONTACT_FORM_SENDER` | Sender address for contact emails (must match verified domain) |
 | `CONTACT_FORM_RECIPIENT` | Default recipient for contact form submissions |

@@ -1,39 +1,58 @@
+@import url("https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;600;700;900&family=Barlow:wght@300;400;500;600&display=swap");
 @import "tailwindcss";
+@source "../../src";
 
-/* === CLIENT BRAND TOKENS (swap these per project) === */
 @theme inline {
-  /* Colors */
-  --color-brand-primary: #1A1018;
-  --color-brand-secondary: #ED1A3B;
-  --color-brand-muted: #8A7A72;
-  --color-brand-background: #FFFFFF;
-  --color-brand-surface: #F9F8F7;
-  --color-brand-border: #D6CFC8;
-  --color-brand-text: #4A3F44;
-  --color-brand-text-heading: #1A1018;
+  /* JDA Portal Color Tokens */
+  --color-jda-bg: #1A1018;
+  --color-jda-bg-card: #231D21;
+  --color-jda-bg-surface: #2C252A;
+  --color-jda-red: #ED1A3B;
+  --color-jda-red-muted: rgba(237, 26, 59, 0.15);
+  --color-jda-cream: #F0EBE1;
+  --color-jda-cream-muted: #B8AFA5;
+  --color-jda-warm-gray: #8A7A72;
+  --color-jda-border: #3D3439;
+  --color-jda-green: #4ADE80;
+  --color-jda-green-muted: rgba(74, 222, 128, 0.15);
+  --color-jda-amber: #FBBF24;
+  --color-jda-amber-muted: rgba(251, 191, 36, 0.15);
+  --color-jda-blue: #60A5FA;
+  --color-jda-blue-muted: rgba(96, 165, 250, 0.15);
 
   /* Fonts */
-  --font-display: Georgia, serif;
-  --font-body: Arial, sans-serif;
-
-  /* Spacing */
-  --spacing-section: 5rem;
-  --spacing-section-sm: 3rem;
-
-  /* Max widths */
-  --container-content: 75rem;
+  --font-display: "Barlow Condensed", sans-serif;
+  --font-body: "Barlow", sans-serif;
 
   /* Border radius */
   --radius-DEFAULT: 0.375rem;
+  --radius-card: 0.625rem;
+}
+
+html {
+  background: var(--color-jda-bg);
 }
 
 body {
-  background: var(--color-brand-background);
-  color: var(--color-brand-text);
+  background: var(--color-jda-bg);
+  color: var(--color-jda-cream);
   font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 h1, h2, h3, h4, h5, h6 {
-  color: var(--color-brand-text-heading);
   font-family: var(--font-display);
+  color: var(--color-jda-cream);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.content-row:hover {
+  background: var(--color-jda-bg-surface);
+}
+
+.quick-action-btn:hover {
+  border-color: var(--color-jda-red) !important;
+  background: var(--color-jda-bg-surface) !important;
 }

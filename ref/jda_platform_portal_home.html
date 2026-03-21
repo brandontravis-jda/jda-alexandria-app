@@ -1,0 +1,347 @@
+
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;500;700;900&family=Playfair+Display:ital@1&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --jda-bg: #1A1018;
+  --jda-bg-card: #231D21;
+  --jda-bg-surface: #2C252A;
+  --jda-red: #ED1A3B;
+  --jda-cream: #F0EBE1;
+  --jda-cream-muted: #B8AFA5;
+  --jda-warm-gray: #8A7A72;
+  --jda-border: #3D3439;
+  --jda-green: #4ADE80;
+  --jda-amber: #FBBF24;
+  --jda-blue: #60A5FA;
+}
+.portal { background: var(--jda-bg); min-height: 700px; font-family: 'Barlow Condensed', sans-serif; color: var(--jda-cream); overflow: hidden; border-radius: 12px; }
+.topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 28px; border-bottom: 1px solid var(--jda-border); }
+.topbar-left { display: flex; align-items: center; gap: 24px; }
+.logo-mark { display: flex; align-items: center; gap: 10px; }
+.logo-icon { width: 32px; height: 32px; background: var(--jda-red); border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 14px; letter-spacing: -0.5px; color: white; }
+.logo-text { font-weight: 700; font-size: 18px; letter-spacing: 2px; color: var(--jda-cream); }
+.logo-sub { font-size: 11px; font-weight: 400; letter-spacing: 3px; color: var(--jda-warm-gray); text-transform: uppercase; }
+.nav { display: flex; gap: 4px; }
+.nav-item { padding: 6px 14px; font-size: 13px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; color: var(--jda-warm-gray); border-radius: 6px; cursor: pointer; transition: all 0.2s; }
+.nav-item:hover { color: var(--jda-cream); background: var(--jda-bg-surface); }
+.nav-item.active { color: var(--jda-cream); background: var(--jda-red); }
+.topbar-right { display: flex; align-items: center; gap: 16px; }
+.avatar { width: 32px; height: 32px; border-radius: 50%; background: var(--jda-red); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: white; }
+.user-name { font-size: 13px; color: var(--jda-cream-muted); font-weight: 400; }
+
+.main { display: grid; grid-template-columns: 1fr; gap: 0; padding: 28px; }
+.welcome { margin-bottom: 28px; }
+.welcome h1 { font-size: 28px; font-weight: 900; letter-spacing: 1px; text-transform: uppercase; color: var(--jda-cream); }
+.welcome h1 span { color: var(--jda-red); }
+.welcome p { font-size: 14px; font-weight: 400; color: var(--jda-warm-gray); margin-top: 4px; letter-spacing: 0.5px; }
+
+.stats-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 28px; }
+.stat-card { background: var(--jda-bg-card); border: 1px solid var(--jda-border); border-radius: 10px; padding: 18px 20px; }
+.stat-label { font-size: 11px; font-weight: 500; letter-spacing: 2px; text-transform: uppercase; color: var(--jda-warm-gray); margin-bottom: 8px; }
+.stat-value { font-size: 32px; font-weight: 900; color: var(--jda-cream); line-height: 1; }
+.stat-value.red { color: var(--jda-red); }
+.stat-change { font-size: 12px; color: var(--jda-green); margin-top: 6px; font-weight: 500; }
+.stat-change.amber { color: var(--jda-amber); }
+
+.grid-2col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 20px; margin-bottom: 20px; }
+.card { background: var(--jda-bg-card); border: 1px solid var(--jda-border); border-radius: 10px; padding: 22px 24px; }
+.card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 18px; }
+.card-title { font-size: 14px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--jda-cream); }
+.card-action { font-size: 11px; font-weight: 500; letter-spacing: 1px; text-transform: uppercase; color: var(--jda-red); cursor: pointer; }
+.card-action:hover { text-decoration: underline; }
+
+.content-list { display: flex; flex-direction: column; gap: 2px; }
+.content-row { display: grid; grid-template-columns: auto 1fr auto auto; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 6px; transition: background 0.15s; }
+.content-row:hover { background: var(--jda-bg-surface); }
+.content-type-badge { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; padding: 3px 8px; border-radius: 4px; white-space: nowrap; }
+.badge-prompt { background: rgba(237,26,59,0.15); color: var(--jda-red); }
+.badge-template { background: rgba(96,165,250,0.15); color: var(--jda-blue); }
+.badge-workflow { background: rgba(74,222,128,0.15); color: var(--jda-green); }
+.badge-brand { background: rgba(251,191,36,0.15); color: var(--jda-amber); }
+.content-name { font-size: 14px; font-weight: 500; color: var(--jda-cream); }
+.content-practice { font-size: 12px; color: var(--jda-warm-gray); font-weight: 400; }
+.content-date { font-size: 11px; color: var(--jda-warm-gray); font-weight: 400; }
+
+.practice-list { display: flex; flex-direction: column; gap: 10px; }
+.practice-row { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--jda-border); }
+.practice-row:last-child { border-bottom: none; }
+.practice-info { display: flex; align-items: center; gap: 10px; }
+.practice-dot { width: 8px; height: 8px; border-radius: 50%; }
+.practice-name { font-size: 14px; font-weight: 500; color: var(--jda-cream); }
+.practice-meta { font-size: 12px; color: var(--jda-warm-gray); }
+.practice-bar-wrap { width: 100px; height: 6px; background: var(--jda-bg-surface); border-radius: 3px; overflow: hidden; }
+.practice-bar { height: 100%; border-radius: 3px; }
+
+.activity-list { display: flex; flex-direction: column; gap: 12px; margin-top: 0; }
+.activity-item { display: flex; gap: 12px; align-items: flex-start; }
+.activity-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--jda-red); margin-top: 6px; flex-shrink: 0; }
+.activity-text { font-size: 13px; color: var(--jda-cream-muted); line-height: 1.5; font-weight: 400; }
+.activity-text strong { color: var(--jda-cream); font-weight: 700; }
+.activity-time { font-size: 11px; color: var(--jda-warm-gray); margin-top: 2px; }
+
+.quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+.qa-btn { background: var(--jda-bg-card); border: 1px solid var(--jda-border); border-radius: 8px; padding: 14px 16px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; gap: 10px; }
+.qa-btn:hover { border-color: var(--jda-red); background: var(--jda-bg-surface); }
+.qa-icon { width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 900; }
+.qa-icon.red { background: rgba(237,26,59,0.15); color: var(--jda-red); }
+.qa-icon.blue { background: rgba(96,165,250,0.15); color: var(--jda-blue); }
+.qa-icon.green { background: rgba(74,222,128,0.15); color: var(--jda-green); }
+.qa-label { font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--jda-cream); }
+.qa-sub { font-size: 11px; color: var(--jda-warm-gray); font-weight: 400; text-transform: none; letter-spacing: 0; }
+</style>
+
+<div class="portal">
+  <div class="topbar">
+    <div class="topbar-left">
+      <div class="logo-mark">
+        <div class="logo-icon">JDA</div>
+        <div>
+          <div class="logo-text">PLATFORM</div>
+          <div class="logo-sub">AI-Native Operations</div>
+        </div>
+      </div>
+      <nav class="nav">
+        <div class="nav-item active">Dashboard</div>
+        <div class="nav-item">Content</div>
+        <div class="nav-item">Clients</div>
+        <div class="nav-item">Tools</div>
+        <div class="nav-item">Settings</div>
+      </nav>
+    </div>
+    <div class="topbar-right">
+      <span class="user-name">Brandon</span>
+      <div class="avatar">BH</div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="welcome">
+      <h1>Good afternoon, <span>Brandon</span></h1>
+      <p>Saturday, March 21, 2026 — 14 active content items across 5 practices — 23 practitioners connected via MCP</p>
+    </div>
+
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Prompt library</div>
+        <div class="stat-value">47</div>
+        <div class="stat-change">+8 this week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Templates</div>
+        <div class="stat-value">12</div>
+        <div class="stat-change amber">3 need review</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">MCP queries today</div>
+        <div class="stat-value red">312</div>
+        <div class="stat-change">+41% vs last week</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Active practitioners</div>
+        <div class="stat-value">23</div>
+        <div class="stat-change">of 33 total</div>
+      </div>
+    </div>
+
+    <div class="quick-actions">
+      <div class="qa-btn">
+        <div class="qa-icon red">+</div>
+        <div><div class="qa-label">New prompt</div><div class="qa-sub">Add to prompt library</div></div>
+      </div>
+      <div class="qa-btn">
+        <div class="qa-icon blue">T</div>
+        <div><div class="qa-label">New template</div><div class="qa-sub">Create production template</div></div>
+      </div>
+      <div class="qa-btn">
+        <div class="qa-icon green">C</div>
+        <div><div class="qa-label">New client package</div><div class="qa-sub">Build brand context</div></div>
+      </div>
+    </div>
+
+    <div class="grid-2col">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Recent content</span>
+          <span class="card-action">View all</span>
+        </div>
+        <div class="content-list">
+          <div class="content-row">
+            <span class="content-type-badge badge-prompt">Prompt</span>
+            <span class="content-name">Press release — standard format</span>
+            <span class="content-practice">StratComm</span>
+            <span class="content-date">2h ago</span>
+          </div>
+          <div class="content-row">
+            <span class="content-type-badge badge-template">Template</span>
+            <span class="content-name">JDA styled document — v3</span>
+            <span class="content-practice">Agency-wide</span>
+            <span class="content-date">Yesterday</span>
+          </div>
+          <div class="content-row">
+            <span class="content-type-badge badge-brand">Brand</span>
+            <span class="content-name">WIF — brand voice + messaging</span>
+            <span class="content-practice">Brand</span>
+            <span class="content-date">Mar 18</span>
+          </div>
+          <div class="content-row">
+            <span class="content-type-badge badge-workflow">Workflow</span>
+            <span class="content-name">Campaign brief → deliverable chain</span>
+            <span class="content-practice">Digital</span>
+            <span class="content-date">Mar 17</span>
+          </div>
+          <div class="content-row">
+            <span class="content-type-badge badge-prompt">Prompt</span>
+            <span class="content-name">Social carousel — AI-led production</span>
+            <span class="content-practice">Brand</span>
+            <span class="content-date">Mar 15</span>
+          </div>
+          <div class="content-row">
+            <span class="content-type-badge badge-template">Template</span>
+            <span class="content-name">Editorial HTML presentation</span>
+            <span class="content-practice">Agency-wide</span>
+            <span class="content-date">Mar 14</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Practice activation</span>
+          <span class="card-action">Details</span>
+        </div>
+        <div class="practice-list">
+          <div class="practice-row">
+            <div class="practice-info">
+              <div class="practice-dot" style="background: var(--jda-green);"></div>
+              <div>
+                <div class="practice-name">Dev / Digital Experience</div>
+                <div class="practice-meta">8 of 8 connected</div>
+              </div>
+            </div>
+            <div class="practice-bar-wrap"><div class="practice-bar" style="width: 100%; background: var(--jda-green);"></div></div>
+          </div>
+          <div class="practice-row">
+            <div class="practice-info">
+              <div class="practice-dot" style="background: var(--jda-green);"></div>
+              <div>
+                <div class="practice-name">Business Development</div>
+                <div class="practice-meta">4 of 4 connected</div>
+              </div>
+            </div>
+            <div class="practice-bar-wrap"><div class="practice-bar" style="width: 100%; background: var(--jda-green);"></div></div>
+          </div>
+          <div class="practice-row">
+            <div class="practice-info">
+              <div class="practice-dot" style="background: var(--jda-amber);"></div>
+              <div>
+                <div class="practice-name">Strategic Communications</div>
+                <div class="practice-meta">5 of 7 connected</div>
+              </div>
+            </div>
+            <div class="practice-bar-wrap"><div class="practice-bar" style="width: 71%; background: var(--jda-amber);"></div></div>
+          </div>
+          <div class="practice-row">
+            <div class="practice-info">
+              <div class="practice-dot" style="background: var(--jda-amber);"></div>
+              <div>
+                <div class="practice-name">Brand</div>
+                <div class="practice-meta">3 of 6 connected</div>
+              </div>
+            </div>
+            <div class="practice-bar-wrap"><div class="practice-bar" style="width: 50%; background: var(--jda-amber);"></div></div>
+          </div>
+          <div class="practice-row">
+            <div class="practice-info">
+              <div class="practice-dot" style="background: var(--jda-warm-gray);"></div>
+              <div>
+                <div class="practice-name">Creative</div>
+                <div class="practice-meta">3 of 8 connected</div>
+              </div>
+            </div>
+            <div class="practice-bar-wrap"><div class="practice-bar" style="width: 38%; background: var(--jda-warm-gray);"></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="grid-2col">
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">MCP activity — top queries</span>
+          <span class="card-action">Full log</span>
+        </div>
+        <div class="content-list">
+          <div class="content-row" style="grid-template-columns: 1fr auto auto;">
+            <span class="content-name" style="font-size: 13px;">get_prompt_chain("press_release")</span>
+            <span class="content-practice">34 calls</span>
+            <span class="content-date">StratComm</span>
+          </div>
+          <div class="content-row" style="grid-template-columns: 1fr auto auto;">
+            <span class="content-name" style="font-size: 13px;">assemble_production_context("social_carousel", "WIF")</span>
+            <span class="content-practice">28 calls</span>
+            <span class="content-date">Brand</span>
+          </div>
+          <div class="content-row" style="grid-template-columns: 1fr auto auto;">
+            <span class="content-name" style="font-size: 13px;">get_client_brand_package("1792")</span>
+            <span class="content-practice">22 calls</span>
+            <span class="content-date">Multiple</span>
+          </div>
+          <div class="content-row" style="grid-template-columns: 1fr auto auto;">
+            <span class="content-name" style="font-size: 13px;">get_template("campaign_brief")</span>
+            <span class="content-practice">19 calls</span>
+            <span class="content-date">Digital</span>
+          </div>
+          <div class="content-row" style="grid-template-columns: 1fr auto auto;">
+            <span class="content-name" style="font-size: 13px;">list_templates("brand")</span>
+            <span class="content-practice">15 calls</span>
+            <span class="content-date">Brand</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Recent activity</span>
+        </div>
+        <div class="activity-list">
+          <div class="activity-item">
+            <div class="activity-dot"></div>
+            <div>
+              <div class="activity-text"><strong>Christina</strong> added deliverable classification "social media carousel" via Claude</div>
+              <div class="activity-time">35 min ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot" style="background: var(--jda-blue);"></div>
+            <div>
+              <div class="activity-text"><strong>Hannah</strong> queried brand voice for WIF — first MCP interaction</div>
+              <div class="activity-time">1h ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot" style="background: var(--jda-green);"></div>
+            <div>
+              <div class="activity-text"><strong>Brandon</strong> published 3 new prompt library entries for StratComm</div>
+              <div class="activity-time">2h ago</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot" style="background: var(--jda-amber);"></div>
+            <div>
+              <div class="activity-text"><strong>Kristi</strong> updated Brand workflow guide via portal</div>
+              <div class="activity-time">Yesterday</div>
+            </div>
+          </div>
+          <div class="activity-item">
+            <div class="activity-dot" style="background: var(--jda-warm-gray);"></div>
+            <div>
+              <div class="activity-text"><strong>Zeke</strong> connected to MCP — Creative practice at 38%</div>
+              <div class="activity-time">Yesterday</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

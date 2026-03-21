@@ -97,8 +97,8 @@ export default defineType({
           ],
           preview: {
             select: { title: "name", subtitle: "required" },
-            prepare({ title, subtitle }: { title: string; subtitle: boolean }) {
-              return { title, subtitle: subtitle ? "Required" : "Optional" };
+            prepare(value: Record<string, unknown>) {
+              return { title: value.title as string, subtitle: value.subtitle ? "Required" : "Optional" };
             },
           },
         },
@@ -133,8 +133,8 @@ export default defineType({
           ],
           preview: {
             select: { title: "name", subtitle: "approvalGate" },
-            prepare({ title, subtitle }: { title: string; subtitle: boolean }) {
-              return { title, subtitle: subtitle ? "⏸ Approval gate" : "" };
+            prepare(value: Record<string, unknown>) {
+              return { title: value.title as string, subtitle: value.subtitle ? "⏸ Approval gate" : "" };
             },
           },
         },

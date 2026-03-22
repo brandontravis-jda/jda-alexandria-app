@@ -175,7 +175,11 @@ function buildServer(auth: AuthResult): McpServer {
 
       if (m.qualityChecks?.length) {
         lines.push("\n## Quality Checks");
-        for (const qc of m.qualityChecks) lines.push(`- ${qc}`);
+        for (const qc of m.qualityChecks as Record<string, string>[]) {
+          lines.push(`- **${qc.name}**`);
+          if (qc.description) lines.push(`  ${qc.description}`);
+          if (qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
+        }
       }
 
       if (m.visionOfGood) {
@@ -185,17 +189,25 @@ function buildServer(auth: AuthResult): McpServer {
 
       if (m.failureModes?.length) {
         lines.push("\n## Common Failure Modes");
-        for (const fm of m.failureModes) lines.push(`- ${fm}`);
+        for (const fm of m.failureModes as Record<string, string>[]) {
+          lines.push(`- **${fm.name}**`);
+          if (fm.description) lines.push(`  ${fm.description}`);
+          if (fm.mitigation) lines.push(`  Mitigation: ${fm.mitigation}`);
+        }
       }
 
-      if (m.tips?.length) {
+      if (m.tips) {
         lines.push("\n## Tips");
-        for (const tip of m.tips) lines.push(`- ${tip}`);
+        lines.push(m.tips as string);
       }
 
-      if (m.clientRefinements) {
+      if (m.clientRefinements?.length) {
         lines.push("\n## Client Refinements");
-        lines.push(m.clientRefinements);
+        for (const cr of m.clientRefinements as Record<string, string>[]) {
+          lines.push(`- **${cr.client}**`);
+          if (cr.refinementText) lines.push(`  ${cr.refinementText}`);
+          if (cr.context) lines.push(`  Context: ${cr.context}`);
+        }
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };

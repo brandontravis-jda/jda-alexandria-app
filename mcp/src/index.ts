@@ -274,6 +274,163 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_list_brand_packages ───────────────────────────────────────
+  server.tool(
+    "alexandria_list_brand_packages",
+    "List all client brand packages available in Alexandria. Use this during Brand Resolution to check whether a brand package exists for a given client before asking the practitioner for a brand guide.",
+    {},
+    async () => {
+      const rows = await sanity.fetch(
+        `*[_type == "clientBrandPackage"] | order(clientName asc) {
+          _id, clientName, "slug": slug.current, extractedDate, sourceDocument, extractedBy, gaps
+        }`,
+        {}
+      );
+
+      if (!rows || rows.length === 0) {
+        return { content: [{ type: "text", text: "No client brand packages found in Alexandria." }] };
+      }
+
+      const text = rows.map((p: Record<string, unknown>) => {
+        const lines = [`• ${p.clientName} [${p.slug}]`];
+        if (p.sourceDocument) lines.push(`  Source: ${p.sourceDocument}`);
+        if (p.extractedDate) lines.push(`  Extracted: ${p.extractedDate}`);
+        if (p.extractedBy) lines.push(`  By: ${p.extractedBy}`);
+        if (p.gaps) lines.push(`  ⚠ Gaps: ${p.gaps}`);
+        return lines.join("\n");
+      }).join("\n\n");
+
+      return { content: [{ type: "text", text }] };
+    }
+  );
+
+  // ── alexandria_get_brand_package ──────────────────────────────────────────
+  server.tool(
+    "alexandria_get_brand_package",
+    "Get the full brand package for a specific client from Alexandria. Returns the complete brand system — colors, typography, voice, messaging, and architecture restrictions — as a structured markdown document. Use this during Brand Resolution when a package exists for the client.",
+    {
+      slug: z.string().describe("The client slug (e.g. 'heartbeat-international'). Use alexandria_list_brand_packages to find the correct slug."),
+    },
+    async ({ slug }) => {
+      const p = await sanity.fetch(
+        `*[_type == "clientBrandPackage" && slug.current == $slug][0] {
+          _id, clientName, "slug": slug.current, abbreviations,
+          extractedDate, sourceDocument, extractedBy, gaps,
+          rawMarkdown,
+          identity, colorPalette, colorUsageRules,
+          typography, voiceAndTone, brandArchitecture,
+          visualDirection, keyMessaging
+        }`,
+        { slug }
+      );
+
+      if (!p) {
+        return {
+          content: [{ type: "text", text: `No brand package found for client slug: ${slug}. Use alexandria_list_brand_packages to see available clients.` }],
+          isError: true,
+        };
+      }
+
+      // If a full markdown file is stored, return it directly — it's the most compact and complete representation
+      if (p.rawMarkdown) {
+        const header = [
+          `# ${p.clientName} — Brand Package`,
+          p.abbreviations ? `**Abbreviations:** ${p.abbreviations}` : null,
+          p.sourceDocument ? `**Source:** ${p.sourceDocument}` : null,
+          p.extractedDate ? `**Extracted:** ${p.extractedDate}` : null,
+          p.gaps ? `\n⚠ **Extraction gaps:** ${p.gaps}` : null,
+          "\n---\n",
+        ].filter(Boolean).join("\n");
+
+        return { content: [{ type: "text", text: header + p.rawMarkdown }] };
+      }
+
+      // Fallback: build from structured fields
+      const lines: string[] = [];
+      lines.push(`# ${p.clientName} — Brand Package`);
+      if (p.abbreviations) lines.push(`**Abbreviations:** ${p.abbreviations}`);
+      if (p.sourceDocument) lines.push(`**Source:** ${p.sourceDocument}`);
+      if (p.extractedDate) lines.push(`**Extracted:** ${p.extractedDate}`);
+      if (p.gaps) lines.push(`\n⚠ **Extraction gaps:** ${p.gaps}`);
+
+      const id = p.identity as Record<string, string> | null;
+      if (id) {
+        lines.push("\n## Identity");
+        if (id.tagline) lines.push(`**Tagline:** ${id.tagline}`);
+        if (id.brandPersonality) lines.push(`**Personality:** ${id.brandPersonality}`);
+        if (id.brandVoice) lines.push(`**Voice:** ${id.brandVoice}`);
+        if (id.brandExperience) lines.push(`**Experience:** ${id.brandExperience}`);
+      }
+
+      if (p.colorPalette?.length) {
+        lines.push("\n## Color Palette");
+        lines.push("| Color | Hex | Role | Notes |");
+        lines.push("|---|---|---|---|");
+        for (const c of p.colorPalette as Record<string, string>[]) {
+          lines.push(`| ${c.colorName} | ${c.hex ?? "—"} | ${c.role ?? "—"} | ${c.usageNotes ?? ""} |`);
+        }
+        if (p.colorUsageRules) lines.push(`\n${p.colorUsageRules}`);
+      }
+
+      const typo = p.typography as Record<string, string> | null;
+      if (typo) {
+        lines.push("\n## Typography");
+        if (typo.headingFont) lines.push(`**Heading:** ${typo.headingFont}`);
+        if (typo.bodyFont) lines.push(`**Body:** ${typo.bodyFont}`);
+        if (typo.accentFont) lines.push(`**Accent/Display:** ${typo.accentFont}`);
+        if (typo.pairingRules) lines.push(`**Pairing:** ${typo.pairingRules}`);
+        if (typo.alignmentRules) lines.push(`**Alignment:** ${typo.alignmentRules}`);
+        if (typo.webFontAvailability) lines.push(`**Web fonts:** ${typo.webFontAvailability}`);
+        if (typo.officeAlternatives) lines.push(`**Office alternatives:** ${typo.officeAlternatives}`);
+      }
+
+      const vt = p.voiceAndTone as Record<string, string> | null;
+      if (vt) {
+        lines.push("\n## Voice and Tone");
+        if (vt.overallVoice) lines.push(`**Voice:** ${vt.overallVoice}`);
+        if (vt.toneByAudience) lines.push(`\n**By audience:**\n${vt.toneByAudience}`);
+        if (vt.toneByContext) lines.push(`\n**By context:**\n${vt.toneByContext}`);
+        if (vt.wordsToUse) lines.push(`\n**Words to use:**\n${vt.wordsToUse}`);
+        if (vt.wordsToAvoid) lines.push(`\n**Words to avoid:**\n${vt.wordsToAvoid}`);
+        if (vt.writingStyleRules) lines.push(`\n**Style rules:**\n${vt.writingStyleRules}`);
+        if (vt.verbalExamples) lines.push(`\n**Examples:**\n${vt.verbalExamples}`);
+        if (vt.underminingTraits) lines.push(`\n**Must NOT sound like:**\n${vt.underminingTraits}`);
+      }
+
+      const ba = p.brandArchitecture as Record<string, string> | null;
+      if (ba) {
+        lines.push("\n## Brand Architecture");
+        if (ba.parentAndSubBrands) lines.push(ba.parentAndSubBrands);
+        if (ba.linkageRules) lines.push(`\n**Linkage:** ${ba.linkageRules}`);
+        if (ba.endorsementRules) lines.push(`\n**Endorsement:** ${ba.endorsementRules}`);
+        if (ba.criticalRestrictions) lines.push(`\n⛔ **Critical restrictions (DO NOT):**\n${ba.criticalRestrictions}`);
+      }
+
+      const vd = p.visualDirection as Record<string, string> | null;
+      if (vd) {
+        lines.push("\n## Visual Direction");
+        if (vd.photographyStyle) lines.push(`**Photography:** ${vd.photographyStyle}`);
+        if (vd.imageryGuidelines) lines.push(`**Imagery:** ${vd.imageryGuidelines}`);
+        if (vd.layoutPrinciples) lines.push(`**Layout:** ${vd.layoutPrinciples}`);
+        if (vd.logoUsageRules) lines.push(`**Logo usage:** ${vd.logoUsageRules}`);
+      }
+
+      const km = p.keyMessaging as Record<string, string> | null;
+      if (km) {
+        lines.push("\n## Key Messaging");
+        if (km.missionStatement) lines.push(`\n> **Mission:** ${km.missionStatement}`);
+        if (km.visionStatement) lines.push(`\n> **Vision:** ${km.visionStatement}`);
+        if (km.valueProposition) lines.push(`\n> **Value proposition:** ${km.valueProposition}`);
+        if (km.elevatorSpeeches) lines.push(`\n**Elevator speeches:**\n${km.elevatorSpeeches}`);
+        if (km.coreValues) lines.push(`\n**Core values:**\n${km.coreValues}`);
+        if (km.keyStatistics) lines.push(`\n**Key statistics:**\n${km.keyStatistics}`);
+        if (km.trademarkedNames) lines.push(`\n**Trademarked names:** ${km.trademarkedNames}`);
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
   // ── alexandria_whoami ─────────────────────────────────────────────────────
   server.tool(
     "alexandria_whoami",

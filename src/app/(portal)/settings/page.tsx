@@ -10,7 +10,8 @@ interface ApiKey {
   last_used_at: string | null;
 }
 
-const MCP_URL = process.env.NEXT_PUBLIC_MCP_URL ?? "https://your-mcp-service.up.railway.app/mcp";
+const RAW_MCP_URL = process.env.NEXT_PUBLIC_MCP_URL ?? "your-mcp-service.up.railway.app/mcp";
+const MCP_URL = RAW_MCP_URL.startsWith("http") ? RAW_MCP_URL : `https://${RAW_MCP_URL}`;
 
 export default function SettingsPage() {
   const [keys, setKeys] = useState<ApiKey[]>([]);
@@ -19,6 +20,13 @@ export default function SettingsPage() {
   const [revealedKey, setRevealedKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  async function copyToClipboard(text: string) {
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
 
   async function loadKeys() {
     const res = await fetch("/api/keys");
@@ -83,7 +91,7 @@ export default function SettingsPage() {
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <code style={{ background: "var(--color-jda-bg)", color: "var(--color-jda-accent)", padding: "6px 12px", borderRadius: 6, fontSize: 13, fontFamily: "monospace", flex: 1 }}>
-              {MCP_URL}?key=YOUR_API_KEY
+              {MCP_URL}?key=YOUR_KEY
             </code>
           </div>
           <p style={{ color: "var(--color-jda-text-muted)", fontSize: 12, marginTop: 10 }}>
@@ -141,12 +149,31 @@ export default function SettingsPage() {
 
           {revealedKey && (
             <div style={{ marginTop: 14, background: "var(--color-jda-bg)", borderRadius: 6, padding: "12px 16px", border: "1px solid var(--color-jda-accent)" }}>
-              <p style={{ color: "var(--color-jda-accent)", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>
+              <p style={{ color: "var(--color-jda-accent)", fontSize: 12, fontWeight: 600, marginBottom: 8 }}>
                 Copy this key now — it will not be shown again.
               </p>
-              <code style={{ color: "var(--color-jda-text)", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all" }}>
-                {revealedKey}
-              </code>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <code style={{ color: "var(--color-jda-text)", fontSize: 13, fontFamily: "monospace", wordBreak: "break-all", flex: 1 }}>
+                  {revealedKey}
+                </code>
+                <button
+                  onClick={() => copyToClipboard(revealedKey)}
+                  style={{
+                    background: copied ? "var(--color-jda-accent)" : "var(--color-jda-surface)",
+                    border: "1px solid var(--color-jda-border)",
+                    borderRadius: 6,
+                    color: copied ? "#fff" : "var(--color-jda-text-muted)",
+                    padding: "5px 12px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {copied ? "Copied!" : "Copy"}
+                </button>
+              </div>
             </div>
           )}
         </div>

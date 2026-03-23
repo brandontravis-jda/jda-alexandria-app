@@ -33,17 +33,20 @@ export async function upsertUser({
   objectId,
   email,
   name,
+  tier,
 }: {
   objectId: string;
   email?: string | null;
   name?: string | null;
+  tier?: string | null;
 }) {
   const [user] = await db`
-    INSERT INTO users (object_id, email, name, last_seen_at)
-    VALUES (${objectId}, ${email ?? null}, ${name ?? null}, NOW())
+    INSERT INTO users (object_id, email, name, tier, last_seen_at)
+    VALUES (${objectId}, ${email ?? null}, ${name ?? null}, ${tier ?? "practitioner"}, NOW())
     ON CONFLICT (object_id) DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
+      tier         = COALESCE(${tier ?? null}, users.tier),
       last_seen_at = NOW()
     RETURNING *
   `;

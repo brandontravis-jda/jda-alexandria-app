@@ -25,6 +25,20 @@ if (!AZURE_TENANT_ID) throw new Error("AZURE_TENANT_ID is not set");
 
 const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "https://mcp-production-3192.up.railway.app";
 
+// ── Azure AD security groups ──────────────────────────────────────────────────
+// Group membership is the source of truth for permission tiers.
+// Checked on every OAuth login — database tier is always overwritten.
+const GROUP_ADMINS  = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Platform administration
+const GROUP_EDITORS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Content editors → practice_leader
+const GROUP_USERS   = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // All practitioners
+
+function tierFromGroups(groups: string[]): "admin" | "practice_leader" | "practitioner" | null {
+  if (groups.includes(GROUP_ADMINS))  return "admin";
+  if (groups.includes(GROUP_EDITORS)) return "practice_leader";
+  if (groups.includes(GROUP_USERS))   return "practitioner";
+  return null; // Not in any authorized group — reject
+}
+
 const SANITY_DATASET = process.env.SANITY_DATASET ?? "production";
 const SANITY_API_VERSION = process.env.SANITY_API_VERSION ?? "2024-01-01";
 const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
@@ -153,6 +167,7 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
   objectId: string;
   email: string;
   name: string;
+  groups: string[];
 } | null> {
   const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
 
@@ -162,7 +177,7 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
     code,
     redirect_uri: `${MCP_BASE_URL}/oauth/callback`,
     grant_type: "authorization_code",
-    scope: "openid profile email User.Read",
+    scope: "openid profile email User.Read GroupMember.Read.All",
   });
 
   const tokenRes = await fetch(tokenUrl, {
@@ -178,12 +193,18 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
 
   const tokens = await tokenRes.json() as { access_token: string };
 
-  const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
-    headers: { Authorization: `Bearer ${tokens.access_token}` },
-  });
+  // Fetch profile and group membership in parallel
+  const [graphRes, groupsRes] = await Promise.all([
+    fetch("https://graph.microsoft.com/v1.0/me", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    }),
+    fetch("https://graph.microsoft.com/v1.0/me/memberOf?$select=id", {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    }),
+  ]);
 
   if (!graphRes.ok) {
-    console.error("Graph API failed:", await graphRes.text());
+    console.error("Graph API /me failed:", await graphRes.text());
     return null;
   }
 
@@ -194,19 +215,33 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
     displayName?: string;
   };
 
+  let groups: string[] = [];
+  if (groupsRes.ok) {
+    const groupsData = await groupsRes.json() as { value: { id: string }[] };
+    groups = groupsData.value.map((g) => g.id);
+  } else {
+    console.warn("Could not fetch group membership:", await groupsRes.text());
+  }
+
   return {
     objectId: profile.id,
     email: profile.mail ?? profile.userPrincipalName ?? "",
     name: profile.displayName ?? "",
+    groups,
   };
 }
 
-async function upsertUser(objectId: string, email: string, name: string): Promise<number> {
+async function upsertUser(objectId: string, email: string, name: string, tier: string): Promise<number> {
+  // Tier is always derived from Azure AD group membership — never from the database.
   const [user] = await sql`
     INSERT INTO users (object_id, email, name, tier, created_at)
-    VALUES (${objectId}, ${email}, ${name}, 'practitioner', NOW())
+    VALUES (${objectId}, ${email}, ${name}, ${tier}, NOW())
     ON CONFLICT (object_id)
-    DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, last_seen_at = NOW()
+    DO UPDATE SET
+      email        = EXCLUDED.email,
+      name         = EXCLUDED.name,
+      tier         = ${tier},
+      last_seen_at = NOW()
     RETURNING id
   `;
   return user.id as number;
@@ -726,7 +761,21 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       return;
     }
 
-    const userId = await upsertUser(profile.objectId, profile.email, profile.name);
+    // Derive tier from Azure AD group membership — reject if not authorized
+    const tier = tierFromGroups(profile.groups);
+    if (!tier) {
+      res.writeHead(403, { "Content-Type": "text/html" });
+      res.end(`
+        <!DOCTYPE html><html><head><title>Alexandria — Access Denied</title></head>
+        <body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:0 24px;text-align:center;">
+          <h1 style="font-size:24px;margin-bottom:8px;">Access Denied</h1>
+          <p style="color:#666;">Your account is not authorized to use Alexandria. Contact your administrator to request access.</p>
+        </body></html>
+      `);
+      return;
+    }
+
+    const userId = await upsertUser(profile.objectId, profile.email, profile.name, tier);
 
     // Issue our own short-lived auth code to Claude
     const ourCode = randomBytes(32).toString("hex");

@@ -130,12 +130,26 @@ async function resolveAuth(req: IncomingMessage): Promise<AuthResult | null> {
 }
 
 // ── OAuth helpers ─────────────────────────────────────────────────────────────
+// Our MCP server acts as the OAuth authorization server for Claude.
+// Claude → our /authorize → Azure AD → our /oauth/callback → Claude's callback → our /token → access token
 
-function getRedirectUri() {
-  return `${MCP_BASE_URL}/oauth/callback`;
-}
+// Temporary store for pending OAuth flows (in-memory; short-lived)
+const pendingFlows = new Map<string, {
+  claudeRedirectUri: string;
+  claudeState: string;
+  codeChallenge: string;
+  codeChallengeMethod: string;
+  expiresAt: number;
+}>();
 
-async function exchangeCodeForToken(code: string): Promise<{
+// Temporary store for auth codes we've issued to Claude (in-memory; short-lived)
+const pendingCodes = new Map<string, {
+  userId: number;
+  codeChallenge: string;
+  expiresAt: number;
+}>();
+
+async function exchangeAzureCodeForProfile(code: string): Promise<{
   objectId: string;
   email: string;
   name: string;
@@ -146,7 +160,7 @@ async function exchangeCodeForToken(code: string): Promise<{
     client_id: AZURE_CLIENT_ID!,
     client_secret: AZURE_CLIENT_SECRET!,
     code,
-    redirect_uri: getRedirectUri(),
+    redirect_uri: `${MCP_BASE_URL}/oauth/callback`,
     grant_type: "authorization_code",
     scope: "openid profile email User.Read",
   });
@@ -158,13 +172,12 @@ async function exchangeCodeForToken(code: string): Promise<{
   });
 
   if (!tokenRes.ok) {
-    console.error("Token exchange failed:", await tokenRes.text());
+    console.error("Azure token exchange failed:", await tokenRes.text());
     return null;
   }
 
   const tokens = await tokenRes.json() as { access_token: string };
 
-  // Fetch user profile from Microsoft Graph
   const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
     headers: { Authorization: `Bearer ${tokens.access_token}` },
   });
@@ -188,8 +201,7 @@ async function exchangeCodeForToken(code: string): Promise<{
   };
 }
 
-async function upsertUserAndCreateSession(objectId: string, email: string, name: string): Promise<string> {
-  // Upsert user record — same pattern as portal auth
+async function upsertUser(objectId: string, email: string, name: string): Promise<number> {
   const [user] = await sql`
     INSERT INTO users (azure_object_id, email, name, tier, created_at)
     VALUES (${objectId}, ${email}, ${name}, 'practitioner', NOW())
@@ -197,14 +209,12 @@ async function upsertUserAndCreateSession(objectId: string, email: string, name:
     DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
     RETURNING id
   `;
+  return user.id as number;
+}
 
-  // Create OAuth session token
+async function createSessionToken(userId: number): Promise<string> {
   const token = randomBytes(32).toString("hex");
-  await sql`
-    INSERT INTO oauth_sessions (token, user_id)
-    VALUES (${token}, ${user.id})
-  `;
-
+  await sql`INSERT INTO oauth_sessions (token, user_id) VALUES (${token}, ${userId})`;
   return token;
 }
 
@@ -620,15 +630,44 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // ── OAuth: Step 1 — redirect to Azure AD ──────────────────────────────────
+  // ── OAuth discovery metadata (Claude reads this to find token endpoint) ────
+  if (pathname === "/.well-known/oauth-authorization-server") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      issuer: MCP_BASE_URL,
+      authorization_endpoint: `${MCP_BASE_URL}/authorize`,
+      token_endpoint: `${MCP_BASE_URL}/token`,
+      response_types_supported: ["code"],
+      grant_types_supported: ["authorization_code"],
+      code_challenge_methods_supported: ["S256"],
+    }));
+    return;
+  }
+
+  // ── OAuth: Step 1 — Claude hits our /authorize ────────────────────────────
+  // We store Claude's params, then redirect to Azure AD
   if (pathname === "/oauth/authorize" || pathname === "/authorize") {
-    const state = randomBytes(16).toString("hex");
+    const claudeRedirectUri = urlObj.searchParams.get("redirect_uri") ?? "";
+    const claudeState = urlObj.searchParams.get("state") ?? "";
+    const codeChallenge = urlObj.searchParams.get("code_challenge") ?? "";
+    const codeChallengeMethod = urlObj.searchParams.get("code_challenge_method") ?? "S256";
+
+    // Store Claude's flow params keyed by a short-lived state we send to Azure
+    const azureState = randomBytes(16).toString("hex");
+    pendingFlows.set(azureState, {
+      claudeRedirectUri,
+      claudeState,
+      codeChallenge,
+      codeChallengeMethod,
+      expiresAt: Date.now() + 10 * 60 * 1000, // 10 minutes
+    });
+
     const params = new URLSearchParams({
       client_id: AZURE_CLIENT_ID!,
       response_type: "code",
-      redirect_uri: getRedirectUri(),
+      redirect_uri: `${MCP_BASE_URL}/oauth/callback`,
       scope: "openid profile email User.Read",
-      state,
+      state: azureState,
       prompt: "select_account",
     });
 
@@ -638,50 +677,102 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  // ── OAuth: Step 2 — exchange code for session token ───────────────────────
+  // ── OAuth: Step 2 — Azure redirects back to us ────────────────────────────
+  // We exchange the Azure code, identify the user, issue our own code to Claude
   if (pathname === "/oauth/callback" || pathname === "/callback") {
     const code = urlObj.searchParams.get("code");
+    const azureState = urlObj.searchParams.get("state") ?? "";
     const error = urlObj.searchParams.get("error");
 
     if (error || !code) {
       res.writeHead(400, { "Content-Type": "text/html" });
-      res.end(`<h1>Authentication failed</h1><p>${error ?? "No code returned"}</p>`);
+      res.end(`<h1>Authentication failed</h1><p>${error ?? "No code returned from Azure"}</p>`);
       return;
     }
 
-    const profile = await exchangeCodeForToken(code);
+    const flow = pendingFlows.get(azureState);
+    if (!flow || flow.expiresAt < Date.now()) {
+      pendingFlows.delete(azureState);
+      res.writeHead(400, { "Content-Type": "text/html" });
+      res.end("<h1>Authentication failed</h1><p>OAuth flow expired or not found. Please try again.</p>");
+      return;
+    }
+    pendingFlows.delete(azureState);
+
+    const profile = await exchangeAzureCodeForProfile(code);
     if (!profile) {
       res.writeHead(500, { "Content-Type": "text/html" });
       res.end("<h1>Authentication failed</h1><p>Could not retrieve user profile from Microsoft.</p>");
       return;
     }
 
-    const sessionToken = await upsertUserAndCreateSession(
-      profile.objectId,
-      profile.email,
-      profile.name
-    );
+    const userId = await upsertUser(profile.objectId, profile.email, profile.name);
 
-    // Return the token to Claude via a success page
-    // Claude's OAuth connector will capture the token from the final redirect or response
-    res.writeHead(200, { "Content-Type": "text/html" });
-    res.end(`
-      <!DOCTYPE html>
-      <html>
-        <head><title>Alexandria — Connected</title></head>
-        <body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:0 24px;text-align:center;">
-          <h1 style="font-size:24px;margin-bottom:8px;">Connected to Alexandria</h1>
-          <p style="color:#666;margin-bottom:24px;">Welcome, ${profile.name}. You can close this window and return to Claude.</p>
-          <p style="font-size:12px;color:#999;">Your session token has been established. Alexandria will recognize you automatically.</p>
-          <script>
-            // Pass token back to Claude's OAuth flow
-            if (window.opener) {
-              window.opener.postMessage({ type: 'oauth_token', token: '${sessionToken}' }, '*');
-            }
-          </script>
-        </body>
-      </html>
-    `);
+    // Issue our own short-lived auth code to Claude
+    const ourCode = randomBytes(32).toString("hex");
+    pendingCodes.set(ourCode, {
+      userId,
+      codeChallenge: flow.codeChallenge,
+      expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
+    });
+
+    // Redirect back to Claude with our code
+    const callbackParams = new URLSearchParams({
+      code: ourCode,
+      state: flow.claudeState,
+    });
+    res.writeHead(302, { Location: `${flow.claudeRedirectUri}?${callbackParams}` });
+    res.end();
+    return;
+  }
+
+  // ── OAuth: Step 3 — Claude exchanges our code for an access token ─────────
+  if (pathname === "/token" || pathname === "/oauth/token") {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const params = new URLSearchParams(body);
+
+    const grantType = params.get("grant_type");
+    const code = params.get("code");
+    const codeVerifier = params.get("code_verifier");
+
+    if (grantType !== "authorization_code" || !code) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_request" }));
+      return;
+    }
+
+    const pending = pendingCodes.get(code);
+    if (!pending || pending.expiresAt < Date.now()) {
+      pendingCodes.delete(code);
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_grant", error_description: "Code expired or not found" }));
+      return;
+    }
+
+    // Verify PKCE code_verifier against stored code_challenge
+    if (codeVerifier && pending.codeChallenge) {
+      const digest = createHash("sha256")
+        .update(codeVerifier)
+        .digest("base64url");
+      if (digest !== pending.codeChallenge) {
+        pendingCodes.delete(code);
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "invalid_grant", error_description: "PKCE verification failed" }));
+        return;
+      }
+    }
+
+    pendingCodes.delete(code);
+
+    const accessToken = await createSessionToken(pending.userId);
+
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({
+      access_token: accessToken,
+      token_type: "bearer",
+      expires_in: 7776000, // 90 days
+    }));
     return;
   }
 

@@ -32,6 +32,11 @@ export async function PATCH(
     return NextResponse.json({ error: "Invalid tier" }, { status: 400 });
   }
 
+  // Prevent admins from demoting themselves (would lock out the last admin)
+  if (userId === admin.id && tier !== undefined && tier !== "admin") {
+    return NextResponse.json({ error: "You cannot change your own tier" }, { status: 403 });
+  }
+
   const [updated] = await db`
     UPDATE users SET
       tier         = COALESCE(${tier ?? null}, tier),

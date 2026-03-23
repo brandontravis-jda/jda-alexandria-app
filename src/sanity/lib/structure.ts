@@ -8,6 +8,10 @@ export const structure: StructureResolver = (S) =>
         .title("Production Methodologies")
         .icon(() => "⚙️")
         .child(S.documentTypeList("productionMethodology").title("Production Methodologies")),
+      S.listItem()
+        .title("Client Brand Packages")
+        .icon(() => "🎨")
+        .child(S.documentTypeList("clientBrandPackage").title("Client Brand Packages")),
       S.divider(),
       S.listItem()
         .title("Practice Areas")

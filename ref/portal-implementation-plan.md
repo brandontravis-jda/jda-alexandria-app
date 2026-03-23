@@ -385,6 +385,52 @@ This is the launchable product.
 
 ---
 
+## Security Model & Known Gaps
+
+### Layers of Protection (as built)
+
+| Layer | What it does | Status |
+|---|---|---|
+| Azure AD tenant restriction | Only accounts in the JDA tenant can authenticate at all | Live — enforced by `issuer` config in Auth.js |
+| Portal auth middleware | Every portal route and API endpoint requires an active Azure AD session | Live — `src/middleware.ts` redirects unauthenticated requests to `/sign-in` |
+| Portal admin-only API routes | `/api/users` requires `tier = admin` in the database, not just a valid session | Live — `requireAdmin()` checks DB tier on every request |
+| Self-tier-change blocked | An admin cannot demote their own tier via the Users API (prevents accidental lockout) | Live |
+| MCP OAuth session tokens | Every MCP request requires a valid bearer token from a completed Azure AD OAuth flow | Live — tokens stored in `oauth_sessions`, validated on every request |
+| MCP permission gating | `systemInstructions`, `visionOfGood`, `tips`, and `checkPrompt` in methodologies are blocked for `practitioner` tier | Live — gate returns placeholder text instead of content |
+| MCP API key fallback | Secondary auth for programmatic access (n8n, Claude Code); not the practitioner path | Live |
+
+### Known Gaps & Outstanding Items
+
+**1. Permission gating not validated with a practitioner account**
+The gate exists in code but has never been tested end-to-end with an actual `practitioner`-tier user. Until confirmed, we don't know for certain that the gate is blocking correctly. To validate: temporarily demote a user to `practitioner` on the Users page, have them ask Claude for a methodology's system instructions, confirm they receive the placeholder — not the full content. Then promote them back.
+
+**2. Azure AD security group not enforced for portal sign-in**
+The implementation plan calls for a security group (e.g. "JDA AI Platform Admins") that restricts who can sign into the portal at all. Currently any JDA Azure AD account can sign in to the portal — the only protection is the `tier = admin` database check on sensitive routes. For a small team this is acceptable now, but before broader rollout: create the security group in Entra ID, add the `groupMembershipClaims` to the app registration, and add a group check in the `jwt` callback to reject sign-ins from accounts outside the group.
+
+**3. Azure AD security group not enforced for MCP OAuth**
+Same gap on the MCP side. Any JDA Azure AD account can complete the OAuth flow and get an MCP session token. They land as `practitioner` tier with read-only access to non-gated content, which is probably acceptable — but the implementation plan calls for a separate "JDA AI Platform Users" group to gate this. Not yet implemented.
+
+**4. MCP session tokens are in-memory only for pending flows**
+The `pendingFlows` and `pendingCodes` maps used during the OAuth handshake are in-memory on the MCP server. A server restart during an active OAuth flow will drop those states and the user will get an error. Given Railway's single-replica deployment this is low risk, but worth noting. Long-term: move pending flow state to PostgreSQL or Redis.
+
+**5. No MCP request rate limiting**
+The MCP server has no rate limiting. A compromised session token or a runaway Claude session could hammer Sanity with requests. Low risk in current scale, but should be added before public rollout.
+
+**6. Sanity Studio is publicly accessible**
+Sanity Studio at `/studio` is part of the portal app and protected by the portal auth middleware. However, anyone who can sign into the portal can access Studio and edit content directly, bypassing MCP permission tiers. This is intentional for now (admins need Studio), but practice leaders should eventually be restricted to their practice's content only.
+
+### Security Testing Checklist (Before Team Rollout)
+
+- [ ] Demote a test user to `practitioner`, confirm system instructions are blocked in Claude
+- [ ] Confirm unauthenticated requests to `/api/users` return 401
+- [ ] Confirm a `practitioner`-tier portal session cannot access `/api/users`
+- [ ] Confirm a practitioner cannot complete the portal sign-in (once Azure AD group is enforced)
+- [ ] Confirm MCP requests with an expired/invalid token return 401
+- [ ] Confirm MCP requests with a valid practitioner token cannot read gated methodology fields
+- [ ] Confirm an admin cannot change their own tier via the Users API
+
+---
+
 ## Open Items
 
 - **Sanity self-hosted on Railway**: Not yet deployed. This is the one new infrastructure component that needs to be proven in Step 1.

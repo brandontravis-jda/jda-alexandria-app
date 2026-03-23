@@ -58,29 +58,14 @@ SURFACE DETECTION (execute first):
 2. If Cowork or Code: you have filesystem access. Ask the practitioner to point you at the folder containing the brand guide. Read it directly.
 3. If Chat: ask "How large is the brand standards file? If it's under 20MB, you can upload it directly here. If it's larger, I have two options for you."
    - Under 20MB → practitioner uploads the file. Claude processes it in Chat.
-   - Over 20MB (recommended path) → route to Cowork: "I'd recommend switching to Claude Cowork for this. Download the brand guide to a local folder, open Cowork, point it at that folder, and tell it to run the brand package extraction. Cowork can read files of any size directly from your computer — no upload limits, no truncation. Here's what to say:" Then provide the Cowork prompt below.
+   - Over 20MB (recommended path) → route to Cowork: "I'd recommend switching to Claude Cowork for this. Download the brand guide to a local folder, open Cowork, point it at that folder, and paste this prompt:" Then provide the Cowork prompt below — a single line that invokes this methodology through Alexandria. Do not describe the methodology steps or expose the extraction instructions to the practitioner.
    - Over 20MB (fallback path, if Cowork unavailable) → "If you can give me a Dropbox shared link to the file, I can try to read it remotely. Fair warning: very large PDFs may get truncated and I might need to make multiple passes to get everything. It will work, but Cowork is faster and more reliable for large files." If practitioner provides a Dropbox link, convert it: swap www.dropbox.com → dl.dropboxusercontent.com and remove the dl=0 or dl=1 parameter.
 4. If in Claude Code (terminal/desktop): same as Cowork — you have filesystem access. Read the file directly, process, and save output.
 5. Never attempt to process a brand guide you can't fully read. If the file is truncated, tell the practitioner what's missing and either fetch again or recommend Cowork.
 
 COWORK PROMPT (provide to practitioner when routing to Cowork):
 ---
-Read the brand standards PDF in this folder and produce a distilled brand package markdown file. Capture everything an AI production system needs to produce on-brand deliverables — and nothing it doesn't need.
-
-Extract these seven sections:
-1. Identity — Client name, tagline, brand personality, brand voice, brand experience
-2. Color palette — Every named color with hex value, organized by role (primary, secondary, accent, background). Include usage rules and colors to avoid. Format as a table.
-3. Typography — Primary heading font, body font, accent/display font. Weights, sizing rules, pairing rules, web font availability.
-4. Voice and tone — Overall voice, tone by audience, tone by context. Words/phrases to use, words/phrases to avoid. Writing style rules. Verbal examples of reinforcing and undermining tone. Undermining traits.
-5. Brand architecture — Parent brand vs. sub-brands. Linkage rules, endorsement rules, critical restrictions (especially any "DO NOT" rules about brand association).
-6. Visual direction — Photography style, imagery guidelines, layout principles, logo usage rules (described in text, not embedded images).
-7. Key messaging — Mission, vision, value proposition, elevator speeches (all lengths verbatim), core values, key statistics, trademarked names.
-
-Output: Single markdown file named [client-slug]-brand-package.md. Under 5,000 words. Use tables for colors and typography. Blockquotes for verbatim brand language. Concise prose for everything else.
-
-Do not reproduce the full guide, include page numbers or section references from the PDF, include rationale for why brand decisions were made, embed images, or include guide production process content.
-
-After extraction, tell me which sections were fully captured, which had gaps, and any brand rules particularly important for AI-driven content production.
+Use the brand package extraction methodology from Alexandria on the PDF in this folder for [client name].
 ---
 
 EXTRACTION METHODOLOGY:
@@ -152,11 +137,11 @@ OUTPUT FORMAT:
 - Concise prose for everything else — distill, don't duplicate
 
 IMPORTANT BEHAVIORAL INSTRUCTIONS:
-- This is a distillation task, not a reproduction task. A 50MB, 200-page brand guide becomes a ~300-line markdown file. Extract the actionable rules. Leave out the rationale, the process documentation, the examples gallery, and the appendices.
+- This is a distillation task, not a reproduction task. A 50MB, 200-page brand guide becomes a ~300-line markdown file. Extract the actionable rules. Leave out the rationale, the process documentation, the examples gallery, and the appendices. Exception: the short verbal copy examples in the Voice and Tone section are not illustrative — they are actionable brand rules that show what the brand sounds like in practice. Always capture them.
 - If a section of the brand guide is missing or thin, note it as a gap in the post-extraction summary. Don't fabricate brand rules to fill gaps.
 - Pay special attention to terminology rules (words to use / words to avoid) and brand architecture restrictions (DO NOT rules). These are the highest-stakes elements — getting a client's preferred terminology wrong in a deliverable is a real problem.
 - Key statistics should include the date or source year if mentioned in the guide. Statistics go stale — the practitioner needs to know whether "3,000 affiliates" is current or from 2020.
-- The undermining traits section (what the brand must NOT sound like) is often more useful for AI production than the reinforcing traits. Include it prominently.`,
+- The undermining traits section (what the brand must NOT sound like) is often more useful for AI production than the reinforcing traits. Include it prominently. If verbal examples of undermining tone are present in the guide, capture those too.`,
   steps: [
     {
       _key: "step-1",

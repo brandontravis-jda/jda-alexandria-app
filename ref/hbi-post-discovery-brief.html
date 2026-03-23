@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Heartbeat International — Post-Discovery Brief | JDA Worldwide</title>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,400;0,600;0,700;1,400&family=Work+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --hbi-warm: #FFF9F4;
+  --hbi-cream: #F5EDE3;
+  --hbi-coral: #E8725C;
+  --hbi-deep: #2C1810;
+  --hbi-mid: #5C3D2E;
+  --hbi-muted: #8A7060;
+  --hbi-gold: #C4963A;
+  --hbi-sage: #5A7A5E;
+  --hbi-border: #D9CDBF;
+  --hbi-light-sage: #EDF3ED;
+  --hbi-light-coral: #FDF0ED;
+  --hbi-light-gold: #FBF5E8;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: var(--hbi-warm);
+  color: var(--hbi-deep);
+  font-family: 'Work Sans', sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  font-weight: 400;
+}
+
+.container { max-width: 900px; margin: 0 auto; padding: 0 32px; }
+
+/* Cover */
+.cover {
+  padding: 80px 0 60px;
+  border-bottom: 3px solid var(--hbi-coral);
+}
+.cover-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--hbi-coral);
+  margin-bottom: 16px;
+}
+.cover h1 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 48px;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--hbi-deep);
+  margin-bottom: 8px;
+}
+.cover h1 em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--hbi-coral);
+}
+.cover-meta {
+  font-size: 13px;
+  color: var(--hbi-muted);
+  margin-top: 20px;
+  line-height: 1.6;
+}
+.cover-meta strong { color: var(--hbi-mid); font-weight: 600; }
+
+/* Sections */
+.section {
+  padding: 48px 0;
+  border-bottom: 1px solid var(--hbi-border);
+}
+.section:last-of-type { border-bottom: none; }
+
+.section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--hbi-coral);
+  margin-bottom: 10px;
+}
+.section h2 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--hbi-deep);
+  margin-bottom: 20px;
+  line-height: 1.25;
+}
+.section h3 {
+  font-family: 'Work Sans', sans-serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--hbi-deep);
+  margin-top: 28px;
+  margin-bottom: 10px;
+}
+.section p { margin-bottom: 14px; }
+
+/* Decision table */
+.decision-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 20px 0;
+  font-size: 14px;
+}
+.decision-table thead th {
+  background: var(--hbi-deep);
+  color: var(--hbi-warm);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 12px 16px;
+  text-align: left;
+}
+.decision-table tbody td {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--hbi-border);
+  vertical-align: top;
+}
+.decision-table tbody tr:nth-child(even) { background: var(--hbi-cream); }
+.decision-table .who { 
+  font-size: 11px; 
+  font-weight: 600; 
+  letter-spacing: 1px; 
+  text-transform: uppercase; 
+  color: var(--hbi-muted); 
+  white-space: nowrap;
+}
+
+/* Audience cards */
+.audience-card {
+  background: white;
+  border: 1px solid var(--hbi-border);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 16px;
+}
+.audience-rank {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 4px;
+  margin-bottom: 12px;
+}
+.rank-1 { background: var(--hbi-light-coral); color: var(--hbi-coral); }
+.rank-2 { background: var(--hbi-light-gold); color: var(--hbi-gold); }
+.rank-3 { background: var(--hbi-light-sage); color: var(--hbi-sage); }
+.audience-card h4 {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.audience-card p { font-size: 14px; margin-bottom: 8px; }
+.audience-label { font-weight: 600; color: var(--hbi-mid); }
+
+/* Architecture */
+.arch-page {
+  background: white;
+  border-left: 4px solid var(--hbi-coral);
+  padding: 16px 20px;
+  margin-bottom: 10px;
+  border-radius: 0 6px 6px 0;
+}
+.arch-page.tentative { border-left-color: var(--hbi-gold); }
+.arch-page .page-name { font-weight: 700; font-size: 15px; color: var(--hbi-deep); }
+.arch-page .page-slug { font-size: 12px; color: var(--hbi-muted); font-family: monospace; }
+.arch-page .page-purpose { font-size: 14px; margin-top: 6px; }
+
+/* Callout */
+.callout {
+  border-left: 4px solid var(--hbi-coral);
+  padding: 16px 24px;
+  margin: 24px 0;
+  background: var(--hbi-light-coral);
+  border-radius: 0 6px 6px 0;
+  font-size: 14px;
+}
+.callout.gold { border-left-color: var(--hbi-gold); background: var(--hbi-light-gold); }
+.callout.sage { border-left-color: var(--hbi-sage); background: var(--hbi-light-sage); }
+.callout strong { color: var(--hbi-deep); }
+
+/* Open questions */
+.open-item {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: 14px;
+}
+.open-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--hbi-coral);
+  margin-top: 7px;
+  flex-shrink: 0;
+}
+.open-dot.gold { background: var(--hbi-gold); }
+
+/* Copy seeds */
+.copy-seed {
+  background: white;
+  border: 1px solid var(--hbi-border);
+  border-radius: 8px;
+  padding: 20px 24px;
+  margin-bottom: 14px;
+}
+.copy-seed .seed-section {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--hbi-coral);
+  margin-bottom: 8px;
+}
+.copy-seed .seed-headline {
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--hbi-deep);
+  margin-bottom: 8px;
+  line-height: 1.3;
+}
+.copy-seed .seed-direction { font-size: 14px; color: var(--hbi-mid); }
+
+/* Footer */
+.footer {
+  padding: 40px 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--hbi-muted);
+  border-top: 1px solid var(--hbi-border);
+}
+</style>
+</head>
+<body>
+
+<div class="container">
+
+<!-- COVER -->
+<div class="cover">
+  <div class="cover-label">Post-Discovery Brief · Session 1</div>
+  <h1>Heartbeat International<br><em>heartbeatinternational.org</em></h1>
+  <div class="cover-meta">
+    <strong>Discovery date:</strong> March 16, 2026<br>
+    <strong>JDA team:</strong> Kristi Neville (Brand), Joe Parker (Dev/Digital), Ben (Dev), Austin (Dev)<br>
+    <strong>HBI team:</strong> Andrea Trudden, Dawn Lunsford<br>
+    <strong>Scope:</strong> heartbeatinternational.org only — heartbeatservices.org is a separate discovery (March 30)<br>
+    <strong>Status:</strong> Session 1 of 2. This document captures confirmed decisions and flags open items for Session 2.
+  </div>
+</div>
+
+<!-- SECTION 1: DECISION LOG -->
+<div class="section">
+  <div class="section-label">Section 1</div>
+  <h2>Decision Log</h2>
+  <p>Every material decision confirmed in the March 16 discovery session, with the design and content implication of each.</p>
+
+  <table class="decision-table">
+    <thead>
+      <tr>
+        <th>Decision</th>
+        <th>Who</th>
+        <th>Design / Content Implication</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Joomla is gone. Complete rebuild from the ground up — no migration, no legacy preservation.</td>
+        <td class="who">HBI + JDA</td>
+        <td>Greenfield build. No constraints from existing templates, URL structures, or CMS patterns. Freedom to design the optimal architecture.</td>
+      </tr>
+      <tr>
+        <td>CiviCRM is being replaced by HubSpot. Therese is leading the HubSpot implementation.</td>
+        <td class="who">HBI</td>
+        <td>All database-driven features (Worldwide Directory, donor tracking, conversion tracking) will be powered by HubSpot. Directory search rebuilt on HubSpot data. Donation conversion tracking wired through HubSpot + Virtuous.</td>
+      </tr>
+      <tr>
+        <td>heartbeatinternational.org and heartbeatservices.org will be fully separated — two distinct websites, not two templates on one Joomla instance.</td>
+        <td class="who">HBI + JDA</td>
+        <td>Complete infrastructure decoupling. Eliminates the cascade failure where one site takes down both. Each site serves its own audience with its own architecture.</td>
+      </tr>
+      <tr>
+        <td>Moodle (Heartbeat Academy) stays. It's working and they're happy with it.</td>
+        <td class="who">HBI</td>
+        <td>Academy is out of scope for the rebuild. Bridge connection from the new site to Moodle needs to be maintained (user authentication handoff).</td>
+      </tr>
+      <tr>
+        <td>The primary audience for heartbeatinternational.org is donors — current and prospective. Growing the donor base is the primary goal.</td>
+        <td class="who">HBI</td>
+        <td>Every architectural and content decision prioritizes the donor journey. When design conflicts arise between audiences, donors win.</td>
+      </tr>
+      <tr>
+        <td>Content can be drastically simplified. 10,182 pages exist across both sites combined. HBI is open to aggressive consolidation.</td>
+        <td class="who">HBI</td>
+        <td>Content audit will evaluate by recency (5+ years untouched = archive candidate) and engagement (below page view threshold = archive candidate). Heartbeat International side is more static; most content volume is on the Services side.</td>
+      </tr>
+      <tr>
+        <td>Brand guidelines are active and consistently used. The JDA brand book from ~2020 is still the reference — Andrea keeps it on her desk.</td>
+        <td class="who">HBI</td>
+        <td>The brand system is locked. Design builds on the existing brand guide. No brand discovery needed — this is a web execution project, not a rebrand.</td>
+      </tr>
+      <tr>
+        <td>Donation is embedded via Virtuous on-site. HBI controls the donation pages.</td>
+        <td class="who">HBI</td>
+        <td>Virtuous embed remains the donation mechanism. Design the donation experience as a seamless on-site flow, not an off-site redirect. Conversion tracking must trace the full donor journey from landing through completion.</td>
+      </tr>
+      <tr>
+        <td>HBI is open to JDA's recommendations on site architecture, content strategy, and donor journey design.</td>
+        <td class="who">HBI</td>
+        <td>JDA has latitude to propose bold structural changes, not just a visual refresh. The architecture should be driven by donor conversion strategy, not by mapping the existing site structure.</td>
+      </tr>
+      <tr>
+        <td>Option Line and APRN (Abortion Pill Rescue Network) are the two most compelling donor-conversion content areas. Lawsuits are a third driver.</td>
+        <td class="who">HBI</td>
+        <td>These three content areas need prominent placement and clear pathways to donation. Each tells a different part of the story: direct life-saving (Option Line), second-chance rescue (APRN), and defending the movement (lawsuits).</td>
+      </tr>
+      <tr>
+        <td>The relationship between HBI and Option Line / APRN requires careful handling. Donors are motivated by these programs, but public-facing visibility must not create a traceable connection that could harm women seeking help.</td>
+        <td class="who">HBI + JDA</td>
+        <td>This is the most sensitive architectural decision. The donor journey uses Option Line and APRN stories to motivate giving. But the public-facing site cannot make the connection between "I called this helpline" and "Heartbeat International runs it" feel surveilled or exposed. Different messaging strategy for donor communications (direct ownership) vs. website (careful framing).</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- SECTION 2: AUDIENCE HIERARCHY -->
+<div class="section">
+  <div class="section-label">Section 2</div>
+  <h2>Audience Hierarchy</h2>
+  <p>Ranked by priority. When design or content decisions conflict between audiences, the higher-ranked audience wins.</p>
+
+  <div class="audience-card">
+    <div class="audience-rank rank-1">Priority 1</div>
+    <h4>Donors — Current and Prospective</h4>
+    <p><span class="audience-label">Who they are:</span> Individuals motivated by the pro-life mission, activated by stories of lives saved, injustice (lawsuits, attacks on pregnancy centers), and tangible impact (APRN, Option Line). Arrive via email campaigns, direct mail, Google searches related to lawsuits or news, and referrals.</p>
+    <p><span class="audience-label">Job-to-be-done:</span> Understand what Heartbeat does and feel confident their donation creates direct, measurable impact. Move from awareness to conviction to giving.</p>
+    <p><span class="audience-label">What they need to feel:</span> "This organization is doing something real. My money goes directly to saving lives. I can see the proof."</p>
+    <p><span class="audience-label">Desired action:</span> Donate. Secondary: subscribe to nurture list if not ready to give yet.</p>
+  </div>
+
+  <div class="audience-card">
+    <div class="audience-rank rank-2">Priority 2</div>
+    <h4>General Public — Mission Learners</h4>
+    <p><span class="audience-label">Who they are:</span> People who've heard about Heartbeat through news, a friend, a church, or a search query. Curious but not yet committed. May or may not have a personal connection to the pregnancy help movement.</p>
+    <p><span class="audience-label">Job-to-be-done:</span> Understand what Heartbeat International is, what pregnancy help means, and how the organization operates — credibly and clearly.</p>
+    <p><span class="audience-label">What they need to feel:</span> "This is a trustworthy, compassionate, and effective organization. I understand what they do and I respect it."</p>
+    <p><span class="audience-label">Desired action:</span> Subscribe to learn more (soft conversion to nurture list). Secondary: find a local pregnancy help center (directory).</p>
+  </div>
+
+  <div class="audience-card">
+    <div class="audience-rank rank-3">Priority 3</div>
+    <h4>Pastors and Church Leaders</h4>
+    <p><span class="audience-label">Who they are:</span> Church leaders exploring how to connect their congregation to the pregnancy help mission. May be looking for resources, partnership opportunities, or ways to support local centers.</p>
+    <p><span class="audience-label">Job-to-be-done:</span> Find specific resources for integrating pregnancy help into their church's ministry. Understand how Heartbeat can equip them.</p>
+    <p><span class="audience-label">What they need to feel:</span> "This organization will help me lead my church toward meaningful action, not just awareness."</p>
+    <p><span class="audience-label">Desired action:</span> Engage with pastor-specific resources. Secondary: connect with Heartbeat for partnership.</p>
+  </div>
+
+  <div class="callout gold">
+    <strong>Audience not served by this site:</strong> Network affiliates (pregnancy centers, maternity homes, adoption agencies). They belong on heartbeatservices.org. Currently, some affiliates land on the international site by accident. The new architecture must include clear redirection for affiliates who arrive at the wrong site.
+  </div>
+</div>
+
+<!-- SECTION 3: SITE ARCHITECTURE -->
+<div class="section">
+  <div class="section-label">Section 3</div>
+  <h2>Confirmed Site Architecture</h2>
+  <p>Based on discovery. Pages marked <strong style="color: var(--hbi-gold);">tentative</strong> require further validation in Session 2 or through content audit.</p>
+
+  <div class="arch-page">
+    <div class="page-name">Homepage</div>
+    <div class="page-slug">/</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Communicate who Heartbeat is and what they do in seconds. Create an emotional response that drives action. Primary conversion: donate. Secondary: subscribe. Must feature Option Line and APRN impact prominently. Hero content should rotate between current campaign priorities (lawsuits, milestones, stories).</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">About Heartbeat</div>
+    <div class="page-slug">/about</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Organizational credibility. Mission, vision, leadership, history (founded 1971 — the first pregnancy help network in the U.S.). Financial transparency (legally required). This is the "can I trust these people" page for prospective donors doing diligence.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Our Programs — Option Line</div>
+    <div class="page-slug">/option-line</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Tell the Option Line story — 24/7 helpline, 2M+ connections in 2025, bilingual, real stories. This is a primary donor motivator. Design for emotional impact + tangible metrics. Clear CTA to donate to Option Line specifically.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Our Programs — Abortion Pill Rescue Network</div>
+    <div class="page-slug">/aprn</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Tell the APRN story — 8,000+ lives saved, 1,500+ healthcare professionals worldwide, the urgency of the second-chance window. Another primary donor motivator. Design for "David vs. Goliath" emotional resonance. Clear CTA to donate to APRN.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Our Programs — Overview</div>
+    <div class="page-slug">/our-work</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Consolidated view of all programs (Option Line, APRN, training/equipping, worldwide network). Andrea noted current program pages could be consolidated — this is the single entry point that branches to detail pages. Shows the integrated system of how programs work together.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Stories of Life Saved</div>
+    <div class="page-slug">/stories</div>
+    <div class="page-purpose"><strong>Purpose:</strong> The emotional engine. Real stories from mothers whose lives were changed. These are pulled into donor campaigns, social media, and email — the site is the canonical home. Design as an immersive, scroll-driven storytelling experience, not a blog list.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">What is a Pregnancy Center?</div>
+    <div class="page-slug">/pregnancy-centers</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Educational — explains pregnancy help for people who don't know. Important because Heartbeat's scope includes adoption agencies and maternity homes, not just pregnancy centers. This page does SEO/AI-search-engine duty as an authoritative answer to "what is a pregnancy center."</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Worldwide Directory</div>
+    <div class="page-slug">/directory</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Find a local pregnancy help organization. Powered by HubSpot (replacing CiviCRM). Must be dramatically better than the current search: location-aware, fast, visual, filtering by service type. Modeled on the Option Line search UX if possible. Current search is the #1 usability complaint.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Give</div>
+    <div class="page-slug">/give</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Primary conversion page. Virtuous embed. Must support giving to specific programs (Option Line, APRN, general fund). Full donor journey tracking from entry through completion. Soft conversion alternative: subscribe if not ready to give. Design this as the destination every other page points toward.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Defending the Movement (Lawsuits)</div>
+    <div class="page-slug">/defending-life</div>
+    <div class="page-purpose"><strong>Purpose:</strong> The "David vs. Goliath" content. California and New York AG lawsuits, vandalism against pregnancy centers, attacks on the movement. This activates donors who are motivated by injustice. Press releases and legal updates live here. CTA: donate to the legal defense.</div>
+  </div>
+
+  <div class="arch-page tentative">
+    <div class="page-name">For Pastors and Churches</div>
+    <div class="page-slug">/pastors</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Dedicated landing page for church leaders. Different messaging, different equipping resources, different CTA than the general public. Andrea confirmed this audience gets a specific page — it speaks to them differently. <strong style="color: var(--hbi-gold);">Tentative:</strong> Content and resources to be defined.</div>
+  </div>
+
+  <div class="arch-page tentative">
+    <div class="page-name">Newsroom</div>
+    <div class="page-slug">/news</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Press releases, media resources, organizational announcements. Serves media, political/governmental stakeholders, and general public looking for credibility signals. <strong style="color: var(--hbi-gold);">Tentative:</strong> Scope depends on how much media content migrates vs. archives.</div>
+  </div>
+
+  <div class="arch-page">
+    <div class="page-name">Contact</div>
+    <div class="page-slug">/contact</div>
+    <div class="page-purpose"><strong>Purpose:</strong> Simple contact pathway. Must include clear routing: "If you need immediate pregnancy help, go to Option Line. If you're a pregnancy center, go to Heartbeat Services." This is where misrouted affiliates get redirected.</div>
+  </div>
+
+  <div class="callout sage">
+    <strong>Architecture note:</strong> Joe identified 10,182 pages across both sites combined. The architecture above represents approximately 12-15 pages for heartbeatinternational.org. The content audit (see Open Items) will determine which existing content maps to these pages, which gets consolidated, and which gets archived. The 5-year-untouched + low-page-view threshold that Andrea proposed is the starting heuristic.
+  </div>
+</div>
+
+<!-- SECTION 4: CONTENT STRATEGY -->
+<div class="section">
+  <div class="section-label">Section 4</div>
+  <h2>Content Strategy</h2>
+
+  <h3>Content That Must Exist at Launch</h3>
+  <p>Organizational overview and mission. Program pages (Option Line, APRN, equipping the movement). Stories of Life Saved (migrate existing stories — these are actively used across channels). Worldwide Directory (rebuilt on HubSpot). Financial transparency / annual report data (legally required). Donation flow (Virtuous embed). Lawsuit / defending the movement content.</p>
+
+  <h3>Content That Can Phase In Post-Launch</h3>
+  <p>Pastor/church resources (page exists at launch, content depth grows over time). Expanded newsroom. Downloadable resources for donor acquisition (inbound marketing documents Andrea mentioned — "give us your email and download this"). Blog or thought leadership content (if deemed valuable after AI search strategy assessment).</p>
+
+  <h3>Content Sources</h3>
+  <p>HBI provides: stories, program descriptions, financial data, legal updates, brand-approved photography and video. JDA creates: site copy (grounded in brand guide), page architecture, UX writing, conversion-optimized donor journey copy. Repurposed: annual report and case study content (Andrea is sending these — they "drive the messaging" and illustrate the integrated program system).</p>
+
+  <h3>AI Search and Schema Strategy</h3>
+  <p>Joe flagged this in the session: AI search is reducing website traffic across all clients because answers appear in summaries. The new site must be architected for schema markup so Heartbeat's content surfaces as authoritative answers — not just as a link in results. With 10,000+ pages currently, crawlers only index a fraction. The dramatically reduced page count (12-15 pages) means every page gets fully indexed and every piece of content earns its place in search results.</p>
+</div>
+
+<!-- SECTION 5: TECHNICAL REQUIREMENTS -->
+<div class="section">
+  <div class="section-label">Section 5</div>
+  <h2>Technical Requirements</h2>
+
+  <h3>Platform</h3>
+  <p>Complete departure from Joomla. New CMS — specific platform recommendation to come from JDA development team. Must support: preview before publish (currently impossible on Joomla — a stated pain point), role-based editorial workflow, HubSpot integration, Virtuous donation embed, and Moodle authentication bridge for Academy.</p>
+
+  <h3>Security</h3>
+  <p>The current site is under active bot attack — 150,000 attempts in 15 minutes during a call with IT. The Joomla framework is too outdated for modern security features. The new platform must have built-in bot protection, DDoS mitigation, and security features that don't require Cloudflare workarounds. Separating the two sites eliminates the cascade failure pattern where an attack on one site takes down both.</p>
+
+  <h3>Integrations</h3>
+  <p><strong>HubSpot:</strong> Replacing CiviCRM. Powers the Worldwide Directory search, contact management, and conversion tracking. Therese is leading the implementation.<br>
+  <strong>Virtuous:</strong> Donation processing. Embedded on-site. Donor journey tracking from landing page through donation completion.<br>
+  <strong>Moodle:</strong> Heartbeat Academy. Stays as-is. Bridge connection for user authentication must be maintained.<br>
+  <strong>Campaign Monitor:</strong> Current email nurture list tool. Subscribe forms on the new site feed into Campaign Monitor.</p>
+
+  <h3>Analytics and Measurement</h3>
+  <p>JDA is building a measurement plan that tracks: primary conversions (donations), pre-conversion actions (subscribe, time on key pages, pages per session), and engagement signals that indicate a visitor is likely to convert. The current analytics are compromised by bot traffic — accurate measurement requires the new platform's security layer to be in place first. Andrea specifically requested the ability to follow a donor's full journey: "This is exactly where they went. This is how they got to this page."</p>
+</div>
+
+<!-- SECTION 6: COPY SEEDS -->
+<div class="section">
+  <div class="section-label">Section 6</div>
+  <h2>Copy Seeds</h2>
+  <p>Directional copy for major sections. Grounded in the brand guide and discovery. Specific enough for a copywriter to react to — not final, not lorem ipsum.</p>
+
+  <div class="copy-seed">
+    <div class="seed-section">Homepage Hero</div>
+    <div class="seed-headline">Every life reached is a life changed.</div>
+    <div class="seed-direction">Tone: warm authority. Not pleading — confident. Heartbeat has been doing this since 1971. Over 4,000 affiliates. 2 million connections through Option Line in 2025 alone. Lead with scale and impact, not with ask. The donation CTA earns its place by proving the mission first.</div>
+  </div>
+
+  <div class="copy-seed">
+    <div class="seed-section">Option Line</div>
+    <div class="seed-headline">2,000 calls a day. Every one of them matters.</div>
+    <div class="seed-direction">Tone: urgency with warmth. The 24/7 reality — someone is answering the phone right now. Bilingual. Personal. The numbers are staggering (2M+ connections) but each one is a real person. Balance the statistical scale with individual story intimacy. This is where "your donation does something right now" becomes tangible.</div>
+  </div>
+
+  <div class="copy-seed">
+    <div class="seed-section">APRN</div>
+    <div class="seed-headline">8,000 second chances. And counting.</div>
+    <div class="seed-direction">Tone: hope against the clock. Time is of the essence — this is a rescue network. 1,500+ healthcare professionals ready. The emotional hook is the mother who changed her mind and got a second chance. The donor hook is that every dollar directly enables that rescue.</div>
+  </div>
+
+  <div class="copy-seed">
+    <div class="seed-section">Defending the Movement</div>
+    <div class="seed-headline">They came for pregnancy centers. We stood up.</div>
+    <div class="seed-direction">Tone: resolute, not defensive. The California and New York AG lawsuits. The vandalism in 2022. This is the David vs. Goliath content that activates justice-motivated donors. Frame Heartbeat as the organization that represents and defends the entire movement — not a victim, but a protector.</div>
+  </div>
+
+  <div class="copy-seed">
+    <div class="seed-section">Donate CTA</div>
+    <div class="seed-headline">Your gift saves lives today. Not someday. Today.</div>
+    <div class="seed-direction">Tone: direct, concrete. No abstract "support our mission." Every donation connects to a specific, immediate impact: an Option Line call answered, an abortion pill reversal completed, a pregnancy center equipped. The word "today" is intentional — it mirrors the 24/7 reality of what Heartbeat does.</div>
+  </div>
+</div>
+
+<!-- SECTION 7: OPEN QUESTIONS -->
+<div class="section">
+  <div class="section-label">Section 7</div>
+  <h2>Open Questions</h2>
+  <p>These must be resolved before design begins. Many will be addressed in Session 2 (March 30) or through the content audit.</p>
+
+  <h3>Architecture and Content</h3>
+  <div class="open-item">
+    <div class="open-dot"></div>
+    <div><strong>Option Line / APRN messaging on the public site.</strong> Kristi raised the tension: donors are motivated by Option Line and APRN, but public visibility of Heartbeat's connection to these services must not create a traceable path that harms women seeking help. Where exactly is the line on the website? How does this differ from donor email campaigns where direct ownership messaging is used? This needs a dedicated conversation with Kristi's brand architecture perspective.</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot"></div>
+    <div><strong>Worldwide Directory — HubSpot implementation.</strong> The directory is being rebuilt on HubSpot data. What does the search UX look like? What fields are available? Does HubSpot provide a directory widget, or does JDA build a custom search interface? Therese needs to be in this conversation.</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot"></div>
+    <div><strong>Content audit — specific content inventory.</strong> 10,182 pages exist across both sites. The 5-year / page view threshold is the starting heuristic. JDA needs to run the audit and present findings: what stays, what consolidates, what archives. This is prerequisite for finalizing page-level content requirements.</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot gold"></div>
+    <div><strong>Annual report and case study documents.</strong> Andrea is sending these post-meeting. They "drive the messaging" and illustrate the integrated program system. These may reshape how program pages are structured and how the donor story is told. Need to review before finalizing architecture.</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot gold"></div>
+    <div><strong>Moodle authentication bridge.</strong> The Academy stays on Moodle. How does user authentication flow between the new site and Moodle? Is this a simple SSO bridge, or does it require deeper integration? Technical discovery needed with IT.</div>
+  </div>
+
+  <h3>Technical</h3>
+  <div class="open-item">
+    <div class="open-dot"></div>
+    <div><strong>CMS platform recommendation.</strong> JDA development team to recommend the platform. Must support preview, editorial workflow, HubSpot integration, Virtuous embed, Moodle bridge. Recommendation needed before build begins.</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot"></div>
+    <div><strong>Affiliate redirect handling.</strong> Affiliates currently land on heartbeatinternational.org by accident. What does the redirect experience look like on the new site? Banner? Interstitial? Automatic detection?</div>
+  </div>
+  <div class="open-item">
+    <div class="open-dot gold"></div>
+    <div><strong>Bot attack mitigation strategy.</strong> The new platform should resolve much of this, but a specific security plan needs documentation. Current attacks are 150K+ attempts in 15 minutes. Is this targeting due to the organization's political visibility, or opportunistic exploitation of Joomla's vulnerabilities? The answer informs the security posture.</div>
+  </div>
+</div>
+
+<!-- SECTION 8: NEXT STEPS -->
+<div class="section">
+  <div class="section-label">Section 8</div>
+  <h2>Next Steps</h2>
+
+  <table class="decision-table">
+    <thead>
+      <tr>
+        <th>Action</th>
+        <th>Owner</th>
+        <th>Timing</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Andrea sends annual report + case study documents</td>
+        <td class="who">HBI (Andrea)</td>
+        <td>This week</td>
+      </tr>
+      <tr>
+        <td>JDA reviews documents and integrates into brief</td>
+        <td class="who">JDA</td>
+        <td>Before Session 2</td>
+      </tr>
+      <tr>
+        <td>JDA runs content audit on existing site (page inventory, traffic, recency)</td>
+        <td class="who">JDA (Joe / Dev)</td>
+        <td>Before Session 2</td>
+      </tr>
+      <tr>
+        <td>Discovery Session 2 — heartbeatservices.org</td>
+        <td class="who">JDA + HBI</td>
+        <td>March 30, 2026</td>
+      </tr>
+      <tr>
+        <td>Option Line / APRN messaging strategy conversation (Kristi + HBI)</td>
+        <td class="who">JDA (Kristi) + HBI</td>
+        <td>Before or during Session 2</td>
+      </tr>
+      <tr>
+        <td>CMS platform recommendation from JDA development team</td>
+        <td class="who">JDA (Dev)</td>
+        <td>Post Session 2</td>
+      </tr>
+      <tr>
+        <td>JDA measurement plan — conversion tracking framework for the new site</td>
+        <td class="who">JDA (Joe)</td>
+        <td>Parallel to design</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- FOOTER -->
+<div class="footer">
+  JDA Worldwide · Heartbeat International Post-Discovery Brief · Session 1 · March 2026 · Confidential
+</div>
+
+</div>
+</body>
+</html>

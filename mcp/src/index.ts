@@ -203,10 +203,10 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
 
 async function upsertUser(objectId: string, email: string, name: string): Promise<number> {
   const [user] = await sql`
-    INSERT INTO users (azure_object_id, email, name, tier, created_at)
+    INSERT INTO users (object_id, email, name, tier, created_at)
     VALUES (${objectId}, ${email}, ${name}, 'practitioner', NOW())
-    ON CONFLICT (azure_object_id)
-    DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
+    ON CONFLICT (object_id)
+    DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name, last_seen_at = NOW()
     RETURNING id
   `;
   return user.id as number;

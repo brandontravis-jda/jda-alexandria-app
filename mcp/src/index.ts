@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { createClient } from "@sanity/client";
-import { createHash } from "crypto";
+import { createHash, randomBytes } from "crypto";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import postgres from "postgres";
 import { z } from "zod";
@@ -14,6 +14,17 @@ if (!DATABASE_URL) throw new Error("DATABASE_URL is not set");
 const SANITY_PROJECT_ID = process.env.SANITY_PROJECT_ID;
 if (!SANITY_PROJECT_ID) throw new Error("SANITY_PROJECT_ID is not set");
 
+const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
+if (!AZURE_CLIENT_ID) throw new Error("AZURE_CLIENT_ID is not set");
+
+const AZURE_CLIENT_SECRET = process.env.AZURE_CLIENT_SECRET;
+if (!AZURE_CLIENT_SECRET) throw new Error("AZURE_CLIENT_SECRET is not set");
+
+const AZURE_TENANT_ID = process.env.AZURE_TENANT_ID;
+if (!AZURE_TENANT_ID) throw new Error("AZURE_TENANT_ID is not set");
+
+const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "https://mcp-production-3192.up.railway.app";
+
 const SANITY_DATASET = process.env.SANITY_DATASET ?? "production";
 const SANITY_API_VERSION = process.env.SANITY_API_VERSION ?? "2024-01-01";
 const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
@@ -22,6 +33,24 @@ const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
 
 const isLocal = DATABASE_URL.includes("localhost") || DATABASE_URL.includes("127.0.0.1");
 const sql = postgres(DATABASE_URL, { ssl: isLocal ? false : "require" });
+
+// ── Migrations ────────────────────────────────────────────────────────────────
+
+async function migrate() {
+  await sql`
+    CREATE TABLE IF NOT EXISTS oauth_sessions (
+      id          SERIAL PRIMARY KEY,
+      token       TEXT NOT NULL UNIQUE,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days',
+      last_used_at TIMESTAMPTZ
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS oauth_sessions_token_idx ON oauth_sessions(token)`;
+}
+
+migrate().catch((err) => console.error("Migration error:", err));
 
 // ── Sanity ────────────────────────────────────────────────────────────────────
 
@@ -62,14 +91,133 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
   };
 }
 
+async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
+  const [row] = await sql`
+    SELECT s.id AS session_id, u.id AS user_id, u.tier, u.practice
+    FROM oauth_sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token = ${token}
+      AND s.expires_at > NOW()
+  `;
+  if (!row) return null;
+
+  await sql`UPDATE oauth_sessions SET last_used_at = NOW() WHERE id = ${row.session_id}`;
+
+  return {
+    userId: row.user_id as number,
+    tier: row.tier as PermissionTier,
+    practice: row.practice as string | null,
+  };
+}
+
+async function resolveAuth(req: IncomingMessage): Promise<AuthResult | null> {
+  const authHeader = req.headers["authorization"] ?? "";
+  const urlObj = new URL(req.url!, `http://localhost`);
+
+  if (authHeader.startsWith("Bearer ")) {
+    const token = authHeader.slice(7).trim();
+    // Try OAuth session token first, fall back to API key
+    const oauthResult = await resolveOAuthSession(token);
+    if (oauthResult) return oauthResult;
+    return resolveApiKey(token);
+  }
+
+  // Legacy: ?key= query param (API key fallback)
+  const key = urlObj.searchParams.get("key") ?? "";
+  if (key) return resolveApiKey(key);
+
+  return null;
+}
+
+// ── OAuth helpers ─────────────────────────────────────────────────────────────
+
+function getRedirectUri() {
+  return `${MCP_BASE_URL}/oauth/callback`;
+}
+
+async function exchangeCodeForToken(code: string): Promise<{
+  objectId: string;
+  email: string;
+  name: string;
+} | null> {
+  const tokenUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token`;
+
+  const body = new URLSearchParams({
+    client_id: AZURE_CLIENT_ID!,
+    client_secret: AZURE_CLIENT_SECRET!,
+    code,
+    redirect_uri: getRedirectUri(),
+    grant_type: "authorization_code",
+    scope: "openid profile email User.Read",
+  });
+
+  const tokenRes = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+
+  if (!tokenRes.ok) {
+    console.error("Token exchange failed:", await tokenRes.text());
+    return null;
+  }
+
+  const tokens = await tokenRes.json() as { access_token: string };
+
+  // Fetch user profile from Microsoft Graph
+  const graphRes = await fetch("https://graph.microsoft.com/v1.0/me", {
+    headers: { Authorization: `Bearer ${tokens.access_token}` },
+  });
+
+  if (!graphRes.ok) {
+    console.error("Graph API failed:", await graphRes.text());
+    return null;
+  }
+
+  const profile = await graphRes.json() as {
+    id: string;
+    mail?: string;
+    userPrincipalName?: string;
+    displayName?: string;
+  };
+
+  return {
+    objectId: profile.id,
+    email: profile.mail ?? profile.userPrincipalName ?? "",
+    name: profile.displayName ?? "",
+  };
+}
+
+async function upsertUserAndCreateSession(objectId: string, email: string, name: string): Promise<string> {
+  // Upsert user record — same pattern as portal auth
+  const [user] = await sql`
+    INSERT INTO users (azure_object_id, email, name, tier, created_at)
+    VALUES (${objectId}, ${email}, ${name}, 'practitioner', NOW())
+    ON CONFLICT (azure_object_id)
+    DO UPDATE SET email = EXCLUDED.email, name = EXCLUDED.name
+    RETURNING id
+  `;
+
+  // Create OAuth session token
+  const token = randomBytes(32).toString("hex");
+  await sql`
+    INSERT INTO oauth_sessions (token, user_id)
+    VALUES (${token}, ${user.id})
+  `;
+
+  return token;
+}
+
 // ── Server factory ────────────────────────────────────────────────────────────
 // One McpServer per request, scoped to the authenticated user's tier.
 
 function buildServer(auth: AuthResult): McpServer {
   const server = new McpServer({
     name: "alexandria",
-    version: "0.1.0",
+    version: "0.2.0",
   });
+
+  const isPrivileged = auth.tier === "practice_leader" || auth.tier === "admin";
 
   // ── alexandria_list_methodologies ─────────────────────────────────────────
   server.tool(
@@ -113,9 +261,9 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_methodology ─────────────────────────────────────────────
   server.tool(
     "alexandria_get_methodology",
-    "Get the full production methodology for a specific deliverable type. Returns complete instructions, steps, quality checks, and required inputs. This is the core IP — use this when a practitioner needs to produce a specific deliverable.",
+    "Get the production methodology for a specific deliverable type. Returns instructions, steps, quality checks, and required inputs. Use this when a practitioner needs to produce a specific deliverable.",
     {
-      slug: z.string().describe("The methodology slug (e.g. 'brand-voice-guide', 'executive-byline')"),
+      slug: z.string().describe("The methodology slug (e.g. 'post-discovery-brief', 'brand-package-extraction')"),
     },
     async ({ slug }) => {
       const query = `*[_type == "productionMethodology" && slug.current == $slug][0] {
@@ -150,9 +298,15 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
+      // systemInstructions — privileged only
       if (m.systemInstructions) {
-        lines.push("\n## System Instructions");
-        lines.push(m.systemInstructions);
+        if (isPrivileged) {
+          lines.push("\n## System Instructions");
+          lines.push(m.systemInstructions);
+        } else {
+          lines.push("\n## System Instructions");
+          lines.push("_System instructions are available to practice leaders and administrators only. To execute this methodology, ask Alexandria to run it for you — Claude will apply the full methodology without exposing the instructions directly._");
+        }
       }
 
       if (m.steps?.length) {
@@ -178,11 +332,12 @@ function buildServer(auth: AuthResult): McpServer {
         for (const qc of m.qualityChecks as Record<string, string>[]) {
           lines.push(`- **${qc.name}**`);
           if (qc.description) lines.push(`  ${qc.description}`);
-          if (qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
+          // checkPrompt is internal — privileged only
+          if (isPrivileged && qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
         }
       }
 
-      if (m.visionOfGood) {
+      if (m.visionOfGood && isPrivileged) {
         lines.push("\n## Vision of Good");
         lines.push(m.visionOfGood);
       }
@@ -196,7 +351,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      if (m.tips) {
+      if (m.tips && isPrivileged) {
         lines.push("\n## Tips");
         lines.push(m.tips as string);
       }
@@ -331,7 +486,6 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
-      // If a full markdown file is stored, return it directly — it's the most compact and complete representation
       if (p.rawMarkdown) {
         const header = [
           `# ${p.clientName} — Brand Package`,
@@ -456,36 +610,95 @@ function buildServer(auth: AuthResult): McpServer {
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
-  if (req.url === "/health") {
+  const urlObj = new URL(req.url!, `http://localhost`);
+  const pathname = urlObj.pathname;
+
+  // ── Health check ───────────────────────────────────────────────────────────
+  if (pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", service: "alexandria-mcp" }));
+    res.end(JSON.stringify({ status: "ok", service: "alexandria-mcp", version: "0.2.0" }));
     return;
   }
 
-  const pathname = new URL(req.url!, `http://localhost`).pathname;
+  // ── OAuth: Step 1 — redirect to Azure AD ──────────────────────────────────
+  if (pathname === "/oauth/authorize") {
+    const state = randomBytes(16).toString("hex");
+    const params = new URLSearchParams({
+      client_id: AZURE_CLIENT_ID!,
+      response_type: "code",
+      redirect_uri: getRedirectUri(),
+      scope: "openid profile email User.Read",
+      state,
+      prompt: "select_account",
+    });
+
+    const authUrl = `https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/authorize?${params}`;
+    res.writeHead(302, { Location: authUrl });
+    res.end();
+    return;
+  }
+
+  // ── OAuth: Step 2 — exchange code for session token ───────────────────────
+  if (pathname === "/oauth/callback") {
+    const code = urlObj.searchParams.get("code");
+    const error = urlObj.searchParams.get("error");
+
+    if (error || !code) {
+      res.writeHead(400, { "Content-Type": "text/html" });
+      res.end(`<h1>Authentication failed</h1><p>${error ?? "No code returned"}</p>`);
+      return;
+    }
+
+    const profile = await exchangeCodeForToken(code);
+    if (!profile) {
+      res.writeHead(500, { "Content-Type": "text/html" });
+      res.end("<h1>Authentication failed</h1><p>Could not retrieve user profile from Microsoft.</p>");
+      return;
+    }
+
+    const sessionToken = await upsertUserAndCreateSession(
+      profile.objectId,
+      profile.email,
+      profile.name
+    );
+
+    // Return the token to Claude via a success page
+    // Claude's OAuth connector will capture the token from the final redirect or response
+    res.writeHead(200, { "Content-Type": "text/html" });
+    res.end(`
+      <!DOCTYPE html>
+      <html>
+        <head><title>Alexandria — Connected</title></head>
+        <body style="font-family:system-ui;max-width:480px;margin:80px auto;padding:0 24px;text-align:center;">
+          <h1 style="font-size:24px;margin-bottom:8px;">Connected to Alexandria</h1>
+          <p style="color:#666;margin-bottom:24px;">Welcome, ${profile.name}. You can close this window and return to Claude.</p>
+          <p style="font-size:12px;color:#999;">Your session token has been established. Alexandria will recognize you automatically.</p>
+          <script>
+            // Pass token back to Claude's OAuth flow
+            if (window.opener) {
+              window.opener.postMessage({ type: 'oauth_token', token: '${sessionToken}' }, '*');
+            }
+          </script>
+        </body>
+      </html>
+    `);
+    return;
+  }
+
+  // ── MCP endpoint ──────────────────────────────────────────────────────────
   if (pathname !== "/mcp") {
     res.writeHead(404);
     res.end("Not found");
     return;
   }
 
-  // Accept key from Authorization: Bearer <key> or ?key=<key>
-  const authHeader = req.headers["authorization"] ?? "";
-  const urlObj = new URL(req.url!, `http://localhost`);
-  const apiKey = authHeader.startsWith("Bearer ")
-    ? authHeader.slice(7).trim()
-    : urlObj.searchParams.get("key") ?? "";
-
-  if (!apiKey) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Missing API key. Use Authorization: Bearer <key> or ?key=<key>" }));
-    return;
-  }
-
-  const auth = await resolveApiKey(apiKey);
+  const auth = await resolveAuth(req);
   if (!auth) {
     res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: "Invalid API key" }));
+    res.end(JSON.stringify({
+      error: "Unauthorized. Use Authorization: Bearer <token> with an OAuth session token or API key.",
+      oauth_url: `${MCP_BASE_URL}/oauth/authorize`,
+    }));
     return;
   }
 
@@ -499,5 +712,5 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 });
 
 httpServer.listen(PORT, () => {
-  console.log(`Alexandria MCP server running on port ${PORT}`);
+  console.log(`Alexandria MCP server v0.2.0 running on port ${PORT}`);
 });

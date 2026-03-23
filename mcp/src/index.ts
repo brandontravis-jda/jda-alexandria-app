@@ -621,7 +621,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   }
 
   // ── OAuth: Step 1 — redirect to Azure AD ──────────────────────────────────
-  if (pathname === "/oauth/authorize") {
+  if (pathname === "/oauth/authorize" || pathname === "/authorize") {
     const state = randomBytes(16).toString("hex");
     const params = new URLSearchParams({
       client_id: AZURE_CLIENT_ID!,
@@ -639,7 +639,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
   }
 
   // ── OAuth: Step 2 — exchange code for session token ───────────────────────
-  if (pathname === "/oauth/callback") {
+  if (pathname === "/oauth/callback" || pathname === "/callback") {
     const code = urlObj.searchParams.get("code");
     const error = urlObj.searchParams.get("error");
 

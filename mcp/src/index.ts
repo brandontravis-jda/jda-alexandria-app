@@ -271,12 +271,21 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_methodology ─────────────────────────────────────────────
   server.tool(
     "alexandria_get_methodology",
-    "Get the production methodology for a specific deliverable type. Returns instructions, steps, quality checks, and required inputs. Use this when a practitioner needs to produce a specific deliverable.",
+    "Get the production methodology for a specific deliverable type. Returns instructions, steps, quality checks, and required inputs. Use this when a practitioner needs to produce a specific deliverable. The slug parameter accepts the exact slug OR a plain-english name — it will match either. If unsure of the slug, call alexandria_list_methodologies first to see what's available.",
     {
-      slug: z.string().describe("The methodology slug (e.g. 'post-discovery-brief', 'brand-package-extraction')"),
+      slug: z.string().describe("The methodology slug OR a plain-english name (e.g. 'post discovery brief', 'brand package extraction', 'post_discovery_brief'). Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
-      const query = `*[_type == "productionMethodology" && slug.current == $slug][0] {
+      // Normalize: collapse hyphens/spaces to underscores for slug matching,
+      // and keep original for name matching
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[-\s]+/g, "_");
+
+      const query = `*[_type == "productionMethodology" && (
+        slug.current == $slug ||
+        slug.current == $normalizedSlug ||
+        lower(name) == $lowerName ||
+        lower(name) match $namePattern
+      )][0] {
         _id, name, "slug": slug.current, description,
         "practice": practice->{ name, "slug": slug.current },
         aiClassification, toolsInvolved, requiredInputs,
@@ -285,7 +294,10 @@ function buildServer(auth: AuthResult): McpServer {
         clientRefinements, provenStatus, version, author, validatedBy
       }`;
 
-      const m = await sanity.fetch(query, { slug });
+      const lowerName = slug.trim().toLowerCase();
+      const namePattern = `*${lowerName}*`;
+
+      const m = await sanity.fetch(query, { slug, normalizedSlug, lowerName, namePattern });
 
       if (!m) {
         return { content: [{ type: "text", text: `No methodology found for slug: ${slug}` }], isError: true };
@@ -472,13 +484,21 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_brand_package ──────────────────────────────────────────
   server.tool(
     "alexandria_get_brand_package",
-    "Get the full brand package for a specific client from Alexandria. Returns the complete brand system — colors, typography, voice, messaging, and architecture restrictions — as a structured markdown document. Use this during Brand Resolution when a package exists for the client.",
+    "Get the full brand package for a specific client from Alexandria. Returns the complete brand system — colors, typography, voice, messaging, and architecture restrictions — as a structured markdown document. Use this during Brand Resolution when a package exists for the client. Accepts the slug OR the client name — hyphens, underscores, and spaces are all accepted.",
     {
-      slug: z.string().describe("The client slug (e.g. 'heartbeat-international'). Use alexandria_list_brand_packages to find the correct slug."),
+      slug: z.string().describe("The client slug OR client name (e.g. 'heartbeat-international', 'Heartbeat International', 'heartbeat_international'). Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+      const lowerName = slug.trim().toLowerCase();
+
       const p = await sanity.fetch(
-        `*[_type == "clientBrandPackage" && slug.current == $slug][0] {
+        `*[_type == "clientBrandPackage" && (
+          slug.current == $slug ||
+          slug.current == $normalizedSlug ||
+          lower(clientName) == $lowerName ||
+          lower(clientName) match $namePattern
+        )][0] {
           _id, clientName, "slug": slug.current, abbreviations,
           extractedDate, sourceDocument, extractedBy, gaps,
           rawMarkdown,
@@ -486,7 +506,7 @@ function buildServer(auth: AuthResult): McpServer {
           typography, voiceAndTone, brandArchitecture,
           visualDirection, keyMessaging
         }`,
-        { slug }
+        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
       );
 
       if (!p) {

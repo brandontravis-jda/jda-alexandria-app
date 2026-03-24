@@ -650,6 +650,156 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_list_templates ─────────────────────────────────────────────
+  server.tool(
+    "alexandria_list_templates",
+    "List available production templates in Alexandria. Returns title, format type, use cases, and feature list for each — enough for a practitioner to pick the right template without Claude explaining each one in prose. Optionally filter by format type.",
+    {
+      format_type: z.enum(["editorial-html", "slideshow-html", "web-landing-page", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
+    },
+    async ({ format_type }) => {
+      const filter = format_type
+        ? `_type == "template" && status == "active" && formatType == $formatType`
+        : `_type == "template" && status == "active"`;
+
+      const templates = await sanity.fetch(
+        `*[${filter}] | order(title asc) {
+          title, "slug": slug.current, formatType,
+          previewUrl, useCases, featureList
+        }`,
+        { formatType: format_type ?? "" }
+      );
+
+      if (!templates || templates.length === 0) {
+        const filterNote = format_type ? ` with format type "${format_type}"` : "";
+        return { content: [{ type: "text", text: `No active templates found in Alexandria${filterNote}.` }] };
+      }
+
+      const formatLabels: Record<string, string> = {
+        "editorial-html":   "Editorial HTML (scrolling, immersive, single-file)",
+        "slideshow-html":   "Slideshow HTML (slide-by-slide, keyboard navigation)",
+        "web-landing-page": "Web Landing Page",
+        "word-document":    "Word Document",
+        "html-email":       "HTML Email",
+      };
+
+      const lines: string[] = [`# Alexandria Templates (${templates.length} active)\n`];
+
+      for (const t of templates) {
+        lines.push(`## ${t.title}`);
+        lines.push(`**Slug:** \`${t.slug}\``);
+        lines.push(`**Format:** ${formatLabels[t.formatType] ?? t.formatType}`);
+        if (t.previewUrl) lines.push(`**Preview:** ${t.previewUrl}`);
+        if (t.useCases) lines.push(`\n**Use cases:** ${t.useCases}`);
+        if (t.featureList) lines.push(`\n**Features:** ${t.featureList}`);
+        lines.push("");
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_get_template ───────────────────────────────────────────────
+  server.tool(
+    "alexandria_get_template",
+    "Get the full production template from Alexandria including all instructions Claude needs to produce a deliverable using this template. Returns fixed elements, variable elements, brand injection rules, client adaptation notes, output spec, and quality checks — assembled in the order Claude should read them. Use this after alexandria_list_templates to get the full template before starting production.",
+    {
+      slug: z.string().describe("The template slug OR plain-english name (e.g. 'scrolling-editorial-presentation', 'JDA Document Style'). Hyphens, underscores, and spaces are all accepted."),
+    },
+    async ({ slug }) => {
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+      const lowerName = slug.trim().toLowerCase();
+
+      const t = await sanity.fetch(
+        `*[_type == "template" && (
+          slug.current == $slug ||
+          slug.current == $normalizedSlug ||
+          lower(title) == $lowerName ||
+          lower(title) match $namePattern
+        )][0] {
+          title, "slug": slug.current, formatType, status,
+          previewUrl, githubRawUrl, dropboxLink,
+          useCases, featureList,
+          fixedElements, variableElements, brandInjectionRules,
+          clientAdaptationNotes, outputSpec, qualityChecks,
+          "practiceAreas": practiceAreas[]->{ name, "slug": slug.current },
+          "relatedMethodologies": relatedMethodologies[]->{ name, "slug": slug.current }
+        }`,
+        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
+      );
+
+      if (!t) {
+        return {
+          content: [{ type: "text", text: `No template found for: "${slug}". Use alexandria_list_templates to see what's available.` }],
+          isError: true,
+        };
+      }
+
+      if (t.status === "deprecated") {
+        return {
+          content: [{ type: "text", text: `The template "${t.title}" has been deprecated. Use alexandria_list_templates to find a current replacement.` }],
+          isError: true,
+        };
+      }
+
+      const formatLabels: Record<string, string> = {
+        "editorial-html":   "Editorial HTML — scrolling, immersive, single-file HTML",
+        "slideshow-html":   "Slideshow HTML — slide-by-slide, keyboard navigation",
+        "web-landing-page": "Web Landing Page",
+        "word-document":    "Word Document (.docx)",
+        "html-email":       "HTML Email",
+      };
+
+      const lines: string[] = [];
+
+      lines.push(`# ${t.title}`);
+      lines.push(`**Format:** ${formatLabels[t.formatType] ?? t.formatType}`);
+      if (t.practiceAreas?.length) lines.push(`**Practice areas:** ${t.practiceAreas.map((p: { name: string }) => p.name).join(", ")}`);
+      if (t.relatedMethodologies?.length) lines.push(`**Related methodologies:** ${t.relatedMethodologies.map((m: { name: string }) => m.name).join(", ")}`);
+
+      if (t.previewUrl)    lines.push(`**Preview:** ${t.previewUrl}`);
+      if (t.githubRawUrl)  lines.push(`**Source HTML (fetch this as starting point):** ${t.githubRawUrl}`);
+      if (t.dropboxLink)   lines.push(`**Source file (Dropbox):** ${t.dropboxLink}`);
+
+      if (t.useCases) {
+        lines.push(`\n## Use Cases\n${t.useCases}`);
+      }
+
+      if (t.featureList) {
+        lines.push(`\n## Features\n${t.featureList}`);
+      }
+
+      lines.push(`\n---\n## Production Instructions`);
+      lines.push(`\nRead the following sections in order before producing any output.\n`);
+
+      if (t.fixedElements) {
+        lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
+      }
+
+      if (t.variableElements) {
+        lines.push(`\n### Variable Elements (fill from brief and brand package)\n${t.variableElements}`);
+      }
+
+      if (t.brandInjectionRules) {
+        lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
+      }
+
+      if (t.clientAdaptationNotes) {
+        lines.push(`\n### Client Adaptation Notes\n${t.clientAdaptationNotes}`);
+      }
+
+      if (t.outputSpec) {
+        lines.push(`\n### Output Specification\n${t.outputSpec}`);
+      }
+
+      if (t.qualityChecks) {
+        lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
   // ── alexandria_save_brand_package ────────────────────────────────────────
   server.tool(
     "alexandria_save_brand_package",

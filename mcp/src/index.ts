@@ -650,6 +650,81 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_save_brand_package ────────────────────────────────────────
+  server.tool(
+    "alexandria_save_brand_package",
+    "Save or update a client brand package in Alexandria. Use this after completing a brand package extraction to make the package available to all practitioners. Requires practice_leader or admin tier. If a package already exists for the client slug, it will be updated. If not, a new record is created.",
+    {
+      client_name:     z.string().describe("Full client name (e.g. 'Heartbeat International')"),
+      slug:            z.string().describe("URL-safe identifier (e.g. 'heartbeat-international'). Use hyphens, lowercase, no spaces."),
+      content:         z.string().describe("The full extracted brand package in markdown. This is the primary field Alexandria serves to Claude."),
+      abbreviations:   z.string().optional().describe("Common short forms (e.g. 'HBI, HI')"),
+      source_document: z.string().optional().describe("Original brand guide filename or description (e.g. 'HBI Brand Standards 2024.pdf')"),
+      extracted_by:    z.string().optional().describe("Name of the practitioner who ran the extraction"),
+      dropbox_link:    z.string().optional().describe("Link to the source PDF in Dropbox"),
+      notes:           z.string().optional().describe("Extraction notes, stale data warnings, gaps, or caveats"),
+    },
+    async ({ client_name, slug, content, abbreviations, source_document, extracted_by, dropbox_link, notes }) => {
+      if (auth.tier === "practitioner") {
+        return { content: [{ type: "text", text: "Permission denied. Saving brand packages requires practice_leader or admin tier. Contact your administrator to request access." }], isError: true };
+      }
+
+      // Normalize slug — lowercase, hyphens only
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+
+      // Check if a record already exists for this slug
+      const existing = await sanity.fetch<{ _id: string } | null>(
+        `*[_type == "clientBrandPackage" && slug.current == $slug][0]{ _id }`,
+        { slug: normalizedSlug }
+      );
+
+      const today = new Date().toISOString().split("T")[0];
+
+      if (existing) {
+        // Update existing record
+        await sanity
+          .patch(existing._id)
+          .set({
+            clientName:     client_name,
+            abbreviations:  abbreviations ?? "",
+            sourceDocument: source_document ?? "",
+            extractedBy:    extracted_by ?? "",
+            extractedDate:  today,
+            rawMarkdown:    content,
+            gaps:           notes ?? "",
+          })
+          .commit();
+
+        return {
+          content: [{
+            type: "text",
+            text: `Brand package for "${client_name}" updated in Alexandria.\nSlug: ${normalizedSlug}\nExtracted: ${today}\n\nThe package is now live. All practitioners will use the updated brand system for ${client_name} on their next methodology run.`,
+          }],
+        };
+      } else {
+        // Create new record
+        await sanity.create({
+          _type:          "clientBrandPackage",
+          clientName:     client_name,
+          slug:           { _type: "slug", current: normalizedSlug },
+          abbreviations:  abbreviations ?? "",
+          sourceDocument: source_document ?? "",
+          extractedBy:    extracted_by ?? "",
+          extractedDate:  today,
+          rawMarkdown:    content,
+          gaps:           notes ?? "",
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Brand package for "${client_name}" saved to Alexandria.\nSlug: ${normalizedSlug}\nExtracted: ${today}\n\nThe package is now live. All practitioners will automatically use the ${client_name} brand system in future methodology runs.`,
+          }],
+        };
+      }
+    }
+  );
+
   // ── alexandria_whoami ─────────────────────────────────────────────────────
   server.tool(
     "alexandria_whoami",

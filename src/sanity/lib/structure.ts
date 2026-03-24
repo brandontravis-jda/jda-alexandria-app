@@ -12,6 +12,10 @@ export const structure: StructureResolver = (S) =>
         .title("Client Brand Packages")
         .icon(() => "🎨")
         .child(S.documentTypeList("clientBrandPackage").title("Client Brand Packages")),
+      S.listItem()
+        .title("Templates")
+        .icon(() => "📐")
+        .child(S.documentTypeList("template").title("Templates")),
       S.divider(),
       S.listItem()
         .title("Practice Areas")

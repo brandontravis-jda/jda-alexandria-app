@@ -59,28 +59,71 @@ export default defineType({
       description: "Link to the base .docx or asset file in Dropbox. Document format types only.",
     }),
 
-    // ── Claude-Readable Instructions ─────────────────────────────────────────
-    defineField({
-      name: "productionInstructions",
-      title: "Production Instructions",
-      type: "text",
-      rows: 20,
-      description: "Claude-readable markdown. What is fixed in this template, what is variable, how to adapt it to a client, how to inject the brand system. This is the core field Claude reads when producing a deliverable.",
-      validation: (R) => R.required(),
-    }),
+    // ── Discovery / Browsing ─────────────────────────────────────────────────
     defineField({
       name: "useCases",
       title: "Use Cases",
       type: "text",
       rows: 4,
-      description: "Plain language — when to use this template, what client situations it fits, what it is NOT for.",
+      description: "When to use this template and when NOT to. Plain language — a practitioner reads this to decide if it fits their project.",
+      validation: (R) => R.required(),
     }),
     defineField({
       name: "featureList",
       title: "Feature List",
       type: "text",
+      rows: 5,
+      description: "What this template is capable of — animations, data viz, interactive sections, responsive behavior, print-ready output, multi-column layouts, etc. Shown when browsing so practitioners pick the right format.",
+    }),
+
+    // ── Production Instructions (structured) ─────────────────────────────────
+    // Separated into discrete fields so Claude cannot skip a section.
+    // The MCP tool assembles these into a single context block.
+    defineField({
+      name: "fixedElements",
+      title: "Fixed Elements",
+      type: "text",
       rows: 6,
-      description: "What this template is capable of — animations, data viz, interactive sections, responsive behavior, print-ready output, etc. Shown to practitioners when browsing.",
+      description: "What is locked in this template and must not be changed — structure, navigation patterns, section order, interaction model, typography scale, spacing system. Claude treats these as non-negotiable.",
+      validation: (R) => R.required(),
+    }),
+    defineField({
+      name: "variableElements",
+      title: "Variable Elements",
+      type: "text",
+      rows: 6,
+      description: "What changes per project — copy, imagery, colors, client logo, section content, data, statistics. Claude fills these in from the brief and brand package.",
+      validation: (R) => R.required(),
+    }),
+    defineField({
+      name: "brandInjectionRules",
+      title: "Brand Injection Rules",
+      type: "text",
+      rows: 6,
+      description: "Exactly how the client brand system maps into this template — where primary colors go, which font roles map to which template roles, how logo is placed, how voice and tone apply to copy sections. This is the highest-stakes field: wrong brand injection produces client-facing errors.",
+      validation: (R) => R.required(),
+    }),
+    defineField({
+      name: "clientAdaptationNotes",
+      title: "Client Adaptation Notes",
+      type: "text",
+      rows: 5,
+      description: "How to tailor this template to different client types, industries, or project sizes. Edge cases, common modifications, things that break if you change them.",
+    }),
+    defineField({
+      name: "outputSpec",
+      title: "Output Specification",
+      type: "text",
+      rows: 4,
+      description: "What the finished deliverable looks like — file format, how to deliver it, how to share it with the client, any developer handoff notes.",
+      validation: (R) => R.required(),
+    }),
+    defineField({
+      name: "qualityChecks",
+      title: "Quality Checks",
+      type: "text",
+      rows: 5,
+      description: "What Claude must verify before presenting the output — brand accuracy, completeness, structural integrity, copy fit, no placeholder text remaining. Same pattern as methodology quality checks.",
     }),
 
     // ── Relationships ────────────────────────────────────────────────────────

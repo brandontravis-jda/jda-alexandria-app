@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated to reflect the Flint proof of concept and subsequent architecture decisions. Flint is a production MCP-connected app built on the same stack, deployed to Railway, and actively used through Claude. Where the original build plan carried assumptions, this document replaces them with what's been verified.
+> Updated March 24, 2026 to reflect Step 2 completion and open questions for Steps 3–10 discovery.
 
 ---
 
@@ -14,7 +14,7 @@ The platform is a structured content and knowledge layer that makes Claude opera
 
 **The Automation Layer** — n8n as the nervous system connecting the portal to Asana, Fireflies, Slack, and other operational tools. Handles background workflows (transcript routing, dashboard data, notifications) and powers LOB tool backends.
 
-**The Claude Environment** — Properly structured Claude Projects per practice area and per client, loaded with platform content. The practitioner works in Claude. The platform ensures Claude has the right knowledge for the practitioner's role, practice, and client context.
+**The Claude Environment** — Claude Projects scoped per practice area and/or per client, with MCP providing live platform content on demand. The practitioner works in Claude. The platform ensures Claude has the right knowledge for the practitioner's role, practice, and client context.
 
 ### Key Architecture Principle
 
@@ -26,36 +26,20 @@ LOB tools (RFP scraper, proposal generator, meeting intelligence) are the except
 
 ## Verified Tech Stack
 
-Flint validates the full deployment architecture. The portal builds on the same foundation with one addition (Sanity) for structured content management.
-
 | Layer | Technology | Status | Notes |
 |---|---|---|---|
-| Framework | Next.js (App Router) | **Verified in Flint** | Server components, API routes, middleware |
-| Language | TypeScript | **Verified in Flint** | Strict mode throughout |
-| Styling | Tailwind CSS | **Verified in Flint** | Custom CSS variables for theming |
-| Auth (portal) | Auth.js v5 + Microsoft Entra ID | **Verified in Flint** | Azure AD SSO, single-tenant, Object ID as stable user identifier |
-| Auth (MCP) | OAuth via Claude Teams connector | **Verified via Dropbox/Asana pattern** | Org-level connector setup, per-user OAuth authorization via Azure AD |
-| Database | PostgreSQL on Railway | **Verified in Flint** | Direct SQL via `postgres` npm package, no ORM |
-| Content store | Sanity (self-hosted on Railway) | **New for portal** | CMS-shaped content (templates, prompts, workflow guides, client packages). Sanity Studio provides admin UI. GROQ API serves both portal frontend and MCP server. |
-| MCP server | Standalone Node.js service | **Verified in Flint** | `@modelcontextprotocol/sdk`, Streamable HTTP transport |
-| Hosting | Railway (all services) | **Verified in Flint** | Single Railway project, multiple services, shared PostgreSQL. Auto-deploy on push to `main`. |
-| Source control | GitHub | **Verified in Flint** | CI/CD via Railway auto-deploy |
+| Framework | Next.js (App Router) | **Verified** | Server components, API routes, middleware |
+| Language | TypeScript | **Verified** | Strict mode throughout |
+| Styling | Tailwind CSS | **Verified** | Custom CSS variables for theming |
+| Auth (portal) | Auth.js v5 + Microsoft Entra ID | **Verified** | Azure AD SSO, single-tenant, Object ID as stable user identifier |
+| Auth (MCP) | OAuth via Claude Teams connector | **Verified** | Org-level connector setup, per-user OAuth authorization via Azure AD |
+| Database | PostgreSQL on Railway | **Verified** | Direct SQL via `postgres` npm package, no ORM |
+| Content store | Sanity (self-hosted on Railway) | **Verified** | CMS-shaped content. Sanity Studio provides admin UI. GROQ API serves both portal frontend and MCP server. |
+| MCP server | Standalone Node.js service | **Verified** | `@modelcontextprotocol/sdk`, Streamable HTTP transport |
+| Hosting | Railway (all services) | **Verified** | Single Railway project, multiple services, shared PostgreSQL. Auto-deploy on push to `main`. |
+| Source control | GitHub | **Verified** | CI/CD via Railway auto-deploy |
 | Automation | n8n on Railway | Planned | Same Railway project |
-| File storage | None (platform stores text; files live in Dropbox) | **Resolved** | See Storage Architecture below |
-
-### What Changed from the Original Plan
-
-**Vercel removed.** The original plan split hosting between Vercel (portal frontend, serverless API routes) and Railway (Sanity, Supabase, n8n, MCP server). Flint runs the full Next.js app on Railway with no issues. One hosting provider, one deployment target, one set of environment variables.
-
-**Supabase removed.** The original plan used Supabase on Railway for portal auth and internal permission assignments. Flint proves that Auth.js v5 handles authentication directly against Azure AD, and PostgreSQL on Railway handles all relational data (users, permissions, application state) without needing Supabase as an intermediary. Supabase also offered file storage, but the storage architecture (below) eliminates that need.
-
-**MCP auth model changed.** The original plan used Flint's pattern: manually generated API keys, pasted into Claude.ai's integration URL. The updated plan uses the Claude Teams custom connector pattern (same as Dropbox, Asana, etc.): the admin adds the connector at the org level with OAuth credentials, and each practitioner authenticates individually via Azure AD. No API keys to generate, distribute, or manage for end users.
-
-**MCP is proven, not speculative.** The original plan treated MCP as Step 2 with significant uncertainty. Flint has a working MCP server deployed on Railway, connected to Claude.ai. The OAuth connector flow is validated by existing Dropbox and Asana integrations on the Teams account. The remaining uncertainty is content payload sizes against the 1M context window.
-
-**Storage resolved.** The platform stores authored intelligence as text in Sanity. Raw asset files (brand guidelines PDFs, logos, template files) stay in Dropbox. The portal links to them. No dedicated file storage layer needed. See Storage Architecture below.
-
-**Nuclear option reframed.** With MCP proven, the self-contained API-wrapper app is no longer a fallback — it's a separate architectural choice for Product Line 4 (white-labeled production studio for outside agencies), where controlling the full practitioner experience matters more than leveraging Claude's native interface.
+| File storage | None (platform stores text; logos stored in Sanity; files live in Dropbox) | **Resolved** | See Storage Architecture below |
 
 ---
 
@@ -63,28 +47,10 @@ Flint validates the full deployment architecture. The portal builds on the same 
 
 ### Two Auth Contexts
 
-The platform has two distinct authentication contexts:
-
 | Context | Who | How | What It Does |
 |---|---|---|---|
 | Portal sign-in | Small admin group (Brandon, practice leaders, NewCo team) | Auth.js v5 + Entra ID, direct browser session | Full portal access — content management, dashboards, settings |
 | MCP via Claude | All JDA practitioners (~33 people) | OAuth via Claude Teams custom connector, Azure AD | Access platform content through Claude, scoped by permission tier |
-
-### Portal Access Control
-
-The portal is restricted to a small group. Two layers of access control:
-
-1. **Azure AD security group** — A group (e.g., "JDA AI Platform Admins") in Entra ID controls who can sign into the portal at all. Brandon manages this group directly in Azure admin. If you're not in the group, Azure AD rejects the sign-in.
-2. **Permission tiers in PostgreSQL** — Once authenticated, the portal checks the user's tier and scopes their experience. During initial build, only Admin tier exists (Brandon). Practice leader access is added during activation.
-
-### MCP Access Control
-
-The MCP server is added as a custom connector at the Claude Teams organization level:
-
-1. **Admin (Brandon) adds the connector** — Organization Settings → Connectors → Add custom connector. Provides the MCP server URL and Azure AD OAuth Client ID / Client Secret.
-2. **Each practitioner connects individually** — Settings → Connectors → finds the portal connector → clicks "Connect" → authenticates via Azure AD. Each user's OAuth token is scoped to their identity.
-3. **Azure AD security group gates authorization** — The portal's Azure AD app registration is scoped to a security group (e.g., "JDA AI Platform Users" — a broader group than the portal admin group). Only JDA staff in this group can complete the OAuth flow.
-4. **MCP server resolves identity and permissions** — On each request, the MCP server validates the OAuth token, resolves the user's Azure AD Object ID, looks up their permission tier in PostgreSQL, and scopes the response.
 
 ### Permission Tiers
 
@@ -94,294 +60,212 @@ The MCP server is added as a custom connector at the Claude Teams organization l
 | Practice Leader | Content management for their practice + dashboards | Full practice content | Push deliverable classifications, workflow updates | Christina, Kristi |
 | Admin (NewCo) | Everything | Full platform content | All content types | Brandon |
 
-Practice leaders can push content updates through Claude without ever touching the portal. A practice leader says to Claude: "Add a new deliverable classification for social media carousel — AI-Led, uses the Brand Social template." The MCP server validates their write permission and creates the record in Sanity. This keeps the platform alive without requiring everyone to learn the portal admin interface.
+### API Keys (Secondary Auth)
 
-### API Keys (Secondary Auth — Retained from Flint)
-
-The Flint-style API key pattern is retained as a secondary auth method for:
-- Programmatic access (n8n automations calling the MCP server)
-- Claude Code integration (for development and testing)
-- Fallback if OAuth flow has issues
-
-API keys are admin-generated in the portal settings. They are not the primary auth path for practitioners.
+Retained for programmatic access (n8n automations), Claude Code integration, and fallback. Not the practitioner path.
 
 ---
 
 ## Storage Architecture
 
-### Principle: Store Intelligence, Reference Files
-
-The platform's value is in distilled, Claude-readable instructions — not raw asset files. The portal stores authored text content in Sanity. Files stay where they already live.
+The platform stores authored intelligence as text in Sanity. Logos are stored directly in Sanity (SVG code or hosted image). Raw asset files live in Dropbox.
 
 | Content | Where It Lives | How the Portal References It |
 |---|---|---|
 | Template production instructions | Sanity (authored text) | MCP returns instructions as text |
-| Prompt patterns | Sanity (authored text) | MCP returns prompt text |
 | Client brand voice, tone, messaging | Sanity (authored text) | MCP returns distilled brand context |
-| Brand guidelines PDFs, logos | Dropbox (existing) | Sanity stores Dropbox link |
-| Template reference files (Word docs, HTML) | Dropbox (existing) | Sanity stores Dropbox link |
+| Client logos | Sanity (SVG code field or hosted image field) | MCP returns SVG markup or CDN URL |
+| Brand guidelines PDFs | Dropbox (existing) | Sanity stores Dropbox link |
 | Workflow guides | Sanity (authored text) | MCP returns workflow steps |
 | Deliverable classifications, quality gates, capabilities matrix | Sanity (structured data) | MCP returns structured lookups |
-| LOB tool output (generated proposals, scraped RFPs) | Railway disk (ephemeral) → Dropbox (permanent via n8n) | LOB tools generate to Railway, n8n routes to Dropbox |
-
-### Why This Works
-
-This mirrors the pattern already in use. The JDA doc style guide isn't a file attachment in Claude's memory — it's distilled text instructions that tell Claude how to build documents. The portal formalizes and structures that pattern across all content types.
-
-Claude doesn't need a brand standards PDF to write in a client's voice. Claude needs the distilled instructions about how to write in that voice. The PDF is a reference artifact for humans. When a practitioner actually needs a file, they already have Dropbox connected as a separate MCP connector.
-
-### Infrastructure Capacity
-
-- **Railway Pro plan:** 100GB shared disk across all services. More than sufficient for Sanity data, PostgreSQL, ephemeral LOB tool files.
-- **Dropbox:** Already in use for document storage across the agency. Brand assets, templates, and reference files already live here.
-- **Sanity asset storage:** Sanity self-hosted can store files and images natively, but given that Dropbox is already the agency's file home, using Sanity for file storage is unnecessary complexity. Text content in Sanity, file links to Dropbox.
-
----
-
-## Separation of Concerns
-
-| Component | Owns | Examples |
-|---|---|---|
-| Sanity | CMS content — authored, versioned, published intelligence | Templates, prompt library entries, client brand packages, workflow guides, deliverable classifications, quality gate definitions, capabilities matrix entries |
-| PostgreSQL | Application state — relational data, permissions, metrics | User records (Object ID, permission tier, practice assignments), dashboard data, LOB tool state |
-| Azure AD (Entra ID) | Authentication and group membership | Confirms identity. Security groups gate portal access and MCP authorization. |
-| Dropbox | File storage | Brand guidelines, logos, template files, reference documents, LOB tool output (permanent) |
-| Railway disk | Ephemeral file storage | LOB tool working files before routing to Dropbox |
-
----
-
-## Data Model
-
-### Content Types (Sanity)
-
-Full schema documented in `portal-data-model-draft.md`. 10 content types:
-
-1. **Template** — Production instructions for a deliverable type. Stores Claude-readable text (rich text / markdown), not raw file attachments. Optional link to reference file in Dropbox.
-2. **Prompt Library Entry** — Reusable prompt patterns tied to deliverable types and practices. **This is the proof of concept content type for Step 1.**
-3. **Client Brand Package** — Distilled brand voice, tone, messaging, key context. Links to brand guidelines and logo files in Dropbox.
-4. **Deliverable Classification** — AI classification (AI-Led / AI-Assisted / Human-Led) by deliverable type.
-5. **Quality Gate Definition** — Checklist items, sign-off role, escalation path by deliverable type.
-6. **Practice Area** — Practice metadata and relationships.
-7. **Capabilities Matrix Entry** — Role × deliverable type × tools × AI classification.
-8. **Workflow Guide** — Step-by-step production workflows by practice and deliverable type.
-9. **Role** — Role definitions with practice assignments and tool access.
-10. **Team Member** — Staff records linked to roles, practices, and permission tiers. Authored profile data (name, role, practice) in Sanity; auth/permission records in PostgreSQL.
-
-Design principles:
-- Most fields are optional, not required. Incomplete content is expected — Claude interprets gaps from context, not schema enforcement.
-- Templates store distilled instructions as text. The MCP server returns instructions and specs as text, not file attachments.
-- All content types have relationship mappings to support the MCP resolution chain.
-- File references are links to Dropbox, not uploaded assets.
-
-### Application State (PostgreSQL)
-
-Following Flint's schema pattern:
-
-- **users** — Azure AD Object ID, permission tier (practitioner / practice_leader / admin), practice assignments, created_at
-- **api_keys** — Key hash (SHA-256), key prefix (for display), user_id, name, created_at, last_used_at (secondary auth for programmatic/fallback use)
-- **dashboard_data** — Adoption metrics, MCP usage tracking, Asana integration data, practice-level aggregations
-- **lob_tool_state** — Per-tool transactional state (RFP scraper results, proposal drafts, etc.)
-
----
-
-## MCP Server Design
-
-### Auth Pattern (OAuth via Claude Teams Connector)
-
-| Step | What Happens |
-|---|---|
-| Admin setup (once) | Brandon adds the MCP server as a custom connector in Claude Teams org settings with Azure AD OAuth credentials |
-| Practitioner setup (once per user) | User goes to Settings → Connectors → clicks Connect → authenticates via Azure AD |
-| Every MCP request | OAuth token validated → Azure AD Object ID resolved → permission tier looked up in PostgreSQL → response scoped |
-
-### Tool Design
-
-Each content type added to the portal gets its own discovery session. The prompt library is the proof of concept — the first content type to go end-to-end. Subsequent content types follow the same pattern.
-
-**Core questions for each content type's discovery session:**
-- What does a practice leader do with this content in the portal?
-- What does a contributor / practitioner see through Claude?
-- What does the MCP server return for a read request?
-- What does a write request look like (for practice leaders)?
-- What scoping rules apply (practice-level, role-level, client-level)?
-- What does the response payload look like and how big is it?
-
-**Planned tool structure (middle path — narrow tools + orchestrated assembly):**
-
-Narrow tools for targeted lookups:
-- `get_template(deliverable_type, practice?)`
-- `get_client_brand_package(client)`
-- `get_prompt_chain(deliverable_type)`
-- `get_quality_gate(deliverable_type)`
-- `get_capabilities_matrix(role?, practice?)`
-- `get_workflow_guide(deliverable_type, practice?)`
-- `list_templates(practice?)`
-- `list_clients()`
-
-Orchestrated tool:
-- `assemble_production_context(deliverable_type, client?)` — Resolves the full chain server-side: template + prompts + client package + quality gate + workflow guide. Returns assembled context in one call.
-
-Write tools (practice leader + admin only):
-- `add_deliverable_classification(...)`
-- `update_workflow_guide(...)`
-- `add_prompt_library_entry(...)`
-- (Additional write tools defined per content type during discovery)
-
-**The specific tools, their parameters, and their response shapes are defined during each content type's discovery session — not upfront.**
-
-### Context Size Management
-
-- Narrow tools return limited, predictable payloads
-- Full production context assembly needs real testing against the 1M context window once content exists
-- Flint's MCP tools return small payloads. Portal tools will return richer content. Testing payload sizes is a validation task at each step.
+| LOB tool output | Railway disk (ephemeral) → Dropbox (permanent via n8n) | LOB tools generate to Railway, n8n routes to Dropbox |
 
 ---
 
 ## Build Sequence
 
-> Each step requires its own discovery session before building. The sequence is the plan. The specifics emerge from discovery at each step. Each major content type added to the platform is treated as its own feature with its own discovery: what should a practice leader do, what does a contributor see through Claude, what does the MCP server return.
+### Step 1: Portal Foundation + Proof of Concept — ✅ COMPLETE
 
-### Step 1: Portal Foundation + Prompt Library (Proof of Concept)
+**Portal foundation:**
+- ✅ Next.js app on Railway with Auth.js v5 + Entra ID
+- ✅ Azure AD security groups (Admins, Editors, Users) — group membership is source of truth for permission tiers, enforced on every login
+- ✅ PostgreSQL schema for users, api_keys, oauth_sessions
+- ✅ Sanity self-hosted on Railway with initial schema
+- ✅ Portal navigation shell (Dashboard, Content, Clients, Users, Tools, Settings)
+- ✅ Sanity Studio as the admin interface
+- ✅ Auth middleware protecting all portal routes
+- ✅ Users management page — view all connected users, change tier, set practice
 
-Build the portal shell and prove the end-to-end system with one content type: the prompt library.
+**MCP server:**
+- ✅ OAuth via Claude Teams custom connector (PKCE flow, our server acts as auth server)
+- ✅ Azure AD group membership checked on every OAuth login
+- ✅ Session tokens in PostgreSQL, 90-day expiry
+- ✅ API key fallback for programmatic access
+- ✅ Permission gating — `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt` restricted to `practice_leader` and `admin`
+- ✅ Permission gating validated end-to-end with a real practitioner account
 
-**Portal foundation (build):**
-- Next.js app on Railway with Auth.js v5 + Entra ID (clone Flint's auth pattern)
-- Azure AD security group restricting portal access to admin group
-- PostgreSQL schema for users, permission tiers (clone Flint's patterns)
-- Sanity self-hosted on Railway with initial schema
-- Portal navigation shell with role-based access control
-- Sanity Studio as the admin interface
+**Content type: Production Methodologies:**
+- ✅ Sanity schema with structured fields (steps, qualityChecks, failureModes, systemInstructions, tips, visionOfGood)
+- ✅ 4 methodologies seeded: pre-discovery brief, post-discovery brief, client strategy brief, brand package extraction
+- ✅ `alexandria_list_methodologies`, `alexandria_get_methodology`, `alexandria_list_practice_areas`, `alexandria_list_deliverables`, `alexandria_whoami`
 
-**Prompt library — the proof of concept (discovery + build):**
-- Discovery session: What does a prompt library entry look like in Sanity? What fields matter? How does a practice leader create one? What does the MCP server return when a practitioner asks Claude for a prompt? What does a write request look like?
-- Build the Sanity schema for Prompt Library Entry
-- Build the MCP server (clone Flint's architecture) with OAuth via Claude Teams connector
-- Implement `get_prompt_chain` and `list_prompts` read tools
-- Implement `add_prompt_library_entry` write tool (practice leader + admin)
-- Load initial prompt patterns from existing scattered files and Claude's memory
-- Test end-to-end: practitioner opens Claude, queries for a prompt pattern, gets a useful response. Practice leader pushes a new prompt entry through Claude.
+**Content type: Client Brand Packages:**
+- ✅ Sanity schema with structured fields + `rawMarkdown` primary field
+- ✅ `logoSvg` and `logoImage` fields added — SVG code preferred, raster image as fallback
+- ✅ `alexandria_list_brand_packages`, `alexandria_get_brand_package`, `alexandria_save_brand_package`
+- ✅ 11 brand packages loaded: HBI, Biglife, CHM, Conquer, Indy Chamber, Indy Partnership, Kingsworth, Prolific, Spokenote, Venture, WIF
 
-**This step proves the entire system works.** Portal → Sanity → MCP → Claude → practitioner. Read and write. Permission scoping. OAuth auth. If this works, every subsequent content type follows the same pattern.
+**Validated end-to-end:** HBI post-discovery brief produced on-brand output using real HBI colors and voice pulled from Alexandria.
 
-**Depends on:** Sanity self-hosted deployment on Railway (new), prompt library content discovery session.
+---
 
-**Already resolved (by Flint):** MCP server architecture, Railway deployment, GitHub CI/CD, database patterns, schema migration approach.
+### Step 2: Templates — ✅ COMPLETE
 
-**Already resolved (by Dropbox/Asana):** OAuth connector flow on Claude Teams.
+**Architecture decision:** All HTML deliverable types (scrolling editorial, slideshow, landing page, catalog, RFP response) consolidated into a single `html-deliverable` template with a feature menu (scroll / slide / tabbed layout modes). One template to maintain, infinite combinations. Claude selects the right combination from the practitioner's description — no command words required.
 
-### Step 2: Templates + Client Brand Packages
+**Template schema + MCP tools:**
+- ✅ Sanity schema with six structured production instruction fields (fixedElements, variableElements, brandInjectionRules, clientAdaptationNotes, outputSpec, qualityChecks)
+- ✅ `alexandria_list_templates` — list active templates, filter by format type
+- ✅ `alexandria_get_template` — full template with production instructions
 
-Add the next two content types, following the same discovery → build → test pattern proven in Step 1.
+**Templates loaded:**
+- ✅ HTML Deliverable (`html-deliverable`) — covers all HTML formats, active
+- ✅ JDA Document Style (`jda-document-style`) — word document, programmatic .docx generation via `docx` npm library, active
+- ⬜ Campaign Brief — pending discovery session
+- ⬜ Client Proposal — pending discovery session
 
-**Templates — discovery session:**
-- What does a template look like in Sanity? Production instructions as text, link to reference file in Dropbox, associated prompt chain, deliverable type, practice area.
-- What does the MCP server return for `get_template`?
-- What does a practice leader's workflow look like for creating/updating a template?
+**Format types (simplified from original plan):**
+- `html-deliverable` — all HTML formats
+- `word-document` — .docx generation
+- `html-email` — branded email templates
 
-**Client Brand Packages — discovery session:**
-- What does a brand package look like in Sanity? Distilled voice/tone/messaging as text, links to brand guidelines and logos in Dropbox.
-- What does the MCP server return for `get_client_brand_package`?
-- Build first packages: WIF, 1792, one or two others.
-- Test: practitioner queries client context through Claude, produces client-ready work.
+**Brand extraction methodology updated:**
+- ✅ Website scrape fallback added — when no brand guidelines PDF exists, Claude scrapes homepage, about, services pages and extracts what's available. Gaps documented explicitly. JDA itself can be extracted this way.
 
-**Also in this step:**
-- Implement `assemble_production_context` orchestrated tool — this is the first time the MCP server chains multiple content types together (template + prompts + client package).
-- Validate assembled context payload sizes against the 1M context window.
+**Sanity Studio improvements:**
+- ✅ Download as Markdown action — available on all document types, assembles a clean markdown file for pasting into Claude. Smart field handling: SVG inline, nested objects, arrays, enum labels.
 
-**Depends on:** Step 1 working end-to-end. Template and brand content discovery sessions. Client brand assets collected (at minimum: links to existing Dropbox files + authored voice/tone text).
+**Remaining open items from Step 2:**
+- ⬜ End-to-end template test — `list_templates` → `get_template` → Claude produces a real deliverable artifact. Not yet run.
+- ⬜ `alexandria_save_template` write tool — not yet built. Templates currently loaded via script or Sanity Studio.
+- ⬜ Logo assets — logo fields exist on brand package schema but no packages have logos loaded yet.
+- ⬜ Campaign Brief + Client Proposal templates — pending discovery.
+- ⬜ `assemble_production_context` — deferred, not needed to validate Step 2.
+
+---
 
 ### Step 3: Deliverable Classifications + Quality Gates + Capabilities Matrix
 
-Add the structured reference data content types.
+Add the structured reference data content types. Needs a discovery session before building.
 
-**Discovery session for each:**
+**Questions to resolve in discovery:**
 - What fields matter? What does the MCP server return?
 - How do practice leaders maintain these? (Portal, Claude write-back, or both?)
 - How do these integrate with the production context assembly chain?
+- Are these worth building before the Claude Project architecture is defined? They're most useful when assembled into a production context — but if `assemble_production_context` is deferred, these might be premature.
 
-**Depends on:** Step 2 (these types are referenced by templates and the assembly tool).
+**Depends on:** Step 2 complete.
+
+---
 
 ### Step 4: Workflow Guides + Practice Areas + Roles
 
-Add the remaining content types that complete the platform's knowledge model.
+Add the remaining content types that complete the knowledge model. Needs practice leader alignment meetings before content can be authored.
 
-**Discovery session for each:**
+**Questions to resolve in discovery:**
 - What does a workflow guide look like for each practice?
 - How are practice areas and roles structured?
 - What does the MCP server return?
+- Is this content more useful in Claude Project system prompts than in MCP lookups?
 
-**Depends on:** Steps 2–3. Practice leader alignment meetings and discovery interviews inform workflow guide content.
+**Depends on:** Steps 2–3. Practice leader alignment meetings and discovery interviews.
+
+---
 
 ### Step 5: Dashboards and Measurement Layer
 
 Wire up adoption tracking and practice leader views.
 
 **Build:**
-- Asana API integration for adoption tracking
 - MCP usage tracking (who's querying, how often, which content types, which practices)
 - Practice leader dashboard views in the portal
+- Asana API integration for adoption tracking
 - n8n workflows for background data routing (Fireflies transcripts, etc.)
 
-**Depends on:** Defining what metrics matter, Asana API capabilities, n8n workflow design, dashboard UX decisions. MCP usage data is available from Step 1 onward.
+**Open questions:**
+- What metrics actually matter to practice leaders? This needs to be defined before building dashboards.
+- Is Asana the right adoption proxy, or is MCP usage data sufficient?
+- n8n hasn't been touched — what does the first workflow actually look like?
 
-### Step 6: Claude Project Architecture
+**Depends on:** Defining what metrics matter. MCP usage data is available from Step 1 onward.
 
-Design and stand up the Claude Project structure.
+---
 
-**Build:**
-- Define which Projects exist, what content goes in each, what custom instructions look like, who has access
-- Test end-to-end with MCP: practitioner in a Claude Project queries platform content, produces a real deliverable
-- Validate content payload sizes in context with Project-level instructions
+### Step 6: Claude Project Architecture — NEEDS FULL REVISIT
 
-**Depends on:** Content from Steps 1–4 existing in the platform. Decisions about Project structure (per-practice vs per-client vs both).
+This step was written before MCP was proven and before the platform had real content. The assumptions have changed significantly.
+
+**What the original plan assumed:**
+- Significant uncertainty about how Projects + MCP work together
+- A complex setup process requiring a wizard
+- Content needing to live in Project system prompts
+
+**What's actually true now:**
+- MCP is proven. Projects + MCP works. The real question is content strategy, not technical feasibility.
+- The platform has real content. The question is what belongs in a Project system prompt vs. what gets pulled live via MCP.
+- Practitioner onboarding might be much simpler than anticipated.
+
+**Questions to resolve in discovery:**
+- What is the right Project structure — per-practice, per-client, or both?
+- What content belongs in a Project system prompt vs. MCP on-demand?
+- What does a practitioner's day-one experience look like?
+- How do Projects get updated when platform content changes?
+- Who manages Projects — Brandon, practice leaders, or self-serve?
+- Does a "Setup Wizard" still make sense, or is Project setup simple enough to do manually?
+
+**Depends on:** Having enough content in Alexandria to actually test with. Steps 1–2 are sufficient to start this discovery.
+
+---
 
 ### Step 7: LOB Tools
 
 Build the first standalone tool modules in the portal.
 
 **Priority candidates:**
-- RFP scraper/finder (already in progress)
+- RFP scraper/finder (was "in progress" — current status unknown)
 - Proposal generator
 - Meeting intelligence pipeline (Fireflies → structured summaries)
 - Client onboarding playbook builder
 
-Each tool has its own UI in the portal, its own backend logic (n8n workflows, Claude API calls), and its own integration points. Generated files route to Dropbox via n8n.
+**Open questions:**
+- Where does the RFP scraper actually stand?
+- Which tool has the highest immediate value to practitioners?
+- Do LOB tools need n8n, or can some be built as simple Claude API calls in the portal?
+- What's the file routing story — is n8n to Dropbox still the right path?
 
-**Depends on:** n8n automation layer from Step 5, specific tool requirements discovered during practice activations.
+**Depends on:** Specific tool requirements from practice activations. n8n setup for file routing tools.
 
-### Step 8: Claude Project Setup Wizard
+---
 
-Build the guided workflow that generates everything needed to stand up a new Claude Project.
+### Step 8: Claude Project Setup Wizard — LIKELY OBSOLETE OR MUCH SMALLER
 
-**Depends on:** Patterns established in Steps 2 and 6.
+Originally designed to generate everything needed to stand up a new Claude Project. May be unnecessary if Project setup is simple, or may be repurposed as a content package generator (assembles the right Alexandria content into a format ready to paste into a Project system prompt).
+
+**Depends on:** Outcomes of Step 6 discovery.
+
+---
 
 ### Step 9: Content Expansion from Discovery
 
 Ongoing — as practice leader discoveries happen, new content flows into Sanity through the portal or through Claude (practice leader write-back via MCP).
 
-**Depends on:** Practice leader alignment meetings and discovery interviews. The portal is ready to receive this content after Step 1.
-
-### Step 10: Initial Launch
-
-The portal is live with real content across all content types. MCP bridge is working with OAuth. Dashboards are showing data. At least one or two LOB tools are functional. A practitioner can sit in Claude and operate AI-native using platform-managed content.
-
-This is the launchable product.
+**No end date. Depends on:** Practice leader alignment meetings and discovery interviews.
 
 ---
 
-## What Flint Proves
+### Step 10: Initial Launch
 
-| Question from Original Plan | Answer |
-|---|---|
-| Can MCP work on Claude Teams? | Yes. Streamable HTTP transport, working in production. (Flint) |
-| What auth pattern works with Azure AD? | Auth.js v5 + Entra ID provider. Object ID as stable identifier. SSO only. (Flint) |
-| Can we use OAuth for MCP instead of API keys? | Yes — Claude Teams supports custom OAuth connectors. Per-user auth, org-level setup. (Dropbox/Asana pattern) |
-| Vercel or Railway for Next.js hosting? | Railway. Single project, auto-deploy from GitHub. (Flint) |
-| Do we need Supabase for relational data? | No. Direct PostgreSQL with `postgres` npm package. (Flint) |
-| Do we need dedicated file storage? | No. Platform stores text intelligence in Sanity. Files stay in Dropbox. Links bridge them. |
-| How does schema migration work? | Idempotent SQL — `IF NOT EXISTS` everywhere, runs on first API call. (Flint) |
-| How does deployment work? | Multiple Railway services in one project, shared PostgreSQL, auto-deploy on push to main. (Flint) |
+The platform is live with real content across all content types. MCP bridge working with OAuth. At least one or two LOB tools functional. A practitioner can sit in Claude and operate AI-native using platform-managed content.
 
 ---
 
@@ -391,97 +275,82 @@ This is the launchable product.
 
 | Layer | What it does | Status |
 |---|---|---|
-| Azure AD tenant restriction | Only accounts in the JDA tenant can authenticate at all | Live — enforced by `issuer` config in Auth.js |
-| Portal auth middleware | Every portal route and API endpoint requires an active Azure AD session | Live — `src/middleware.ts` redirects unauthenticated requests to `/sign-in` |
-| Portal admin-only API routes | `/api/users` requires `tier = admin` in the database, not just a valid session | Live — `requireAdmin()` checks DB tier on every request |
-| Self-tier-change blocked | An admin cannot demote their own tier via the Users API (prevents accidental lockout) | Live |
-| MCP OAuth session tokens | Every MCP request requires a valid bearer token from a completed Azure AD OAuth flow | Live — tokens stored in `oauth_sessions`, validated on every request |
-| MCP permission gating | `systemInstructions`, `visionOfGood`, `tips`, and `checkPrompt` in methodologies are blocked for `practitioner` tier | Live — gate returns placeholder text instead of content |
-| MCP API key fallback | Secondary auth for programmatic access (n8n, Claude Code); not the practitioner path | Live |
+| Azure AD tenant restriction | Only accounts in the JDA tenant can authenticate at all | Live |
+| Portal auth middleware | Every portal route and API endpoint requires an active Azure AD session | Live |
+| Portal admin-only API routes | `/api/users` requires `tier = admin` in the database | Live |
+| Self-tier-change blocked | An admin cannot demote their own tier via the Users API | Live |
+| MCP OAuth session tokens | Every MCP request requires a valid bearer token | Live |
+| MCP permission gating | `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt` blocked for `practitioner` tier | Live |
+| MCP API key fallback | Secondary auth for programmatic access | Live |
 
-### Known Gaps & Outstanding Items
+### Known Gaps
 
-**1. Permission gating not validated with a practitioner account**
-The gate exists in code but has never been tested end-to-end with an actual `practitioner`-tier user. Until confirmed, we don't know for certain that the gate is blocking correctly. To validate: temporarily demote a user to `practitioner` on the Users page, have them ask Claude for a methodology's system instructions, confirm they receive the placeholder — not the full content. Then promote them back.
-
-**2. Azure AD security group not enforced for portal sign-in**
-The implementation plan calls for a security group (e.g. "JDA AI Platform Admins") that restricts who can sign into the portal at all. Currently any JDA Azure AD account can sign in to the portal — the only protection is the `tier = admin` database check on sensitive routes. For a small team this is acceptable now, but before broader rollout: create the security group in Entra ID, add the `groupMembershipClaims` to the app registration, and add a group check in the `jwt` callback to reject sign-ins from accounts outside the group.
-
-**3. Azure AD security group not enforced for MCP OAuth**
-Same gap on the MCP side. Any JDA Azure AD account can complete the OAuth flow and get an MCP session token. They land as `practitioner` tier with read-only access to non-gated content, which is probably acceptable — but the implementation plan calls for a separate "JDA AI Platform Users" group to gate this. Not yet implemented.
-
-**4. MCP session tokens are in-memory only for pending flows**
-The `pendingFlows` and `pendingCodes` maps used during the OAuth handshake are in-memory on the MCP server. A server restart during an active OAuth flow will drop those states and the user will get an error. Given Railway's single-replica deployment this is low risk, but worth noting. Long-term: move pending flow state to PostgreSQL or Redis.
-
-**5. No MCP request rate limiting**
-The MCP server has no rate limiting. A compromised session token or a runaway Claude session could hammer Sanity with requests. Low risk in current scale, but should be added before public rollout.
-
-**6. Sanity Studio is publicly accessible**
-Sanity Studio at `/studio` is part of the portal app and protected by the portal auth middleware. However, anyone who can sign into the portal can access Studio and edit content directly, bypassing MCP permission tiers. This is intentional for now (admins need Studio), but practice leaders should eventually be restricted to their practice's content only.
+1. **Azure AD security group not enforced for portal sign-in** — any JDA Azure AD account can sign in. Only the `tier = admin` DB check protects sensitive routes. Acceptable now, fix before broader rollout.
+2. **Azure AD security group not enforced for MCP OAuth** — any JDA Azure AD account can complete the OAuth flow and land as `practitioner`. Acceptable for now.
+3. **MCP pending flow state is in-memory** — a server restart during OAuth drops the flow. Low risk on single-replica Railway. Long-term: move to PostgreSQL.
+4. **No MCP request rate limiting** — should be added before public rollout.
 
 ### Security Testing Checklist (Before Team Rollout)
 
 - [ ] Demote a test user to `practitioner`, confirm system instructions are blocked in Claude
 - [ ] Confirm unauthenticated requests to `/api/users` return 401
 - [ ] Confirm a `practitioner`-tier portal session cannot access `/api/users`
-- [ ] Confirm a practitioner cannot complete the portal sign-in (once Azure AD group is enforced)
 - [ ] Confirm MCP requests with an expired/invalid token return 401
 - [ ] Confirm MCP requests with a valid practitioner token cannot read gated methodology fields
 - [ ] Confirm an admin cannot change their own tier via the Users API
 
 ---
 
-## Open Items
+## Open Discovery Questions — For Next Session in Claude
 
-- **Sanity self-hosted on Railway**: Not yet deployed. This is the one new infrastructure component that needs to be proven in Step 1.
-- **Sanity GROQ → MCP tool responses**: Querying Sanity from an MCP server is a new pattern (Flint queries PostgreSQL directly). Validated in Step 1 with the prompt library proof of concept.
-- **OAuth MCP connector with Azure AD**: The pattern is validated by Dropbox/Asana, but building a custom OAuth MCP server against Azure AD is new. Validated in Step 1.
-- **Content payload sizes**: Flint's MCP tools return small payloads. Portal tools will return richer content. Tested at each step, with the critical test at Step 2 when `assemble_production_context` chains multiple content types.
-- **Cross-practice visibility rules**: Deferred to activation — the schema supports flexible practice assignments.
-- **Content inventory session**: Must happen before Step 1 content loading. Existing prompts, templates, and patterns must be cataloged.
-- **n8n integration patterns**: Not yet proven. Planned for Step 5.
-- **Dropbox MCP write access**: Currently read-only during beta. Once available, practitioners could push generated files to Dropbox through Claude.
+The following questions need to be worked through before committing to the build sequence for Steps 3–8. These should be the basis of a discovery session.
+
+### Claude Project Architecture (Step 6 — highest priority to resolve)
+
+The original plan deferred this to Step 6, but the decisions here affect everything before it. What's in a Project system prompt determines what MCP needs to return and how. This needs to be resolved early, not late.
+
+- What is the right Project structure? Options:
+  - One Project per practice area (Brand, Digital, PR, etc.)
+  - One Project per client (HBI, Prolific, Conquer, etc.)
+  - Both — practice Projects for methodology, client Projects for deliverables
+  - One universal Project that uses MCP to scope everything dynamically
+- What belongs in a Project system prompt vs. pulled live via MCP?
+  - System prompt candidates: JDA identity, practitioner role context, practice area overview, standing operating procedures
+  - MCP candidates: client brand packages, specific templates, methodology instructions, quality gates
+  - The answer affects how much content needs to be in Sanity vs. in Project instructions
+- How does a practitioner get set up? Is there a self-serve process or does Brandon configure each one?
+- How do Projects stay current when Alexandria content changes? MCP solves this for live lookups — but system prompt content goes stale.
+- Is there a meaningful difference between a "practice Project" and a "client Project" or does MCP make that distinction irrelevant?
+
+### Deliverable Classifications + Quality Gates (Step 3)
+
+- Are these worth building as dedicated Sanity content types, or are they better as structured sections within methodologies?
+- Who actually uses quality gates — Claude enforcing them automatically, or practitioners checking manually?
+- What's the minimum viable version? A simple list of deliverable types with AI classification might be enough to start.
+
+### Workflow Guides (Step 4)
+
+- How different are workflow guides across practices? If they're very similar, one schema fits all. If they're practice-specific, they might belong in Project system prompts rather than MCP.
+- Who authors these — Brandon, practice leaders, or both?
+- What does a practitioner actually do with a workflow guide in Claude? Does Claude walk them through it step by step, or is it reference material?
+
+### LOB Tools (Step 7)
+
+- Where does the RFP scraper stand — is it a real thing or still conceptual?
+- Which tool would practitioners actually use today if it existed?
+- Do LOB tools need to live in the portal or could they be standalone Claude Projects with the right MCP tools?
+
+### Measurement (Step 5)
+
+- What does "adoption" mean concretely? Is it MCP call volume, deliverable count, something else?
+- Who looks at dashboards — Brandon, practice leaders, or both?
+- What's the minimum dashboard that would actually change behavior vs. be a vanity metric?
+
+### `alexandria_save_template` Write Tool
+
+- Should practice leaders be able to create and update templates through Claude, or is that an admin-only action?
+- If yes, what's the review/approval process before a new template is active?
 
 ---
 
-## Repository Structure (Projected)
-
-Following Flint's pattern — monorepo with separate services:
-
-```
-jda-platform/
-├── app/                          # Next.js web application (portal)
-│   ├── src/
-│   │   ├── app/                  # App Router pages and API routes
-│   │   │   ├── api/
-│   │   │   │   ├── content/      # Sanity content proxy endpoints
-│   │   │   │   ├── users/        # User management, permission tiers
-│   │   │   │   ├── keys/         # API key management (secondary auth)
-│   │   │   │   ├── dashboard/    # Dashboard data endpoints
-│   │   │   │   └── tools/        # LOB tool backends
-│   │   │   ├── admin/            # Admin content management views
-│   │   │   ├── dashboard/        # Practice leader dashboards
-│   │   │   ├── tools/            # LOB tool UIs
-│   │   │   └── sign-in/          # Auth sign-in page
-│   │   ├── components/           # Shared UI components
-│   │   └── lib/
-│   │       ├── db.ts             # PostgreSQL client + types
-│   │       ├── schema.ts         # Table definitions + idempotent migrations
-│   │       ├── auth.ts           # Auth.js v5 + Entra ID config
-│   │       ├── sanity.ts         # Sanity client + GROQ queries
-│   │       └── session.ts        # Session helper
-│   └── railway.json
-├── mcp/                          # Standalone MCP server (OAuth + API key auth)
-│   ├── src/
-│   │   └── index.ts              # HTTP server + OAuth handler + platform MCP tools
-│   └── railway.json
-├── sanity/                       # Sanity Studio (self-hosted)
-│   ├── schemas/                  # Content type schemas
-│   └── railway.json
-└── n8n/                          # n8n config (if self-hosted, Step 5)
-    └── railway.json
-```
-
----
-
-*This document supersedes `portal-01-foundation.md` as the working implementation plan. It incorporates all decisions from the original plan and updates them against Flint's verified production architecture, the Claude Teams OAuth connector pattern, and the resolved storage architecture.*
+*Updated March 24, 2026. Steps 1–2 complete. Steps 3–10 pending discovery sessions outlined above.*

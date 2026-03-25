@@ -4,6 +4,7 @@ import { visionTool } from "@sanity/vision";
 import { schemaTypes } from "./schemas";
 import { structure } from "./lib/structure";
 import StudioLogo from "./studio/logo";
+import { DownloadAsMarkdown } from "./studio/actions/DownloadAsMarkdown";
 
 export default defineConfig({
   basePath: "/studio",
@@ -18,5 +19,8 @@ export default defineConfig({
   ],
   schema: {
     types: schemaTypes,
+  },
+  document: {
+    actions: (prev) => [...prev, DownloadAsMarkdown],
   },
 });

@@ -268,6 +268,7 @@ export const DownloadAsMarkdown: DocumentActionComponent = (
   return {
     label: "Download as Markdown",
     icon: () => "⬇",
+    position: "secondary" as const,
     onHandle: () => {
       const markdown = assembleMarkdown(doc, type);
       const filename = getFilename(doc, type);

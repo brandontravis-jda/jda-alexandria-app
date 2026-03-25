@@ -21,6 +21,18 @@ export default defineConfig({
     types: schemaTypes,
   },
   document: {
-    actions: (prev) => [...prev, DownloadAsMarkdown],
+    actions: (prev) => {
+      // Remove Duplicate action to keep the action bar uncluttered,
+      // then put Download as Markdown right before Publish.
+      const filtered = prev.filter(
+        (action) => action.action !== "duplicate"
+      );
+      const publishIndex = filtered.findIndex(
+        (action) => action.action === "publish"
+      );
+      if (publishIndex === -1) return [...filtered, DownloadAsMarkdown];
+      filtered.splice(publishIndex, 0, DownloadAsMarkdown);
+      return filtered;
+    },
   },
 });

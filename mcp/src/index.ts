@@ -671,7 +671,7 @@ function buildServer(auth: AuthResult): McpServer {
     "alexandria_list_templates",
     "List available production templates in Alexandria. Returns title, format type, use cases, and feature list for each — enough for a practitioner to pick the right template without Claude explaining each one in prose. Optionally filter by format type.",
     {
-      format_type: z.enum(["editorial-html", "slideshow-html", "web-landing-page", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
+      format_type: z.enum(["html-deliverable", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
     },
     async ({ format_type }) => {
       const filter = format_type
@@ -692,9 +692,7 @@ function buildServer(auth: AuthResult): McpServer {
       }
 
       const formatLabels: Record<string, string> = {
-        "editorial-html":   "Editorial HTML (scrolling, immersive, single-file)",
-        "slideshow-html":   "Slideshow HTML (slide-by-slide, keyboard navigation)",
-        "web-landing-page": "Web Landing Page",
+        "html-deliverable": "HTML Deliverable (scroll, slide, or tabbed)",
         "word-document":    "Word Document",
         "html-email":       "HTML Email",
       };
@@ -759,9 +757,7 @@ function buildServer(auth: AuthResult): McpServer {
       }
 
       const formatLabels: Record<string, string> = {
-        "editorial-html":   "Editorial HTML — scrolling, immersive, single-file HTML",
-        "slideshow-html":   "Slideshow HTML — slide-by-slide, keyboard navigation",
-        "web-landing-page": "Web Landing Page",
+        "html-deliverable": "HTML Deliverable — scroll, slide, or tabbed; all HTML formats",
         "word-document":    "Word Document (.docx)",
         "html-email":       "HTML Email",
       };

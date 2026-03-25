@@ -28,9 +28,7 @@ export default defineType({
       description: "The production format — determines how Claude uses this template.",
       options: {
         list: [
-          { title: "Editorial HTML — scrolling, immersive, single-file", value: "editorial-html" },
-          { title: "Slideshow HTML — slide-by-slide, keyboard navigation", value: "slideshow-html" },
-          { title: "Web Landing Page — traditional page structure", value: "web-landing-page" },
+          { title: "HTML Deliverable — scroll, slide, or tabbed; all HTML formats", value: "html-deliverable" },
           { title: "Word Document — .docx reference file", value: "word-document" },
           { title: "HTML Email — branded email template", value: "html-email" },
         ],
@@ -168,9 +166,7 @@ export default defineType({
     },
     prepare({ title, formatType, status }: { title: string; formatType?: string; status?: string }) {
       const formatLabels: Record<string, string> = {
-        "editorial-html": "Editorial HTML",
-        "slideshow-html": "Slideshow HTML",
-        "web-landing-page": "Web Landing Page",
+        "html-deliverable": "HTML Deliverable",
         "word-document": "Word Document",
         "html-email": "HTML Email",
       };

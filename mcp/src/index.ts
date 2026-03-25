@@ -537,6 +537,8 @@ function buildServer(auth: AuthResult): McpServer {
           _id, clientName, "slug": slug.current, abbreviations,
           extractedDate, sourceDocument, extractedBy, gaps,
           rawMarkdown,
+          logoSvg,
+          "logoImageUrl": logoImage.asset->url,
           identity, colorPalette, colorUsageRules,
           typography, voiceAndTone, brandArchitecture,
           visualDirection, keyMessaging
@@ -551,6 +553,18 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
+      // Build logo section — SVG preferred, raster URL as fallback
+      const logoLines: string[] = [];
+      if (p.logoSvg) {
+        logoLines.push("## Logo (SVG)");
+        logoLines.push("Embed inline in HTML using the SVG code below. You can recolor fills and strokes to match layout needs.");
+        logoLines.push(p.logoSvg);
+      } else if (p.logoImageUrl) {
+        logoLines.push("## Logo (Image)");
+        logoLines.push(`URL: ${p.logoImageUrl}`);
+        logoLines.push("Use as an <img> src. Do not hotlink in production — practitioner should download and embed or serve from their own host.");
+      }
+
       if (p.rawMarkdown) {
         const header = [
           `# ${p.clientName} — Brand Package`,
@@ -561,7 +575,8 @@ function buildServer(auth: AuthResult): McpServer {
           "\n---\n",
         ].filter(Boolean).join("\n");
 
-        return { content: [{ type: "text", text: header + p.rawMarkdown }] };
+        const logoSection = logoLines.length > 0 ? "\n" + logoLines.join("\n") + "\n\n---\n\n" : "";
+        return { content: [{ type: "text", text: header + logoSection + p.rawMarkdown }] };
       }
 
       // Fallback: build from structured fields
@@ -571,6 +586,7 @@ function buildServer(auth: AuthResult): McpServer {
       if (p.sourceDocument) lines.push(`**Source:** ${p.sourceDocument}`);
       if (p.extractedDate) lines.push(`**Extracted:** ${p.extractedDate}`);
       if (p.gaps) lines.push(`\n⚠ **Extraction gaps:** ${p.gaps}`);
+      if (logoLines.length > 0) lines.push("\n" + logoLines.join("\n"));
 
       const id = p.identity as Record<string, string> | null;
       if (id) {

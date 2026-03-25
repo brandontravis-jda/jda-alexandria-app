@@ -28,6 +28,22 @@ export default defineType({
       description: "Acceptable short names or acronyms (e.g. 'HBI', 'HI').",
     }),
 
+    // ── Logo Assets ──────────────────────────────────────────────────────────
+    defineField({
+      name: "logoSvg",
+      title: "Logo (SVG Code)",
+      type: "text",
+      rows: 6,
+      description: "Raw SVG markup for the primary logo. Preferred for web deliverables — Claude embeds it inline and can recolor or resize as needed. Paste the full <svg>...</svg> block.",
+    }),
+    defineField({
+      name: "logoImage",
+      title: "Logo (Image File)",
+      type: "image",
+      description: "Raster logo file (PNG, JPG, WebP). Used when SVG is not available. Sanity hosts it and returns a stable CDN URL to Claude.",
+      options: { hotspot: false },
+    }),
+
     // ── Extraction Metadata ──────────────────────────────────────────────────
     defineField({
       name: "extractedDate",

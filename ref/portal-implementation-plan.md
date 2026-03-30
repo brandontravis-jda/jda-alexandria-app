@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated March 30, 2026 to reflect Step 2 completion, add Step 3 (Alexandria Help), and renumber Steps 3–10 to 4–11.
+> Updated March 30, 2026 to reflect Steps 2–3 completion.
 
 ---
 
@@ -15,6 +15,10 @@ The platform is a structured content and knowledge layer that makes Claude opera
 **The Automation Layer** — n8n as the nervous system connecting the portal to Asana, Fireflies, Slack, and other operational tools. Handles background workflows (transcript routing, dashboard data, notifications) and powers LOB tool backends.
 
 **The Claude Environment** — Claude Projects scoped per practice area and/or per client, with MCP providing live platform content on demand. The practitioner works in Claude. The platform ensures Claude has the right knowledge for the practitioner's role, practice, and client context.
+
+### MCP Connector Reauth Note
+
+Practitioners connecting Alexandria through Claude Teams must disconnect and reconnect the connector whenever **new MCP tools are added** (Claude re-fetches the tool manifest on reconnect). This is a Claude protocol constraint — not something the platform can eliminate. Content changes (Sanity edits, brand package updates, `platformGuide` text) are live immediately and never require reauth. A practitioner-facing changelog should communicate when a reconnect is needed. See Step 10 for changelog as portal content.
 
 ### Key Architecture Principle
 
@@ -161,7 +165,7 @@ The platform stores authored intelligence as text in Sanity. Logos are stored di
 
 ---
 
-### Step 3: Alexandria Help + Platform Discovery Surface
+### Step 3: Alexandria Help + Platform Discovery Surface — ✅ COMPLETE
 
 **Spec:** `ref/step-3-alexandria-help-spec.md` — developed in discovery session March 30, 2026.
 
@@ -196,12 +200,14 @@ Not a refusal. Transparent handoff that keeps Alexandria assets in the loop. Eve
 Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `permission_tier`, `tool_name`, `request_summary`, `matched_capability` (bool), `capability_type` (template/methodology/brand_package/null), `capability_id`, `created_at`. Unsupported requests (`matched_capability = false`) are the priority data — primary input for deciding what to build next. Reporting surface deferred to Step 6 dashboards.
 
 **Build items:**
-- ⬜ `alexandria_request_log` DB migration
-- ⬜ Request logging middleware on all MCP tool handlers
-- ⬜ `platformGuide` Sanity schema (singleton document type)
-- ⬜ Seed `platformGuide` document (platformIntro, canonicalEntryPrompts, examplePrompts)
-- ⬜ `alexandria_help` MCP tool — tier-aware, pulls live from Sanity
-- ⬜ Unsupported request flow
+- ✅ `alexandria_request_log` DB migration
+- ✅ Request logging middleware on all MCP tool handlers (get_template, build_template, get_methodology, get_brand_package, help)
+- ✅ `platformGuide` Sanity schema (singleton document type)
+- ✅ Seed `platformGuide` document (platformIntro, canonicalEntryPrompts, examplePrompts)
+- ✅ `alexandria_help` MCP tool — tier-aware, pulls live from Sanity, tier callout as blockquote at top
+- ✅ Unsupported request flow — baked into tool description; validated with "social media calendar" test
+
+**Validated:** `alexandria_help` returns structured inventory with tier callout, unsupported request handoff fires correctly, request logging confirmed in Postgres.
 
 **Depends on:** Step 2 intake enforcement complete. `platformGuide` content seeded before `alexandria_help` goes live.
 
@@ -312,6 +318,8 @@ Originally designed to generate everything needed to stand up a new Claude Proje
 
 Ongoing — as practice leader discoveries happen, new content flows into Sanity through the portal or through Claude (practice leader write-back via MCP).
 
+**Changelog as portal content (not urgent):** When new MCP tools are added, practitioners need to know to reconnect their Alexandria connector in Claude. A lightweight changelog — authored in Sanity, surfaced as a page in the portal and optionally via `alexandria_help` — would communicate this without requiring a Slack message from Brandon. Add a `changelogEntry` array to `platformGuide` (date, summary, requires_reauth bool) and surface it in the portal. Low priority, but the right home for it.
+
 **No end date. Depends on:** Practice leader alignment meetings and discovery interviews.
 
 ---
@@ -410,4 +418,4 @@ Scope validated by `ref/alexandria-intake-enforcement.md` — use that as the st
 
 ---
 
-*Updated March 30, 2026. Steps 1–2 complete. Steps 3–11 pending discovery sessions outlined above.*
+*Updated March 30, 2026. Steps 1–3 complete. Steps 4–11 pending discovery sessions outlined above.*

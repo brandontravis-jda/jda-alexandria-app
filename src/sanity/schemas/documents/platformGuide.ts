@@ -4,7 +4,6 @@ export default defineType({
   name: "platformGuide",
   title: "Platform Guide",
   type: "document",
-  __experimental_actions: ["update", "publish"],
   fields: [
     defineField({
       name: "title",

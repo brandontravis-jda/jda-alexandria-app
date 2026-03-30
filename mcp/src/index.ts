@@ -62,6 +62,20 @@ async function migrate() {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS oauth_sessions_token_idx ON oauth_sessions(token)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS intake_sessions (
+      session_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      template_slug         TEXT NOT NULL,
+      practitioner_id       TEXT,
+      status                TEXT NOT NULL DEFAULT 'awaiting_intake'
+                              CHECK (status IN ('awaiting_intake', 'intake_complete')),
+      answers               JSONB,
+      created_at            TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      submitted_at          TIMESTAMPTZ
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS intake_sessions_status_idx ON intake_sessions(status)`;
 }
 
 migrate().catch((err) => console.error("Migration error:", err));
@@ -719,7 +733,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_template ───────────────────────────────────────────────
   server.tool(
     "alexandria_get_template",
-    "Step 1 of 2 for building a deliverable. Returns the practitioner intake questions for the chosen template. You MUST present these questions to the practitioner and collect their answers before proceeding. Do NOT read source files or fetch brand packages yet — ask the Stage 1 questions first, then fetch the brand package for Stage 2 questions, then call alexandria_build_template with the confirmed answers to get production instructions.",
+    "Step 1 of 3 for building a deliverable. Returns a session_id and the practitioner intake questions. You MUST present ALL intake questions to the practitioner and wait for their answers. Do NOT read source files, fetch brand packages, or call alexandria_build_template until intake is complete. After collecting answers, call alexandria_submit_intake with the session_id and answers. Only then call alexandria_build_template.",
     {
       slug: z.string().describe("The template slug OR plain-english name. Hyphens, underscores, and spaces are all accepted."),
     },
@@ -754,9 +768,20 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
+      // Create intake session in Postgres
+      const practitionerId = auth.userId.toString();
+      const [session] = await sql<{ session_id: string }[]>`
+        INSERT INTO intake_sessions (template_slug, practitioner_id, status)
+        VALUES (${t.slug}, ${practitionerId}, 'awaiting_intake')
+        RETURNING session_id
+      `;
+
       const lines: string[] = [
         `# ${t.title} — Practitioner Intake`,
-        `\nTemplate loaded. Before reading any source material or fetching any brand package, present the intake questions below to the practitioner. Collect all answers, then call \`alexandria_build_template\` with the slug and confirmed answers to receive the full production instructions.\n`,
+        `\n**Session ID:** \`${session.session_id}\``,
+        `*Save this — you will need it to submit answers and unlock production instructions.*\n`,
+        `---`,
+        `\nPresent ALL of the following intake questions to the practitioner and wait for their answers. Do not read any source files or fetch any brand packages yet. Do not call alexandria_build_template until you have called alexandria_submit_intake with the practitioner's confirmed answers.\n`,
         `---\n`,
         t.clientAdaptationNotes ?? "No intake questions defined for this template.",
       ];
@@ -765,15 +790,121 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_submit_intake ──────────────────────────────────────────────
+  server.tool(
+    "alexandria_submit_intake",
+    "Step 2 of 3 for building a deliverable. Call this after the practitioner has answered all intake questions. Submits their answers against the session_id from alexandria_get_template, validates completeness, and unlocks the session for building. Returns a confirmation summary — show it to the practitioner and ask them to confirm before calling alexandria_build_template.",
+    {
+      session_id: z.string().describe("The session_id returned by alexandria_get_template."),
+      audience: z.string().describe("Who will see this deliverable and in what context."),
+      purpose: z.string().describe("What this deliverable needs to accomplish — the decision or action it should drive."),
+      layout_mode: z.enum(["scroll", "slide", "tabbed"]).describe("The chosen layout mode."),
+      navigation: z.enum(["smart", "always", "none"]).describe("Navigation preference: smart (include if >8 sections), always, or none."),
+      background_treatment: z.enum(["alternating", "all-dark", "all-light", "dark-hero-light-body"]).describe("Section background pattern."),
+      color_skin: z.string().describe("Color/skin choice described from the brand package options presented — e.g. 'Prolific dark blue hero with alternating light sections'."),
+      tone: z.string().describe("How the deliverable should feel — the practitioner's own words."),
+      cover_framing: z.enum(["internal", "external-jda", "external-client"]).describe("internal = no confidentiality line; external-jda = JDA authored; external-client = client branded."),
+      anything_else: z.string().optional().describe("Any additional constraints, verbatim language, sections to avoid, etc."),
+    },
+    async ({ session_id, audience, purpose, layout_mode, navigation, background_treatment, color_skin, tone, cover_framing, anything_else }) => {
+      // Validate session exists and is awaiting intake
+      const [session] = await sql<{ session_id: string; status: string; template_slug: string }[]>`
+        SELECT session_id, status, template_slug FROM intake_sessions WHERE session_id = ${session_id}
+      `;
+
+      if (!session) {
+        return {
+          content: [{ type: "text", text: `Session not found: \`${session_id}\`. Call alexandria_get_template to start a new intake session.` }],
+          isError: true,
+        };
+      }
+
+      if (session.status === "intake_complete") {
+        return {
+          content: [{ type: "text", text: `Session \`${session_id}\` is already complete. Call alexandria_build_template to get production instructions.` }],
+          isError: false,
+        };
+      }
+
+      // Validate answer quality — reject implausibly short answers
+      const shortFields = [
+        { name: "audience", value: audience },
+        { name: "purpose", value: purpose },
+        { name: "color_skin", value: color_skin },
+        { name: "tone", value: tone },
+      ].filter(f => f.value.trim().split(/\s+/).length < 3);
+
+      if (shortFields.length > 0) {
+        return {
+          content: [{ type: "text", text: `The following answers appear incomplete (fewer than 3 words): ${shortFields.map(f => f.name).join(", ")}. Ask the practitioner to provide more specific answers before submitting.` }],
+          isError: true,
+        };
+      }
+
+      const answers = { audience, purpose, layout_mode, navigation, background_treatment, color_skin, tone, cover_framing, anything_else: anything_else ?? "" };
+
+      await sql`
+        UPDATE intake_sessions
+        SET status = 'intake_complete', answers = ${JSON.stringify(answers)}, submitted_at = NOW()
+        WHERE session_id = ${session_id}
+      `;
+
+      const navLabel: Record<string, string> = { smart: "Smart nav (include if >8 sections)", always: "Always include navigation", none: "No navigation" };
+      const bgLabel: Record<string, string> = { "alternating": "Alternating dark/light", "all-dark": "All dark", "all-light": "All light", "dark-hero-light-body": "Dark hero + light body" };
+      const coverLabel: Record<string, string> = { "internal": "Internal — no confidentiality line", "external-jda": "External — JDA authored", "external-client": "External — client branded" };
+
+      const summary = [
+        `## Intake Confirmed — Session \`${session_id}\``,
+        ``,
+        `Here is what I have. Please confirm this is correct before I build:\n`,
+        `**Audience:** ${audience}`,
+        `**Purpose:** ${purpose}`,
+        `**Layout:** ${layout_mode}`,
+        `**Navigation:** ${navLabel[navigation]}`,
+        `**Background:** ${bgLabel[background_treatment]}`,
+        `**Color skin:** ${color_skin}`,
+        `**Tone:** ${tone}`,
+        `**Cover framing:** ${coverLabel[cover_framing]}`,
+        anything_else ? `**Additional notes:** ${anything_else}` : "",
+        ``,
+        `If this looks right, confirm and I will proceed. If anything needs to change, tell me now.`,
+        ``,
+        `*Once confirmed, call \`alexandria_build_template\` with session_id \`${session_id}\` to receive production instructions.*`,
+      ].filter(Boolean).join("\n");
+
+      return { content: [{ type: "text", text: summary }] };
+    }
+  );
+
   // ── alexandria_build_template ─────────────────────────────────────────────
   server.tool(
     "alexandria_build_template",
-    "Step 2 of 2 for building a deliverable. Call this ONLY after completing practitioner intake via alexandria_get_template and collecting confirmed answers. Pass the template slug and a summary of the confirmed practitioner answers. Returns full production instructions: fixed elements, variable elements, brand injection rules, output spec, and quality checks.",
+    "Step 3 of 3 for building a deliverable. Call this ONLY after alexandria_submit_intake has been called and the practitioner has confirmed the intake summary. Requires session_id. The server validates session status — calls on sessions still awaiting intake are rejected. Returns full production instructions with confirmed practitioner parameters injected.",
     {
       slug: z.string().describe("The template slug from alexandria_get_template."),
-      confirmed_answers: z.string().describe("A summary of the practitioner's confirmed intake answers — audience, purpose, layout, navigation, background, color skin, tone, cover framing, and anything else. Write these out clearly so the production instructions can be applied correctly."),
+      session_id: z.string().describe("The session_id from alexandria_get_template. Must correspond to a completed intake session."),
     },
-    async ({ slug, confirmed_answers }) => {
+    async ({ slug, session_id }) => {
+      // Gate: verify session is complete
+      const [session] = await sql<{ status: string; answers: Record<string, string> }[]>`
+        SELECT status, answers FROM intake_sessions WHERE session_id = ${session_id}
+      `;
+
+      if (!session) {
+        return {
+          content: [{ type: "text", text: `Session not found: \`${session_id}\`. Call alexandria_get_template to start a new intake session.` }],
+          isError: true,
+        };
+      }
+
+      if (session.status !== "intake_complete") {
+        return {
+          content: [{ type: "text", text: `Cannot build: session \`${session_id}\` has not completed intake. Call alexandria_submit_intake with the practitioner's confirmed answers first.` }],
+          isError: true,
+        };
+      }
+
+      const a = session.answers;
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
@@ -825,7 +956,23 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.githubRawUrl) lines.push(`**Source HTML:** ${t.githubRawUrl}`);
       if (t.dropboxLink)  lines.push(`**Source file:** ${t.dropboxLink}`);
 
-      lines.push(`\n## Confirmed Practitioner Parameters\n${confirmed_answers}`);
+      const navLabel: Record<string, string> = { smart: "Smart nav (include if >8 sections)", always: "Always include navigation", none: "No navigation" };
+      const bgLabel: Record<string, string> = { "alternating": "Alternating dark/light", "all-dark": "All dark", "all-light": "All light", "dark-hero-light-body": "Dark hero + light body" };
+      const coverLabel: Record<string, string> = { "internal": "Internal — no confidentiality line", "external-jda": "External — JDA authored", "external-client": "External — client branded" };
+
+      const confirmedParams = [
+        `**Audience:** ${a.audience}`,
+        `**Purpose:** ${a.purpose}`,
+        `**Layout:** ${a.layout_mode}`,
+        `**Navigation:** ${navLabel[a.navigation] ?? a.navigation}`,
+        `**Background:** ${bgLabel[a.background_treatment] ?? a.background_treatment}`,
+        `**Color skin:** ${a.color_skin}`,
+        `**Tone:** ${a.tone}`,
+        `**Cover framing:** ${coverLabel[a.cover_framing] ?? a.cover_framing}`,
+        a.anything_else ? `**Additional notes:** ${a.anything_else}` : "",
+      ].filter(Boolean).join("\n");
+
+      lines.push(`\n## Confirmed Practitioner Parameters\n${confirmedParams}`);
 
       lines.push(`\n---\n## Production Instructions`);
       lines.push(`Apply the confirmed practitioner parameters above throughout. Read all sections before producing any output.\n`);

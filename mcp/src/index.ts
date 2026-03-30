@@ -781,7 +781,8 @@ function buildServer(auth: AuthResult): McpServer {
         `\n**Session ID:** \`${session.session_id}\``,
         `*Save this — you will need it to submit answers and unlock production instructions.*\n`,
         `---`,
-        `\nPresent ALL of the following intake questions to the practitioner and wait for their answers. Do not read any source files or fetch any brand packages yet. Do not call alexandria_build_template until you have called alexandria_submit_intake with the practitioner's confirmed answers.\n`,
+        `\nPresent ALL of the following intake questions to the practitioner as a single message and wait for a single reply before doing anything else. Do not read any source files or fetch any brand packages yet.`,
+        `\nFor questions with discrete lettered options, use an interactive poll widget if available — this lets the practitioner answer with a single click. For open-text questions (client name, source content, audience, purpose, tone, anything else), present them as plain numbered questions. The goal is a single short reply from the practitioner covering all questions at once.\n`,
         `---\n`,
         t.clientAdaptationNotes ?? "No intake questions defined for this template.",
       ];

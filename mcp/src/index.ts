@@ -699,7 +699,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       const lines: string[] = [
         `# Alexandria Templates (${templates.length} active)\n`,
-        `⚠ **You MUST call \`alexandria_get_template\` for the chosen template before doing any production work.** The full template contains required practitioner intake instructions that must be completed before building. Do not skip this step.\n`,
+        `⚠ **Building a deliverable is a two-step process:** (1) Call \`alexandria_get_template\` to get the practitioner intake questions and collect answers. (2) Call \`alexandria_build_template\` with confirmed answers to get production instructions. Do not skip either step.\n`,
       ];
 
       for (const t of templates) {
@@ -709,7 +709,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (t.previewUrl) lines.push(`**Preview:** ${t.previewUrl}`);
         if (t.useCases) lines.push(`\n**Use cases:** ${t.useCases}`);
         if (t.featureList) lines.push(`\n**Features:** ${t.featureList}`);
-        lines.push(`\n→ Call \`alexandria_get_template\` with slug \`${t.slug}\` to load full build instructions and practitioner intake.\n`);
+        lines.push(`\n→ Step 1: Call \`alexandria_get_template\` with slug \`${t.slug}\` to get intake questions.\n→ Step 2: Call \`alexandria_build_template\` with slug and confirmed answers to get production instructions.\n`);
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -719,9 +719,9 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_template ───────────────────────────────────────────────
   server.tool(
     "alexandria_get_template",
-    "Get the full production template from Alexandria. The response begins with required practitioner intake instructions — present the pre-build summary and ask the intake questions BEFORE proceeding to any production work. Do not skip or defer the intake. After intake is complete, the response contains fixed elements, variable elements, brand injection rules, output spec, and quality checks.",
+    "Step 1 of 2 for building a deliverable. Returns the practitioner intake questions for the chosen template. You MUST present these questions to the practitioner and collect their answers before proceeding. Do NOT read source files or fetch brand packages yet — ask the Stage 1 questions first, then fetch the brand package for Stage 2 questions, then call alexandria_build_template with the confirmed answers to get production instructions.",
     {
-      slug: z.string().describe("The template slug OR plain-english name (e.g. 'scrolling-editorial-presentation', 'JDA Document Style'). Hyphens, underscores, and spaces are all accepted."),
+      slug: z.string().describe("The template slug OR plain-english name. Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -735,12 +735,7 @@ function buildServer(auth: AuthResult): McpServer {
           lower(title) match $namePattern
         )][0] {
           title, "slug": slug.current, formatType, status,
-          previewUrl, githubRawUrl, dropboxLink,
-          useCases, featureList,
-          fixedElements, variableElements, brandInjectionRules,
-          clientAdaptationNotes, outputSpec, qualityChecks,
-          "practiceAreas": practiceAreas[]->{ name, "slug": slug.current },
-          "relatedMethodologies": relatedMethodologies[]->{ name, "slug": slug.current }
+          clientAdaptationNotes
         }`,
         { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
       );
@@ -759,6 +754,61 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
+      const lines: string[] = [
+        `# ${t.title} — Practitioner Intake`,
+        `\nTemplate loaded. Before reading any source material or fetching any brand package, present the intake questions below to the practitioner. Collect all answers, then call \`alexandria_build_template\` with the slug and confirmed answers to receive the full production instructions.\n`,
+        `---\n`,
+        t.clientAdaptationNotes ?? "No intake questions defined for this template.",
+      ];
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_build_template ─────────────────────────────────────────────
+  server.tool(
+    "alexandria_build_template",
+    "Step 2 of 2 for building a deliverable. Call this ONLY after completing practitioner intake via alexandria_get_template and collecting confirmed answers. Pass the template slug and a summary of the confirmed practitioner answers. Returns full production instructions: fixed elements, variable elements, brand injection rules, output spec, and quality checks.",
+    {
+      slug: z.string().describe("The template slug from alexandria_get_template."),
+      confirmed_answers: z.string().describe("A summary of the practitioner's confirmed intake answers — audience, purpose, layout, navigation, background, color skin, tone, cover framing, and anything else. Write these out clearly so the production instructions can be applied correctly."),
+    },
+    async ({ slug, confirmed_answers }) => {
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+      const lowerName = slug.trim().toLowerCase();
+
+      const t = await sanity.fetch(
+        `*[_type == "template" && (
+          slug.current == $slug ||
+          slug.current == $normalizedSlug ||
+          lower(title) == $lowerName ||
+          lower(title) match $namePattern
+        )][0] {
+          title, "slug": slug.current, formatType, status,
+          previewUrl, githubRawUrl, dropboxLink,
+          useCases, featureList,
+          fixedElements, variableElements, brandInjectionRules,
+          outputSpec, qualityChecks,
+          "practiceAreas": practiceAreas[]->{ name, "slug": slug.current },
+          "relatedMethodologies": relatedMethodologies[]->{ name, "slug": slug.current }
+        }`,
+        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
+      );
+
+      if (!t) {
+        return {
+          content: [{ type: "text", text: `No template found for: "${slug}".` }],
+          isError: true,
+        };
+      }
+
+      if (t.status === "deprecated") {
+        return {
+          content: [{ type: "text", text: `The template "${t.title}" has been deprecated.` }],
+          isError: true,
+        };
+      }
+
       const formatLabels: Record<string, string> = {
         "html-deliverable": "HTML Deliverable — scroll, slide, or tabbed; all HTML formats",
         "word-document":    "Word Document (.docx)",
@@ -767,50 +817,24 @@ function buildServer(auth: AuthResult): McpServer {
 
       const lines: string[] = [];
 
-      lines.push(`# ${t.title}`);
+      lines.push(`# ${t.title} — Production Instructions`);
       lines.push(`**Format:** ${formatLabels[t.formatType] ?? t.formatType}`);
       if (t.practiceAreas?.length) lines.push(`**Practice areas:** ${t.practiceAreas.map((p: { name: string }) => p.name).join(", ")}`);
       if (t.relatedMethodologies?.length) lines.push(`**Related methodologies:** ${t.relatedMethodologies.map((m: { name: string }) => m.name).join(", ")}`);
+      if (t.previewUrl)   lines.push(`**Preview:** ${t.previewUrl}`);
+      if (t.githubRawUrl) lines.push(`**Source HTML:** ${t.githubRawUrl}`);
+      if (t.dropboxLink)  lines.push(`**Source file:** ${t.dropboxLink}`);
 
-      if (t.previewUrl)    lines.push(`**Preview:** ${t.previewUrl}`);
-      if (t.githubRawUrl)  lines.push(`**Source HTML (fetch this as starting point):** ${t.githubRawUrl}`);
-      if (t.dropboxLink)   lines.push(`**Source file (Dropbox):** ${t.dropboxLink}`);
-
-      if (t.useCases) {
-        lines.push(`\n## Use Cases\n${t.useCases}`);
-      }
-
-      if (t.featureList) {
-        lines.push(`\n## Features\n${t.featureList}`);
-      }
-
-      if (t.clientAdaptationNotes) {
-        lines.push(`\n---\n## ⚠ Before You Build — Required Practitioner Intake\n${t.clientAdaptationNotes}`);
-        lines.push(`\n---\n*Do not proceed past this point until the practitioner has confirmed the pre-build summary and answered the intake questions above.*\n---`);
-      }
+      lines.push(`\n## Confirmed Practitioner Parameters\n${confirmed_answers}`);
 
       lines.push(`\n---\n## Production Instructions`);
-      lines.push(`\nRead the following sections in order before producing any output.\n`);
+      lines.push(`Apply the confirmed practitioner parameters above throughout. Read all sections before producing any output.\n`);
 
-      if (t.fixedElements) {
-        lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
-      }
-
-      if (t.variableElements) {
-        lines.push(`\n### Variable Elements (fill from brief and brand package)\n${t.variableElements}`);
-      }
-
-      if (t.brandInjectionRules) {
-        lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
-      }
-
-      if (t.outputSpec) {
-        lines.push(`\n### Output Specification\n${t.outputSpec}`);
-      }
-
-      if (t.qualityChecks) {
-        lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
-      }
+      if (t.fixedElements)      lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
+      if (t.variableElements)   lines.push(`\n### Variable Elements\n${t.variableElements}`);
+      if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
+      if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
+      if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }

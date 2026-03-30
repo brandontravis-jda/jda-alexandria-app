@@ -669,7 +669,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_list_templates ─────────────────────────────────────────────
   server.tool(
     "alexandria_list_templates",
-    "List available production templates in Alexandria. Templates define WHAT a deliverable looks like and how to build it — HTML pages, Word documents, email formats. This is separate from methodologies (which define the production process). When a practitioner asks to build an HTML page, presentation, Word document, or any formatted deliverable, call this tool first to find the right template before starting production. Returns title, format type, use cases, and feature list for each. Optionally filter by format type.",
+    "List available production templates in Alexandria. Use this to find the right template, then you MUST call alexandria_get_template to load the full template before doing any production work — the full template contains required practitioner intake that cannot be skipped. Never build directly from the list response.",
     {
       format_type: z.enum(["html-deliverable", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
     },
@@ -697,7 +697,10 @@ function buildServer(auth: AuthResult): McpServer {
         "html-email":       "HTML Email",
       };
 
-      const lines: string[] = [`# Alexandria Templates (${templates.length} active)\n`];
+      const lines: string[] = [
+        `# Alexandria Templates (${templates.length} active)\n`,
+        `⚠ **You MUST call \`alexandria_get_template\` for the chosen template before doing any production work.** The full template contains required practitioner intake instructions that must be completed before building. Do not skip this step.\n`,
+      ];
 
       for (const t of templates) {
         lines.push(`## ${t.title}`);
@@ -706,7 +709,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (t.previewUrl) lines.push(`**Preview:** ${t.previewUrl}`);
         if (t.useCases) lines.push(`\n**Use cases:** ${t.useCases}`);
         if (t.featureList) lines.push(`\n**Features:** ${t.featureList}`);
-        lines.push("");
+        lines.push(`\n→ Call \`alexandria_get_template\` with slug \`${t.slug}\` to load full build instructions and practitioner intake.\n`);
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };

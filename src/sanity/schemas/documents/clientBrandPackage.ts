@@ -30,18 +30,78 @@ export default defineType({
 
     // ── Logo Assets ──────────────────────────────────────────────────────────
     defineField({
-      name: "logoSvg",
-      title: "Logo (SVG Code)",
-      type: "text",
-      rows: 6,
-      description: "Raw SVG markup for the primary logo. Preferred for web deliverables — Claude embeds it inline and can recolor or resize as needed. Paste the full <svg>...</svg> block.",
+      name: "logos",
+      title: "Logo Variants",
+      type: "array",
+      description: "All available logo variants. Add one entry per variant. Claude selects the correct one based on background context and logoUsageRules.",
+      of: [
+        {
+          type: "object",
+          fields: [
+            {
+              name: "variant",
+              title: "Variant",
+              type: "string",
+              options: {
+                list: [
+                  { title: "Primary (full lockup)", value: "primary" },
+                  { title: "Reversed (white / for dark backgrounds)", value: "reversed" },
+                  { title: "Icon / Mark only", value: "icon" },
+                  { title: "Wordmark only", value: "wordmark" },
+                  { title: "Horizontal lockup", value: "horizontal" },
+                  { title: "Stacked lockup", value: "stacked" },
+                ],
+              },
+              validation: (R: any) => R.required(),
+            },
+            {
+              name: "onBackground",
+              title: "For use on",
+              type: "string",
+              options: {
+                list: [
+                  { title: "Light backgrounds", value: "light" },
+                  { title: "Dark backgrounds", value: "dark" },
+                  { title: "Any background", value: "any" },
+                ],
+              },
+            },
+            {
+              name: "svgCode",
+              title: "SVG Code",
+              type: "text",
+              rows: 6,
+              description: "Raw <svg>...</svg> markup. Preferred — Claude embeds inline and can recolor as needed.",
+            },
+            {
+              name: "imageFile",
+              title: "Image File (fallback)",
+              type: "image",
+              description: "PNG/WebP raster fallback if SVG is unavailable.",
+              options: { hotspot: false },
+            },
+            {
+              name: "notes",
+              title: "Usage Notes",
+              type: "string",
+              description: "e.g. 'Use on all dark hero sections' or 'Minimum 120px wide'",
+            },
+          ],
+          preview: {
+            select: { title: "variant", subtitle: "onBackground" },
+            prepare({ title, subtitle }: { title?: string; subtitle?: string }) {
+              return { title: title ?? "Logo", subtitle: subtitle ?? "" };
+            },
+          },
+        },
+      ],
     }),
     defineField({
-      name: "logoImage",
-      title: "Logo (Image File)",
-      type: "image",
-      description: "Raster logo file (PNG, JPG, WebP). Used when SVG is not available. Sanity hosts it and returns a stable CDN URL to Claude.",
-      options: { hotspot: false },
+      name: "logoUsageRules",
+      title: "Logo Usage Rules",
+      type: "text",
+      rows: 4,
+      description: "Rules Claude applies when choosing which logo variant to inject. e.g. 'Always use reversed logo on dark backgrounds. Use icon-only in slide nav corner. Never use primary logo on backgrounds darker than #CCCCCC.'",
     }),
 
     // ── Extraction Metadata ──────────────────────────────────────────────────
@@ -150,6 +210,89 @@ export default defineType({
         defineField({ name: "webFontAvailability", title: "Web Font Availability", type: "string", description: "Google Fonts / Adobe Fonts / Licensed / Custom / Unknown" }),
         defineField({ name: "officeAlternatives", title: "Office / Presentation Alternatives", type: "string", description: "Fallback fonts for PowerPoint, Word, etc." }),
       ],
+    }),
+
+    // ── Web Fonts ────────────────────────────────────────────────────────────
+    defineField({
+      name: "webFonts",
+      title: "Web Fonts",
+      type: "array",
+      description: "Ready-to-inject font entries for HTML deliverables. Claude uses linkTag and cssStack verbatim — no font lookup required. Populated automatically during brand extraction.",
+      of: [
+        {
+          type: "object",
+          fields: [
+            {
+              name: "role",
+              title: "Role",
+              type: "string",
+              options: {
+                list: [
+                  { title: "Primary / Body", value: "primary" },
+                  { title: "Display / Heading", value: "display" },
+                  { title: "Secondary", value: "secondary" },
+                  { title: "Monospace", value: "monospace" },
+                ],
+              },
+              validation: (R: any) => R.required(),
+            },
+            {
+              name: "familyName",
+              title: "Family Name",
+              type: "string",
+              description: "The brand font name (e.g. 'Benton Sans'). For reference only — Claude uses cssStack for actual CSS.",
+              validation: (R: any) => R.required(),
+            },
+            {
+              name: "source",
+              title: "Source",
+              type: "string",
+              options: {
+                list: [
+                  { title: "Google Fonts", value: "google" },
+                  { title: "Adobe Fonts / Typekit", value: "typekit" },
+                  { title: "Fallback only (no CDN available)", value: "fallback" },
+                ],
+              },
+            },
+            {
+              name: "linkTag",
+              title: "Link Tag",
+              type: "text",
+              rows: 2,
+              description: "Full <link> tag to paste into <head>. e.g. '<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap\" rel=\"stylesheet\">'. Leave empty if source is fallback-only.",
+            },
+            {
+              name: "cssStack",
+              title: "CSS Font Stack",
+              type: "string",
+              description: "Full CSS font-family value including fallbacks. e.g. \"'Benton Sans', 'Inter', sans-serif\"",
+              validation: (R: any) => R.required(),
+            },
+            {
+              name: "webSubstitute",
+              title: "Web Substitute",
+              type: "string",
+              description: "If the brand font is unavailable on CDN, the approved web substitute used instead. e.g. 'Inter (closest available match to Benton Sans)'",
+            },
+          ],
+          preview: {
+            select: { title: "familyName", subtitle: "role" },
+            prepare({ title, subtitle }: { title?: string; subtitle?: string }) {
+              return { title: title ?? "Font", subtitle: subtitle ?? "" };
+            },
+          },
+        },
+      ],
+    }),
+
+    // ── Template Overrides ───────────────────────────────────────────────────
+    defineField({
+      name: "templateOverrides",
+      title: "Template Overrides",
+      type: "text",
+      rows: 6,
+      description: "Brand-specific rules Claude applies on top of any base template. Use imperative statements. e.g. 'ALWAYS use [primary color] as the cover slide background. ALWAYS use 16px as the base body font size. NEVER use all-caps headlines. ALWAYS include the logo in the top-left corner of every slide.'",
     }),
 
     // ── Section 4: Voice and Tone ────────────────────────────────────────────

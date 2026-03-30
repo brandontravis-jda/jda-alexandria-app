@@ -551,8 +551,10 @@ function buildServer(auth: AuthResult): McpServer {
           _id, clientName, "slug": slug.current, abbreviations,
           extractedDate, sourceDocument, extractedBy, gaps,
           rawMarkdown,
-          logoSvg,
-          "logoImageUrl": logoImage.asset->url,
+          logos[]{ variant, onBackground, svgCode, "imageUrl": imageFile.asset->url, notes },
+          logoUsageRules,
+          webFonts[]{ role, familyName, source, linkTag, cssStack, webSubstitute },
+          templateOverrides,
           identity, colorPalette, colorUsageRules,
           typography, voiceAndTone, brandArchitecture,
           visualDirection, keyMessaging
@@ -567,16 +569,53 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
-      // Build logo section — SVG preferred, raster URL as fallback
+      // Build logo section — multiple variants
       const logoLines: string[] = [];
-      if (p.logoSvg) {
-        logoLines.push("## Logo (SVG)");
-        logoLines.push("Embed inline in HTML using the SVG code below. You can recolor fills and strokes to match layout needs.");
-        logoLines.push(p.logoSvg);
-      } else if (p.logoImageUrl) {
-        logoLines.push("## Logo (Image)");
-        logoLines.push(`URL: ${p.logoImageUrl}`);
-        logoLines.push("Use as an <img> src. Do not hotlink in production — practitioner should download and embed or serve from their own host.");
+      interface LogoVariant { variant: string; onBackground?: string; svgCode?: string; imageUrl?: string; notes?: string; }
+      if (p.logos?.length) {
+        logoLines.push("## Logo Variants");
+        if (p.logoUsageRules) {
+          logoLines.push(`**Usage rules:** ${p.logoUsageRules}\n`);
+        }
+        for (const logo of p.logos as LogoVariant[]) {
+          const label = [logo.variant, logo.onBackground ? `(${logo.onBackground} backgrounds)` : ""].filter(Boolean).join(" ");
+          logoLines.push(`### ${label}`);
+          if (logo.notes) logoLines.push(`*${logo.notes}*`);
+          if (logo.svgCode) {
+            logoLines.push("SVG — embed inline:");
+            logoLines.push(logo.svgCode);
+          } else if (logo.imageUrl) {
+            logoLines.push(`Image URL: ${logo.imageUrl}`);
+          }
+        }
+      }
+
+      // Build web fonts section
+      const fontLines: string[] = [];
+      interface WebFont { role: string; familyName: string; source?: string; linkTag?: string; cssStack: string; webSubstitute?: string; }
+      if (p.webFonts?.length) {
+        fontLines.push("## Web Font Injection");
+        fontLines.push("Paste all link tags into <head> before any other styles. Use cssStack values for font-family declarations.\n");
+        const linkTags = (p.webFonts as WebFont[]).filter(f => f.linkTag).map(f => f.linkTag);
+        if (linkTags.length) {
+          fontLines.push("**Link tags (paste into <head>):**");
+          fontLines.push("```html");
+          fontLines.push(...linkTags as string[]);
+          fontLines.push("```");
+        }
+        fontLines.push("\n**CSS font-family values:**");
+        for (const f of p.webFonts as WebFont[]) {
+          fontLines.push(`- **${f.role}** (${f.familyName}): \`${f.cssStack}\``);
+          if (f.webSubstitute) fontLines.push(`  *(Web substitute: ${f.webSubstitute})*`);
+        }
+      }
+
+      // Build template overrides section
+      const overrideLines: string[] = [];
+      if (p.templateOverrides) {
+        overrideLines.push("## ⚠ Brand Template Overrides");
+        overrideLines.push("Apply these rules on top of any base template. These are non-negotiable for this brand.");
+        overrideLines.push(p.templateOverrides);
       }
 
       if (p.rawMarkdown) {
@@ -590,7 +629,9 @@ function buildServer(auth: AuthResult): McpServer {
         ].filter(Boolean).join("\n");
 
         const logoSection = logoLines.length > 0 ? "\n" + logoLines.join("\n") + "\n\n---\n\n" : "";
-        return { content: [{ type: "text", text: header + logoSection + p.rawMarkdown }] };
+        const fontSection = fontLines.length > 0 ? fontLines.join("\n") + "\n\n---\n\n" : "";
+        const overrideSection = overrideLines.length > 0 ? overrideLines.join("\n") + "\n\n---\n\n" : "";
+        return { content: [{ type: "text", text: header + overrideSection + fontSection + logoSection + p.rawMarkdown }] };
       }
 
       // Fallback: build from structured fields
@@ -600,6 +641,8 @@ function buildServer(auth: AuthResult): McpServer {
       if (p.sourceDocument) lines.push(`**Source:** ${p.sourceDocument}`);
       if (p.extractedDate) lines.push(`**Extracted:** ${p.extractedDate}`);
       if (p.gaps) lines.push(`\n⚠ **Extraction gaps:** ${p.gaps}`);
+      if (overrideLines.length > 0) lines.push("\n" + overrideLines.join("\n"));
+      if (fontLines.length > 0) lines.push("\n" + fontLines.join("\n"));
       if (logoLines.length > 0) lines.push("\n" + logoLines.join("\n"));
 
       const id = p.identity as Record<string, string> | null;

@@ -1077,7 +1077,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_help ───────────────────────────────────────────────────────
   server.tool(
     "alexandria_help",
-    "Answer 'what can Alexandria do?' — returns a structured inventory of all active templates, methodologies, and brand packages, plus canonical entry prompts and tier-specific capabilities. Call this when a practitioner asks what Alexandria can do, what tools are available, how to start a production job, or whether Alexandria can handle a specific type of work. CRITICAL: Present the FULL tool output to the practitioner exactly as returned — do NOT summarize, condense, or paraphrase it. Every section must be shown: methodologies, templates, brand packages, how to start a job, elevated capabilities (if present), example prompts, and the follow-up options. Do not drop any section. IMPORTANT: If a practitioner asks you to build something and you cannot find a matching template or methodology in Alexandria, do NOT refuse and do NOT invent a methodology. Instead say: \"Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?\" Then log the request and continue only if confirmed.",
+    "Answer 'what can Alexandria do?' — returns a structured inventory of all active templates, methodologies, and brand packages, plus canonical entry prompts and tier-specific capabilities. Call this when a practitioner asks what Alexandria can do, what tools are available, how to start a production job, or whether Alexandria can handle a specific type of work. When presenting the response: show ALL sections including the access tier callout at the top, methodologies, templates, brand packages, how to start a job, and the follow-up options. The tier callout (shown as a blockquote) is especially important — do not drop it. If a practitioner asks you to build something and you cannot find a matching template or methodology in Alexandria, do NOT refuse and do NOT invent a methodology. Instead say: \"Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?\"",
     {
       intent: z.string().optional().describe("Optional: what the practitioner is trying to do, if they expressed one. Used to tailor the response toward relevant capabilities."),
     },
@@ -1105,29 +1105,20 @@ function buildServer(auth: AuthResult): McpServer {
       const lines: string[] = [];
 
       // ── Header ────────────────────────────────────────────────────────────
-      lines.push(`# Alexandria`);
+      lines.push(`# Alexandria — Platform Inventory`);
       lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
 
-      // ── How to start a production job ────────────────────────────────────
-      lines.push(`## How to Start a Production Job`);
-      lines.push(`Use a short, generic entry prompt — no client name, no content in the opening message. Alexandria will ask for what it needs.\n`);
-
-      if (guide?.canonicalEntryPrompts?.length) {
-        for (const ep of guide.canonicalEntryPrompts) {
-          lines.push(`**${ep.label}**`);
-          lines.push(`> ${ep.prompt}\n`);
-        }
-      } else {
-        lines.push(`> "I need to build an HTML deliverable from Alexandria."`);
-        lines.push(`> "I need to run the Post-Discovery Brief methodology from Alexandria."\n`);
+      // ── Permission-tier addendum (practice_leader + admin) — shown FIRST ──
+      // Must appear prominently so it is not dropped during Claude's reformat.
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`> **Your access tier: ${auth.tier}** — You have write access to brand packages and elevated methodology visibility. Tools available to you: \`alexandria_save_brand_package\`, \`alexandria_save_template\` (when available).\n`);
       }
 
       // ── Methodologies ────────────────────────────────────────────────────
-      lines.push(`---\n## Active Methodologies`);
+      lines.push(`---\n## Methodologies`);
       if (methodologies.length === 0) {
         lines.push(`_No active methodologies yet._`);
       } else {
-        // Group by practice area
         const byPractice: Record<string, typeof methodologies> = {};
         for (const m of methodologies) {
           const area = m.practice?.name ?? "General";
@@ -1137,19 +1128,16 @@ function buildServer(auth: AuthResult): McpServer {
         for (const [area, items] of Object.entries(byPractice)) {
           lines.push(`\n**${area}**`);
           for (const m of items) {
-            const classification = m.aiClassification ? ` · ${m.aiClassification}` : "";
-            lines.push(`- **${m.name}** (${m.slug.current}${classification})`);
-            if (m.description) lines.push(`  ${m.description}`);
+            lines.push(`- **${m.name}** — ${m.description ?? ""}`);
           }
         }
       }
 
       // ── Templates ────────────────────────────────────────────────────────
-      lines.push(`\n---\n## Active Templates`);
+      lines.push(`\n---\n## Templates`);
       if (templates.length === 0) {
         lines.push(`_No active templates yet._`);
       } else {
-        // Group by format type
         const byFormat: Record<string, typeof templates> = {};
         for (const t of templates) {
           const fmt = t.formatType ?? "Other";
@@ -1159,44 +1147,38 @@ function buildServer(auth: AuthResult): McpServer {
         for (const [fmt, items] of Object.entries(byFormat)) {
           lines.push(`\n**${fmt}**`);
           for (const t of items) {
-            lines.push(`- **${t.title}** (${t.slug.current})`);
-            if (t.useCases) lines.push(`  ${t.useCases}`);
+            lines.push(`- **${t.title}** — ${t.useCases ?? ""}`);
           }
         }
       }
 
       // ── Brand Packages ────────────────────────────────────────────────────
-      lines.push(`\n---\n## Available Brand Packages`);
+      lines.push(`\n---\n## Brand Packages (${brandPackages.length} clients)`);
       if (brandPackages.length === 0) {
         lines.push(`_No brand packages loaded yet._`);
       } else {
-        lines.push(brandPackages.map((b) => b.clientName).join(" · "));
+        lines.push(brandPackages.map((b) => b.clientName).join(", "));
       }
 
-      // ── Permission-tier addendum (practice_leader + admin only) ──────────
-      if (auth.tier === "practice_leader" || auth.tier === "admin") {
-        lines.push(`\n---\n## Elevated Capabilities (${auth.tier})`);
-        lines.push(`- **\`alexandria_save_brand_package\`** — save or update a client brand package`);
-        lines.push(`- Full methodology content access — all fields including detailed instructions`);
-        lines.push(`- **\`alexandria_save_template\`** — save or update a template (when available)`);
-      }
-
-      // ── Example prompts ───────────────────────────────────────────────────
-      if (guide?.examplePrompts?.length) {
-        lines.push(`\n---\n## Example Prompts`);
-        for (const ep of guide.examplePrompts) {
-          lines.push(`**${ep.useCase}**`);
-          lines.push(`> ${ep.prompt}\n`);
+      // ── How to start ──────────────────────────────────────────────────────
+      lines.push(`\n---\n## How to Start a Job`);
+      lines.push(`Use a short entry prompt — no client, no content in the opening line. Examples:\n`);
+      if (guide?.canonicalEntryPrompts?.length) {
+        for (const ep of guide.canonicalEntryPrompts) {
+          lines.push(`- "${ep.prompt}"`);
         }
+      } else {
+        lines.push(`- "I need to build an HTML deliverable from Alexandria."`);
+        lines.push(`- "I need to run the Post-Discovery Brief methodology from Alexandria."`);
       }
 
-      // ── Intent-driven follow-ups (Style D) ───────────────────────────────
-      lines.push(`\n---\n## What would you like to do?`);
-      lines.push(`Choose a starting point or describe what you need:\n`);
-      lines.push(`- **Build a deliverable** — HTML pages, slideshows, Word docs, RFP responses`);
-      lines.push(`- **Run a strategic methodology** — post-discovery brief, pre-discovery brief, strategy brief`);
-      lines.push(`- **Load a brand package** — colors, fonts, voice, logos for ${brandPackages.length > 0 ? brandPackages.length : "your"} active clients`);
-      lines.push(`- **Show me everything** — full inventory of templates, methodologies, and brand packages`);
+      // ── What next? ────────────────────────────────────────────────────────
+      lines.push(`\n---\n## What do you want to do?`);
+      lines.push(`Reply with one of these or describe what you need:`);
+      lines.push(`- **Build a deliverable** — HTML, slideshow, or Word doc`);
+      lines.push(`- **Run a methodology** — post-discovery brief, pre-discovery brief, brand extraction`);
+      lines.push(`- **Load a brand package** — pull colors, fonts, logos for a specific client`);
+      lines.push(`- **Something else** — describe it and Alexandria will tell you if it has it`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }

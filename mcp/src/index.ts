@@ -267,7 +267,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_list_methodologies ─────────────────────────────────────────
   server.tool(
     "alexandria_list_methodologies",
-    "List production methodologies from Alexandria. Optionally filter by practice area. Returns name, slug, AI classification, and proven status.",
+    "List production methodologies from Alexandria. Methodologies describe HOW to produce a deliverable — the process, steps, and instructions. This does NOT return templates. For deliverable format templates (HTML pages, Word documents, presentations), use alexandria_list_templates instead. Optionally filter by practice area. Returns name, slug, AI classification, and proven status.",
     {
       practice: z.string().optional().describe("Practice area slug to filter by (e.g. 'brand-strategy', 'content-marketing')"),
     },
@@ -669,7 +669,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_list_templates ─────────────────────────────────────────────
   server.tool(
     "alexandria_list_templates",
-    "List available production templates in Alexandria. Returns title, format type, use cases, and feature list for each — enough for a practitioner to pick the right template without Claude explaining each one in prose. Optionally filter by format type.",
+    "List available production templates in Alexandria. Templates define WHAT a deliverable looks like and how to build it — HTML pages, Word documents, email formats. This is separate from methodologies (which define the production process). When a practitioner asks to build an HTML page, presentation, Word document, or any formatted deliverable, call this tool first to find the right template before starting production. Returns title, format type, use cases, and feature list for each. Optionally filter by format type.",
     {
       format_type: z.enum(["html-deliverable", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
     },

@@ -1077,7 +1077,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_help ───────────────────────────────────────────────────────
   server.tool(
     "alexandria_help",
-    "Answer 'what can Alexandria do?' — returns a structured inventory of all active templates, methodologies, and brand packages, plus canonical entry prompts and tier-specific capabilities. Call this when a practitioner asks what Alexandria can do, what tools are available, how to start a production job, or whether Alexandria can handle a specific type of work. IMPORTANT: If a practitioner asks you to build something and you cannot find a matching template or methodology in Alexandria, do NOT refuse and do NOT invent a methodology. Instead say: \"Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?\" Then log the request and continue only if confirmed.",
+    "Answer 'what can Alexandria do?' — returns a structured inventory of all active templates, methodologies, and brand packages, plus canonical entry prompts and tier-specific capabilities. Call this when a practitioner asks what Alexandria can do, what tools are available, how to start a production job, or whether Alexandria can handle a specific type of work. CRITICAL: Present the FULL tool output to the practitioner exactly as returned — do NOT summarize, condense, or paraphrase it. Every section must be shown: methodologies, templates, brand packages, how to start a job, elevated capabilities (if present), example prompts, and the follow-up options. Do not drop any section. IMPORTANT: If a practitioner asks you to build something and you cannot find a matching template or methodology in Alexandria, do NOT refuse and do NOT invent a methodology. Instead say: \"Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?\" Then log the request and continue only if confirmed.",
     {
       intent: z.string().optional().describe("Optional: what the practitioner is trying to do, if they expressed one. Used to tailor the response toward relevant capabilities."),
     },
@@ -1191,7 +1191,7 @@ function buildServer(auth: AuthResult): McpServer {
       }
 
       // ── Intent-driven follow-ups (Style D) ───────────────────────────────
-      lines.push(`---\n## What would you like to do?`);
+      lines.push(`\n---\n## What would you like to do?`);
       lines.push(`Choose a starting point or describe what you need:\n`);
       lines.push(`- **Build a deliverable** — HTML pages, slideshows, Word docs, RFP responses`);
       lines.push(`- **Run a strategic methodology** — post-discovery brief, pre-discovery brief, strategy brief`);

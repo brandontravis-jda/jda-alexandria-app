@@ -716,7 +716,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_template ───────────────────────────────────────────────
   server.tool(
     "alexandria_get_template",
-    "Get the full production template from Alexandria including all instructions Claude needs to produce a deliverable using this template. Returns fixed elements, variable elements, brand injection rules, client adaptation notes, output spec, and quality checks — assembled in the order Claude should read them. Use this after alexandria_list_templates to get the full template before starting production.",
+    "Get the full production template from Alexandria. The response begins with required practitioner intake instructions — present the pre-build summary and ask the intake questions BEFORE proceeding to any production work. Do not skip or defer the intake. After intake is complete, the response contains fixed elements, variable elements, brand injection rules, output spec, and quality checks.",
     {
       slug: z.string().describe("The template slug OR plain-english name (e.g. 'scrolling-editorial-presentation', 'JDA Document Style'). Hyphens, underscores, and spaces are all accepted."),
     },
@@ -781,6 +781,11 @@ function buildServer(auth: AuthResult): McpServer {
         lines.push(`\n## Features\n${t.featureList}`);
       }
 
+      if (t.clientAdaptationNotes) {
+        lines.push(`\n---\n## ⚠ Before You Build — Required Practitioner Intake\n${t.clientAdaptationNotes}`);
+        lines.push(`\n---\n*Do not proceed past this point until the practitioner has confirmed the pre-build summary and answered the intake questions above.*\n---`);
+      }
+
       lines.push(`\n---\n## Production Instructions`);
       lines.push(`\nRead the following sections in order before producing any output.\n`);
 
@@ -794,10 +799,6 @@ function buildServer(auth: AuthResult): McpServer {
 
       if (t.brandInjectionRules) {
         lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
-      }
-
-      if (t.clientAdaptationNotes) {
-        lines.push(`\n### Client Adaptation Notes\n${t.clientAdaptationNotes}`);
       }
 
       if (t.outputSpec) {

@@ -76,9 +76,52 @@ async function migrate() {
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS intake_sessions_status_idx ON intake_sessions(status)`;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS alexandria_request_log (
+      id                SERIAL PRIMARY KEY,
+      user_id           TEXT NOT NULL,
+      permission_tier   TEXT,
+      tool_name         TEXT NOT NULL,
+      request_summary   TEXT,
+      matched_capability BOOLEAN,
+      capability_type   TEXT,
+      capability_id     TEXT,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS request_log_user_idx ON alexandria_request_log(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS request_log_tool_idx ON alexandria_request_log(tool_name)`;
+  await sql`CREATE INDEX IF NOT EXISTS request_log_matched_idx ON alexandria_request_log(matched_capability)`;
 }
 
 migrate().catch((err) => console.error("Migration error:", err));
+
+// ── Request Logging ───────────────────────────────────────────────────────────
+
+async function logRequest(opts: {
+  userId: number;
+  tier: string;
+  toolName: string;
+  requestSummary?: string;
+  matchedCapability?: boolean;
+  capabilityType?: string;
+  capabilityId?: string;
+}) {
+  try {
+    await sql`
+      INSERT INTO alexandria_request_log
+        (user_id, permission_tier, tool_name, request_summary, matched_capability, capability_type, capability_id)
+      VALUES
+        (${opts.userId.toString()}, ${opts.tier}, ${opts.toolName},
+         ${opts.requestSummary ?? null}, ${opts.matchedCapability ?? null},
+         ${opts.capabilityType ?? null}, ${opts.capabilityId ?? null})
+    `;
+  } catch (err) {
+    // Logging must never break tool execution
+    console.error("Request log error:", err);
+  }
+}
 
 // ── Sanity ────────────────────────────────────────────────────────────────────
 
@@ -436,6 +479,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
@@ -631,6 +675,7 @@ function buildServer(auth: AuthResult): McpServer {
         const logoSection = logoLines.length > 0 ? "\n" + logoLines.join("\n") + "\n\n---\n\n" : "";
         const fontSection = fontLines.length > 0 ? fontLines.join("\n") + "\n\n---\n\n" : "";
         const overrideSection = overrideLines.length > 0 ? overrideLines.join("\n") + "\n\n---\n\n" : "";
+        logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_brand_package", requestSummary: `Get brand package: ${slug}`, matchedCapability: true, capabilityType: "brand_package", capabilityId: slug });
         return { content: [{ type: "text", text: header + overrideSection + fontSection + logoSection + p.rawMarkdown }] };
       }
 
@@ -818,6 +863,8 @@ function buildServer(auth: AuthResult): McpServer {
         VALUES (${t.slug}, ${practitionerId}, 'awaiting_intake')
         RETURNING session_id
       `;
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_template", requestSummary: `Get template: ${t.slug}`, matchedCapability: true, capabilityType: "template", capabilityId: t.slug });
 
       const lines: string[] = [
         `# ${t.title} — Practitioner Intake`,
@@ -1021,6 +1068,135 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_help ───────────────────────────────────────────────────────
+  server.tool(
+    "alexandria_help",
+    "Answer 'what can Alexandria do?' — returns a structured inventory of all active templates, methodologies, and brand packages, plus canonical entry prompts and tier-specific capabilities. Call this when a practitioner asks what Alexandria can do, what tools are available, how to start a production job, or whether Alexandria can handle a specific type of work. IMPORTANT: If a practitioner asks you to build something and you cannot find a matching template or methodology in Alexandria, do NOT refuse and do NOT invent a methodology. Instead say: \"Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?\" Then log the request and continue only if confirmed.",
+    {
+      intent: z.string().optional().describe("Optional: what the practitioner is trying to do, if they expressed one. Used to tailor the response toward relevant capabilities."),
+    },
+    async ({ intent }) => {
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_help", requestSummary: intent ?? "general help query", matchedCapability: null as unknown as boolean });
+
+      // Fetch platform guide, all templates, methodologies, and brand packages in parallel
+      const [guide, templates, methodologies, brandPackages] = await Promise.all([
+        sanity.fetch<{
+          platformIntro?: string;
+          canonicalEntryPrompts?: Array<{ label: string; prompt: string }>;
+          examplePrompts?: Array<{ useCase: string; prompt: string }>;
+        }>(`*[_id == "platformGuide"][0]{platformIntro, canonicalEntryPrompts, examplePrompts}`),
+        sanity.fetch<Array<{ title: string; slug: { current: string }; formatType?: string; useCases?: string; status?: string }>>(
+          `*[_type == "template" && status != "archived"] | order(title asc) { title, slug, formatType, useCases, status }`
+        ),
+        sanity.fetch<Array<{ name: string; slug: { current: string }; description?: string; practice?: { name: string }; aiClassification?: string }>>(
+          `*[_type == "productionMethodology" && provenStatus != "archived"] | order(name asc) { name, slug, description, practice->{name}, aiClassification }`
+        ),
+        sanity.fetch<Array<{ clientName: string; slug: { current: string } }>>(
+          `*[_type == "clientBrandPackage" && status != "archived"] | order(clientName asc) { clientName, slug }`
+        ),
+      ]);
+
+      const lines: string[] = [];
+
+      // ── Header ────────────────────────────────────────────────────────────
+      lines.push(`# Alexandria`);
+      lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
+
+      // ── How to start a production job ────────────────────────────────────
+      lines.push(`## How to Start a Production Job`);
+      lines.push(`Use a short, generic entry prompt — no client name, no content in the opening message. Alexandria will ask for what it needs.\n`);
+
+      if (guide?.canonicalEntryPrompts?.length) {
+        for (const ep of guide.canonicalEntryPrompts) {
+          lines.push(`**${ep.label}**`);
+          lines.push(`> ${ep.prompt}\n`);
+        }
+      } else {
+        lines.push(`> "I need to build an HTML deliverable from Alexandria."`);
+        lines.push(`> "I need to run the Post-Discovery Brief methodology from Alexandria."\n`);
+      }
+
+      // ── Methodologies ────────────────────────────────────────────────────
+      lines.push(`---\n## Active Methodologies`);
+      if (methodologies.length === 0) {
+        lines.push(`_No active methodologies yet._`);
+      } else {
+        // Group by practice area
+        const byPractice: Record<string, typeof methodologies> = {};
+        for (const m of methodologies) {
+          const area = m.practice?.name ?? "General";
+          if (!byPractice[area]) byPractice[area] = [];
+          byPractice[area].push(m);
+        }
+        for (const [area, items] of Object.entries(byPractice)) {
+          lines.push(`\n**${area}**`);
+          for (const m of items) {
+            const classification = m.aiClassification ? ` · ${m.aiClassification}` : "";
+            lines.push(`- **${m.name}** (${m.slug.current}${classification})`);
+            if (m.description) lines.push(`  ${m.description}`);
+          }
+        }
+      }
+
+      // ── Templates ────────────────────────────────────────────────────────
+      lines.push(`\n---\n## Active Templates`);
+      if (templates.length === 0) {
+        lines.push(`_No active templates yet._`);
+      } else {
+        // Group by format type
+        const byFormat: Record<string, typeof templates> = {};
+        for (const t of templates) {
+          const fmt = t.formatType ?? "Other";
+          if (!byFormat[fmt]) byFormat[fmt] = [];
+          byFormat[fmt].push(t);
+        }
+        for (const [fmt, items] of Object.entries(byFormat)) {
+          lines.push(`\n**${fmt}**`);
+          for (const t of items) {
+            lines.push(`- **${t.title}** (${t.slug.current})`);
+            if (t.useCases) lines.push(`  ${t.useCases}`);
+          }
+        }
+      }
+
+      // ── Brand Packages ────────────────────────────────────────────────────
+      lines.push(`\n---\n## Available Brand Packages`);
+      if (brandPackages.length === 0) {
+        lines.push(`_No brand packages loaded yet._`);
+      } else {
+        lines.push(brandPackages.map((b) => b.clientName).join(" · "));
+      }
+
+      // ── Permission-tier addendum (practice_leader + admin only) ──────────
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`\n---\n## Elevated Capabilities (${auth.tier})`);
+        lines.push(`- **\`alexandria_save_brand_package\`** — save or update a client brand package`);
+        lines.push(`- Full methodology content access — all fields including detailed instructions`);
+        lines.push(`- **\`alexandria_save_template\`** — save or update a template (when available)`);
+      }
+
+      // ── Example prompts ───────────────────────────────────────────────────
+      if (guide?.examplePrompts?.length) {
+        lines.push(`\n---\n## Example Prompts`);
+        for (const ep of guide.examplePrompts) {
+          lines.push(`**${ep.useCase}**`);
+          lines.push(`> ${ep.prompt}\n`);
+        }
+      }
+
+      // ── Intent-driven follow-ups (Style D) ───────────────────────────────
+      lines.push(`---\n## What would you like to do?`);
+      lines.push(`Choose a starting point or describe what you need:\n`);
+      lines.push(`- **Build a deliverable** — HTML pages, slideshows, Word docs, RFP responses`);
+      lines.push(`- **Run a strategic methodology** — post-discovery brief, pre-discovery brief, strategy brief`);
+      lines.push(`- **Load a brand package** — colors, fonts, voice, logos for ${brandPackages.length > 0 ? brandPackages.length : "your"} active clients`);
+      lines.push(`- **Show me everything** — full inventory of templates, methodologies, and brand packages`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }

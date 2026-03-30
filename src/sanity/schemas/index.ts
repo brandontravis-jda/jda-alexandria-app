@@ -3,6 +3,7 @@ import deliverableClassification from "./documents/deliverableClassification";
 import productionMethodology from "./documents/productionMethodology";
 import clientBrandPackage from "./documents/clientBrandPackage";
 import template from "./documents/template";
+import platformGuide from "./documents/platformGuide";
 
 export const schemaTypes = [
   productionMethodology,
@@ -10,4 +11,5 @@ export const schemaTypes = [
   template,
   practiceArea,
   deliverableClassification,
+  platformGuide,
 ];

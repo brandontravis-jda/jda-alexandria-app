@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated March 24, 2026 to reflect Step 2 completion and open questions for Steps 3–10 discovery.
+> Updated March 30, 2026 to reflect Step 2 completion, add Step 3 (Alexandria Help), and renumber Steps 3–10 to 4–11.
 
 ---
 
@@ -119,9 +119,11 @@ The platform stores authored intelligence as text in Sanity. Logos are stored di
 
 ---
 
-### Step 2: Templates — ✅ COMPLETE
+### Step 2: Templates — ⚠ PARTIALLY COMPLETE — Template system needs additional work before production-ready
 
 **Architecture decision:** All HTML deliverable types (scrolling editorial, slideshow, landing page, catalog, RFP response) consolidated into a single `html-deliverable` template with a feature menu (scroll / slide / tabbed layout modes). One template to maintain, infinite combinations. Claude selects the right combination from the practitioner's description — no command words required.
+
+**Status note:** Schema, MCP tools, and intake enforcement are complete. However, end-to-end testing revealed the template system is not yet production-ready — Claude generates HTML structure from scratch rather than from a canonical source, producing inconsistent output. Brand font extraction is unreliable. Brand-specific overrides don't exist yet. These gaps need to be closed before Step 2 is truly complete.
 
 **Template schema + MCP tools:**
 - ✅ Sanity schema with six structured production instruction fields (fixedElements, variableElements, brandInjectionRules, clientAdaptationNotes, outputSpec, qualityChecks)
@@ -146,15 +148,66 @@ The platform stores authored intelligence as text in Sanity. Logos are stored di
 - ✅ Download as Markdown action — available on all document types, assembles a clean markdown file for pasting into Claude. Smart field handling: SVG inline, nested objects, arrays, enum labels.
 
 **Remaining open items from Step 2:**
-- ⬜ End-to-end template test — `list_templates` → `get_template` → Claude produces a real deliverable artifact. Not yet run.
+- ✅ **Intake enforcement — session-gated flow.** `intake_sessions` table in Postgres, `alexandria_get_template` returns session_id + questions only, `alexandria_submit_intake` validates and completes sessions, `alexandria_build_template` hard-rejects incomplete sessions. Built and deployed.
+- ✅ **Canonical entry prompt convention.** Established: *"I need to build an HTML deliverable from Alexandria."* Documented in intake instructions and to be included in `alexandria_help`.
+- ✅ **Brand-specific template overrides.** `templateOverrides` text field added to brand package schema and included in MCP response (surfaced first, before brand content).
+- ✅ **Web font injection.** `webFonts[]` array added to brand package schema — role, family name, source, ready-to-inject `<link>` tag, CSS stack, web substitute. MCP returns link tags and CSS values ready to paste. Font CDN resolution (Google → Typekit → substitute) to be part of brand extraction methodology.
+- ✅ **Logo variants.** `logos[]` array added — multiple variants (primary, reversed, icon, wordmark, etc.) each with onBackground, svgCode, raster fallback, and notes. `logoUsageRules` field tells Claude which variant to use where.
+- ⬜ **Canonical HTML source in GitHub (P0).** The `fixedElements` field describes the template in prose — Claude generates CSS architecture and slide engine JS from scratch every time, producing inconsistent and sometimes broken output (backward nav bug in slide mode confirmed). The `githubRawUrl` field exists for a canonical, version-controlled HTML file. Slide engine, CSS custom properties, and component scaffolding must live in the repo and be proven correct before any deliverable uses them.
+- ⬜ **Re-extract all existing brand packages (P1).** `logos[]`, `webFonts[]`, `logoUsageRules`, and `templateOverrides` are unpopulated on all 11 existing packages. Re-run through updated extraction methodology with font CDN resolution. Priority: Prolific first, then remaining 10.
 - ⬜ `alexandria_save_template` write tool — not yet built. Templates currently loaded via script or Sanity Studio.
-- ⬜ Logo assets — logo fields exist on brand package schema but no packages have logos loaded yet.
 - ⬜ Campaign Brief + Client Proposal templates — pending discovery.
 - ⬜ `assemble_production_context` — deferred, not needed to validate Step 2.
 
 ---
 
-### Step 3: Deliverable Classifications + Quality Gates + Capabilities Matrix
+### Step 3: Alexandria Help + Platform Discovery Surface
+
+**Spec:** `ref/step-3-alexandria-help-spec.md` — developed in discovery session March 30, 2026.
+
+**What this solves:**
+Two failure modes. **Bypass failure** — practitioner builds without Alexandria, output is unsanctioned. **False sanction failure** — practitioner asks Alexandria for something it doesn't have, Claude invents a methodology, practitioner believes it came through an approved channel. `alexandria_help` addresses both: it is simultaneously a discovery surface (what exists) and a coaching tool (how to use it correctly).
+
+**Response style:** Style A (structured inventory) + Style D (intent-driven follow-ups) combined. Structured summary comes first — scannable, scales as content grows. Intent prompts follow as natural next steps.
+
+**MCP tool: `alexandria_help`**
+
+Response structure (in order):
+1. What Alexandria is — one or two sentences, authored in Sanity (`platformIntro` field), not hardcoded
+2. How to start a production job — canonical entry prompt as first-class instruction: *"I need to build a [deliverable type] from Alexandria."* No client, no content, no layout in the opening prompt.
+3. Active methodologies — name, practice area, one-line when-to-use. Listed before templates (methodologies = majority of eventual production volume)
+4. Active templates — name, format type, use cases
+5. Available brand packages — full client name list
+6. Permission-tier addendum — practice_leader and admin only, appended after standard response. Surfaces elevated capabilities (full methodology content, write tools)
+7. Intent-driven follow-ups (Style D) — 4 suggested next steps as sendable prompts reflecting what practitioners actually do next
+
+**Trigger:** Intentional only in v1 — fires when practitioner explicitly asks what Alexandria can do. Proactive triggering (Claude detecting unsupported production requests) is deferred — Claude already knows its connected tools and doesn't need a tool call to check its own capabilities. Convention instead: practitioners learn to ask "Can Alexandria do ___?" before asking to produce something Alexandria doesn't have.
+
+**Unsupported request flow:**
+> "Alexandria doesn't currently have a methodology or template for this. I'm happy to help — and we should still use what Alexandria does have, including your brand package and quality frameworks, even if the deliverable itself isn't from a sanctioned template. Want me to proceed?"
+Not a refusal. Transparent handoff that keeps Alexandria assets in the loop. Every unsupported request logged.
+
+**Sanity schema: `platformGuide` singleton**
+- `platformIntro` — one or two sentence description of Alexandria. Authored in Sanity, not hardcoded.
+- `canonicalEntryPrompts` — array of entry prompt strings
+- `examplePrompts` — array of example prompts for common use cases, all following generic entry pattern. Maintained in Sanity by Brandon/practice leaders.
+
+**Request logging: `alexandria_request_log` table**
+Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `permission_tier`, `tool_name`, `request_summary`, `matched_capability` (bool), `capability_type` (template/methodology/brand_package/null), `capability_id`, `created_at`. Unsupported requests (`matched_capability = false`) are the priority data — primary input for deciding what to build next. Reporting surface deferred to Step 6 dashboards.
+
+**Build items:**
+- ⬜ `alexandria_request_log` DB migration
+- ⬜ Request logging middleware on all MCP tool handlers
+- ⬜ `platformGuide` Sanity schema (singleton document type)
+- ⬜ Seed `platformGuide` document (platformIntro, canonicalEntryPrompts, examplePrompts)
+- ⬜ `alexandria_help` MCP tool — tier-aware, pulls live from Sanity
+- ⬜ Unsupported request flow
+
+**Depends on:** Step 2 intake enforcement complete. `platformGuide` content seeded before `alexandria_help` goes live.
+
+---
+
+### Step 4: Deliverable Classifications + Quality Gates + Capabilities Matrix
 
 Add the structured reference data content types. Needs a discovery session before building.
 
@@ -168,7 +221,7 @@ Add the structured reference data content types. Needs a discovery session befor
 
 ---
 
-### Step 4: Workflow Guides + Practice Areas + Roles
+### Step 5: Workflow Guides + Practice Areas + Roles
 
 Add the remaining content types that complete the knowledge model. Needs practice leader alignment meetings before content can be authored.
 
@@ -178,11 +231,11 @@ Add the remaining content types that complete the knowledge model. Needs practic
 - What does the MCP server return?
 - Is this content more useful in Claude Project system prompts than in MCP lookups?
 
-**Depends on:** Steps 2–3. Practice leader alignment meetings and discovery interviews.
+**Depends on:** Steps 2–4. Practice leader alignment meetings and discovery interviews.
 
 ---
 
-### Step 5: Dashboards and Measurement Layer
+### Step 6: Dashboards and Measurement Layer
 
 Wire up adoption tracking and practice leader views.
 
@@ -201,7 +254,7 @@ Wire up adoption tracking and practice leader views.
 
 ---
 
-### Step 6: Claude Project Architecture — NEEDS FULL REVISIT
+### Step 7: Claude Project Architecture — NEEDS FULL REVISIT
 
 This step was written before MCP was proven and before the platform had real content. The assumptions have changed significantly.
 
@@ -223,11 +276,11 @@ This step was written before MCP was proven and before the platform had real con
 - Who manages Projects — Brandon, practice leaders, or self-serve?
 - Does a "Setup Wizard" still make sense, or is Project setup simple enough to do manually?
 
-**Depends on:** Having enough content in Alexandria to actually test with. Steps 1–2 are sufficient to start this discovery.
+**Depends on:** Having enough content in Alexandria to actually test with. Steps 1–3 are sufficient to start this discovery.
 
 ---
 
-### Step 7: LOB Tools
+### Step 8: LOB Tools
 
 Build the first standalone tool modules in the portal.
 
@@ -247,15 +300,15 @@ Build the first standalone tool modules in the portal.
 
 ---
 
-### Step 8: Claude Project Setup Wizard — LIKELY OBSOLETE OR MUCH SMALLER
+### Step 9: Claude Project Setup Wizard — LIKELY OBSOLETE OR MUCH SMALLER
 
 Originally designed to generate everything needed to stand up a new Claude Project. May be unnecessary if Project setup is simple, or may be repurposed as a content package generator (assembles the right Alexandria content into a format ready to paste into a Project system prompt).
 
-**Depends on:** Outcomes of Step 6 discovery.
+**Depends on:** Outcomes of Step 7 discovery.
 
 ---
 
-### Step 9: Content Expansion from Discovery
+### Step 10: Content Expansion from Discovery
 
 Ongoing — as practice leader discoveries happen, new content flows into Sanity through the portal or through Claude (practice leader write-back via MCP).
 
@@ -263,7 +316,7 @@ Ongoing — as practice leader discoveries happen, new content flows into Sanity
 
 ---
 
-### Step 10: Initial Launch
+### Step 11: Initial Launch
 
 The platform is live with real content across all content types. MCP bridge working with OAuth. At least one or two LOB tools functional. A practitioner can sit in Claude and operate AI-native using platform-managed content.
 
@@ -285,13 +338,13 @@ The platform is live with real content across all content types. MCP bridge work
 
 ### Known Gaps
 
-1. **Azure AD security group not enforced for portal sign-in** — any JDA Azure AD account can sign in. Only the `tier = admin` DB check protects sensitive routes. Acceptable now, fix before broader rollout.
-2. **Azure AD security group not enforced for MCP OAuth** — any JDA Azure AD account can complete the OAuth flow and land as `practitioner`. Acceptable for now.
-3. **MCP pending flow state is in-memory** — a server restart during OAuth drops the flow. Low risk on single-replica Railway. Long-term: move to PostgreSQL.
-4. **No MCP request rate limiting** — should be added before public rollout.
+1. **MCP pending flow state is in-memory** — a server restart during OAuth drops the flow. Low risk on single-replica Railway. Long-term: move to PostgreSQL.
+2. **No MCP request rate limiting** — should be added before public rollout.
 
 ### Security Testing Checklist (Before Team Rollout)
 
+- [ ] Confirm a JDA account not in any security group cannot sign into the portal (rejected at Azure AD)
+- [ ] Confirm a JDA account not in any security group cannot complete MCP OAuth
 - [ ] Demote a test user to `practitioner`, confirm system instructions are blocked in Claude
 - [ ] Confirm unauthenticated requests to `/api/users` return 401
 - [ ] Confirm a `practitioner`-tier portal session cannot access `/api/users`
@@ -305,7 +358,7 @@ The platform is live with real content across all content types. MCP bridge work
 
 The following questions need to be worked through before committing to the build sequence for Steps 3–8. These should be the basis of a discovery session.
 
-### Claude Project Architecture (Step 6 — highest priority to resolve)
+### Claude Project Architecture (Step 7 — highest priority to resolve)
 
 The original plan deferred this to Step 6, but the decisions here affect everything before it. What's in a Project system prompt determines what MCP needs to return and how. This needs to be resolved early, not late.
 
@@ -322,25 +375,29 @@ The original plan deferred this to Step 6, but the decisions here affect everyth
 - How do Projects stay current when Alexandria content changes? MCP solves this for live lookups — but system prompt content goes stale.
 - Is there a meaningful difference between a "practice Project" and a "client Project" or does MCP make that distinction irrelevant?
 
-### Deliverable Classifications + Quality Gates (Step 3)
+### Alexandria Help + Discovery Surface (Step 3)
+
+Scope validated by `ref/alexandria-intake-enforcement.md` — use that as the starting point for the discovery session. Discovery session required before building.
+
+### Deliverable Classifications + Quality Gates (Step 4)
 
 - Are these worth building as dedicated Sanity content types, or are they better as structured sections within methodologies?
 - Who actually uses quality gates — Claude enforcing them automatically, or practitioners checking manually?
 - What's the minimum viable version? A simple list of deliverable types with AI classification might be enough to start.
 
-### Workflow Guides (Step 4)
+### Workflow Guides (Step 5)
 
 - How different are workflow guides across practices? If they're very similar, one schema fits all. If they're practice-specific, they might belong in Project system prompts rather than MCP.
 - Who authors these — Brandon, practice leaders, or both?
 - What does a practitioner actually do with a workflow guide in Claude? Does Claude walk them through it step by step, or is it reference material?
 
-### LOB Tools (Step 7)
+### LOB Tools (Step 8)
 
 - Where does the RFP scraper stand — is it a real thing or still conceptual?
 - Which tool would practitioners actually use today if it existed?
 - Do LOB tools need to live in the portal or could they be standalone Claude Projects with the right MCP tools?
 
-### Measurement (Step 5)
+### Measurement (Step 6)
 
 - What does "adoption" mean concretely? Is it MCP call volume, deliverable count, something else?
 - Who looks at dashboards — Brandon, practice leaders, or both?
@@ -353,4 +410,4 @@ The original plan deferred this to Step 6, but the decisions here affect everyth
 
 ---
 
-*Updated March 24, 2026. Steps 1–2 complete. Steps 3–10 pending discovery sessions outlined above.*
+*Updated March 30, 2026. Steps 1–2 complete. Steps 3–11 pending discovery sessions outlined above.*

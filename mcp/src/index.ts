@@ -801,13 +801,12 @@ function buildServer(auth: AuthResult): McpServer {
       purpose: z.string().describe("What this deliverable needs to accomplish — the decision or action it should drive."),
       layout_mode: z.enum(["scroll", "slide", "tabbed"]).describe("The chosen layout mode."),
       navigation: z.enum(["smart", "always", "none"]).describe("Navigation preference: smart (include if >8 sections), always, or none."),
-      background_treatment: z.enum(["alternating", "all-dark", "all-light", "dark-hero-light-body"]).describe("Section background pattern."),
-      color_skin: z.string().describe("Color/skin choice described from the brand package options presented — e.g. 'Prolific dark blue hero with alternating light sections'."),
+      visual_skin: z.string().describe("The chosen visual skin from Stage 2 — encodes both color and section pattern, e.g. 'Prolific dark blue hero with alternating light sections' or 'Full black throughout'."),
       tone: z.string().describe("How the deliverable should feel — the practitioner's own words."),
       cover_framing: z.enum(["internal", "external-jda", "external-client"]).describe("internal = no confidentiality line; external-jda = JDA authored; external-client = client branded."),
       anything_else: z.string().optional().describe("Any additional constraints, verbatim language, sections to avoid, etc."),
     },
-    async ({ session_id, audience, purpose, layout_mode, navigation, background_treatment, color_skin, tone, cover_framing, anything_else }) => {
+    async ({ session_id, audience, purpose, layout_mode, navigation, visual_skin, tone, cover_framing, anything_else }) => {
       // Validate session exists and is awaiting intake
       const [session] = await sql<{ session_id: string; status: string; template_slug: string }[]>`
         SELECT session_id, status, template_slug FROM intake_sessions WHERE session_id = ${session_id}
@@ -831,7 +830,7 @@ function buildServer(auth: AuthResult): McpServer {
       const shortFields = [
         { name: "audience", value: audience },
         { name: "purpose", value: purpose },
-        { name: "color_skin", value: color_skin },
+        { name: "visual_skin", value: visual_skin },
         { name: "tone", value: tone },
       ].filter(f => f.value.trim().split(/\s+/).length < 3);
 
@@ -842,7 +841,7 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
-      const answers = { audience, purpose, layout_mode, navigation, background_treatment, color_skin, tone, cover_framing, anything_else: anything_else ?? "" };
+      const answers = { audience, purpose, layout_mode, navigation, visual_skin, tone, cover_framing, anything_else: anything_else ?? "" };
 
       await sql`
         UPDATE intake_sessions
@@ -851,7 +850,6 @@ function buildServer(auth: AuthResult): McpServer {
       `;
 
       const navLabel: Record<string, string> = { smart: "Smart nav (include if >8 sections)", always: "Always include navigation", none: "No navigation" };
-      const bgLabel: Record<string, string> = { "alternating": "Alternating dark/light", "all-dark": "All dark", "all-light": "All light", "dark-hero-light-body": "Dark hero + light body" };
       const coverLabel: Record<string, string> = { "internal": "Internal — no confidentiality line", "external-jda": "External — JDA authored", "external-client": "External — client branded" };
 
       const summary = [
@@ -862,8 +860,7 @@ function buildServer(auth: AuthResult): McpServer {
         `**Purpose:** ${purpose}`,
         `**Layout:** ${layout_mode}`,
         `**Navigation:** ${navLabel[navigation]}`,
-        `**Background:** ${bgLabel[background_treatment]}`,
-        `**Color skin:** ${color_skin}`,
+        `**Visual skin:** ${visual_skin}`,
         `**Tone:** ${tone}`,
         `**Cover framing:** ${coverLabel[cover_framing]}`,
         anything_else ? `**Additional notes:** ${anything_else}` : "",
@@ -958,7 +955,6 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.dropboxLink)  lines.push(`**Source file:** ${t.dropboxLink}`);
 
       const navLabel: Record<string, string> = { smart: "Smart nav (include if >8 sections)", always: "Always include navigation", none: "No navigation" };
-      const bgLabel: Record<string, string> = { "alternating": "Alternating dark/light", "all-dark": "All dark", "all-light": "All light", "dark-hero-light-body": "Dark hero + light body" };
       const coverLabel: Record<string, string> = { "internal": "Internal — no confidentiality line", "external-jda": "External — JDA authored", "external-client": "External — client branded" };
 
       const confirmedParams = [
@@ -966,8 +962,7 @@ function buildServer(auth: AuthResult): McpServer {
         `**Purpose:** ${a.purpose}`,
         `**Layout:** ${a.layout_mode}`,
         `**Navigation:** ${navLabel[a.navigation] ?? a.navigation}`,
-        `**Background:** ${bgLabel[a.background_treatment] ?? a.background_treatment}`,
-        `**Color skin:** ${a.color_skin}`,
+        `**Visual skin:** ${a.visual_skin}`,
         `**Tone:** ${a.tone}`,
         `**Cover framing:** ${coverLabel[a.cover_framing] ?? a.cover_framing}`,
         a.anything_else ? `**Additional notes:** ${a.anything_else}` : "",

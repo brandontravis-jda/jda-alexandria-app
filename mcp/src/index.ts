@@ -26,26 +26,16 @@ if (!AZURE_TENANT_ID) throw new Error("AZURE_TENANT_ID is not set");
 const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "https://mcp-production-3192.up.railway.app";
 
 // ── Azure AD security groups ──────────────────────────────────────────────────
-// Azure AD groups gate authentication only — not capabilities.
-// Capabilities are determined by the permissions matrix (roles/permissions tables).
-//
-// Azure group → auth tier:
-//   Alexandria-Owners (cba99ef2) → "admin"       — Brandon only; full platform control
-//   Alexandria-Admins (c85b685b) → "admin"       — Portal admin; manage users and roles
-//   Alexandria-Users  (6864b47f) → "practitioner" — All practitioners; capabilities from matrix
-//
-// Both Owners and Admins map to auth tier "admin" — same portal access level.
-// Owner-specific controls are not yet built; add when needed.
-const GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Alexandria-Owners
-const GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Alexandria-Admins
-const GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
+// Group membership is the source of truth for permission tiers.
+// Checked on every OAuth login — database tier is always overwritten.
+const GROUP_ADMINS  = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Platform administration
+const GROUP_EDITORS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Content editors → practice_leader
+const GROUP_USERS   = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // All practitioners
 
-// Returns the auth tier for the session — used ONLY for portal admin gating,
-// NOT for capability decisions. Capability decisions go through checkPermission().
-function authTierFromGroups(groups: string[]): "admin" | "practitioner" | null {
-  if (groups.includes(GROUP_OWNERS)) return "admin";
-  if (groups.includes(GROUP_ADMINS)) return "admin";
-  if (groups.includes(GROUP_USERS))  return "practitioner";
+function tierFromGroups(groups: string[]): "admin" | "practice_leader" | "practitioner" | null {
+  if (groups.includes(GROUP_ADMINS))  return "admin";
+  if (groups.includes(GROUP_EDITORS)) return "practice_leader";
+  if (groups.includes(GROUP_USERS))   return "practitioner";
   return null; // Not in any authorized group — reject
 }
 
@@ -103,158 +93,6 @@ async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS request_log_user_idx ON alexandria_request_log(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS request_log_tool_idx ON alexandria_request_log(tool_name)`;
   await sql`CREATE INDEX IF NOT EXISTS request_log_matched_idx ON alexandria_request_log(matched_capability)`;
-
-  // ── Step 5: Permissions matrix ──────────────────────────────────────────────
-  await sql`
-    ALTER TABLE users
-      ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT TRUE
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS roles (
-      id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      slug         TEXT UNIQUE NOT NULL,
-      display_name TEXT NOT NULL,
-      description  TEXT,
-      is_system    BOOLEAN NOT NULL DEFAULT FALSE,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      created_by   INTEGER REFERENCES users(id)
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS permissions (
-      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      role_id    UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-      action     TEXT NOT NULL,
-      scope      TEXT NOT NULL DEFAULT 'own_practice'
-                   CHECK (scope IN ('own_practice', 'all', 'none')),
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(role_id, action)
-    )
-  `;
-
-  await sql`
-    CREATE TABLE IF NOT EXISTS user_roles (
-      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      role_id    UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-      granted_by INTEGER REFERENCES users(id),
-      granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      UNIQUE(user_id, role_id)
-    )
-  `;
-
-  await sql`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS permissions_role_idx ON permissions(role_id)`;
-
-  // Seed system roles (idempotent — ON CONFLICT DO NOTHING)
-  await sql`
-    INSERT INTO roles (slug, display_name, description, is_system) VALUES
-      ('practice_leader', 'Practice Leader', 'Content write access scoped to own practice. Full methodology and capability record visibility.', TRUE),
-      ('practitioner',    'Practitioner',    'Standard production access. Read methodology and brand packages. No portal access.', TRUE),
-      ('content_admin',   'Content Admin',   'Full read/write/delete across all content types and portal management.', TRUE),
-      ('developer',       'Developer',       'Placeholder — permissions assigned after Discovery Intensives.', TRUE),
-      ('project_manager', 'Project Manager', 'Placeholder — permissions assigned after Discovery Intensives.', TRUE),
-      ('account_exec',    'Account Executive','Placeholder — permissions assigned after Discovery Intensives.', TRUE)
-    ON CONFLICT (slug) DO NOTHING
-  `;
-
-  // Seed permissions for practice_leader role (idempotent)
-  await sql`
-    WITH r AS (SELECT id FROM roles WHERE slug = 'practice_leader')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
-    (VALUES
-      ('methodology:read',                                  'all'),
-      ('methodology:write',                                 'own_practice'),
-      ('methodology:update',                                'own_practice'),
-      ('brand_package:read',                                'all'),
-      ('brand_package:write',                               'own_practice'),
-      ('brand_package:update',                              'own_practice'),
-      ('capability_record:read',                            'all'),
-      ('capability_record:write',                           'own_practice'),
-      ('capability_record:update',                          'own_practice'),
-      ('mcp_tool:alexandria_save_brand_package',            'own_practice'),
-      ('mcp_tool:alexandria_update_capability',             'own_practice'),
-      ('portal:access',                                     'own_practice'),
-      ('portal:dashboard',                                  'own_practice'),
-      ('methodology_field:systemInstructions',              'all'),
-      ('methodology_field:visionOfGood',                    'all'),
-      ('methodology_field:tips',                            'all'),
-      ('methodology_field:checkPrompt',                     'all')
-    ) AS v(action, scope)
-    ON CONFLICT (role_id, action) DO NOTHING
-  `;
-
-  // Seed permissions for practitioner role (idempotent)
-  await sql`
-    WITH r AS (SELECT id FROM roles WHERE slug = 'practitioner')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
-    (VALUES
-      ('methodology:read',         'own_practice'),
-      ('brand_package:read',       'all'),
-      ('capability_record:read',   'own_practice'),
-      ('template:read',            'own_practice'),
-      ('portal:access',            'none'),
-      ('mcp_tool:standard_production', 'own_practice')
-    ) AS v(action, scope)
-    ON CONFLICT (role_id, action) DO NOTHING
-  `;
-
-  // Seed permissions for content_admin role (idempotent)
-  await sql`
-    WITH r AS (SELECT id FROM roles WHERE slug = 'content_admin')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
-    (VALUES
-      ('methodology:read',                       'all'),
-      ('methodology:write',                      'all'),
-      ('methodology:update',                     'all'),
-      ('methodology:delete',                     'all'),
-      ('brand_package:read',                     'all'),
-      ('brand_package:write',                    'all'),
-      ('brand_package:update',                   'all'),
-      ('brand_package:delete',                   'all'),
-      ('capability_record:read',                 'all'),
-      ('capability_record:write',                'all'),
-      ('capability_record:update',               'all'),
-      ('capability_record:delete',               'all'),
-      ('template:read',                          'all'),
-      ('template:write',                         'all'),
-      ('template:update',                        'all'),
-      ('template:delete',                        'all'),
-      ('mcp_tool:alexandria_save_brand_package', 'all'),
-      ('mcp_tool:alexandria_update_capability',  'all'),
-      ('portal:access',                          'all'),
-      ('portal:dashboard',                       'all'),
-      ('portal:users',                           'all'),
-      ('portal:roles',                           'all'),
-      ('methodology_field:systemInstructions',   'all'),
-      ('methodology_field:visionOfGood',         'all'),
-      ('methodology_field:tips',                 'all'),
-      ('methodology_field:checkPrompt',          'all')
-    ) AS v(action, scope)
-    ON CONFLICT (role_id, action) DO NOTHING
-  `;
-
-  // Backfill user_roles from existing users.tier (idempotent)
-  await sql`
-    INSERT INTO user_roles (user_id, role_id)
-    SELECT u.id, r.id
-    FROM users u
-    JOIN roles r ON (
-      (u.tier = 'practice_leader' AND r.slug = 'practice_leader') OR
-      (u.tier = 'practitioner'    AND r.slug = 'practitioner') OR
-      (u.tier = 'admin'           AND r.slug = 'content_admin')
-    )
-    ON CONFLICT (user_id, role_id) DO NOTHING
-  `;
-
-  // Backfill portal_access for admin/practice_leader users
-  await sql`
-    UPDATE users SET portal_access = TRUE
-    WHERE tier IN ('admin', 'practice_leader') AND portal_access = FALSE
-  `;
 }
 
 migrate().catch((err) => console.error("Migration error:", err));
@@ -283,42 +121,6 @@ async function logRequest(opts: {
     // Logging must never break tool execution
     console.error("Request log error:", err);
   }
-}
-
-// ── Permissions resolver ──────────────────────────────────────────────────────
-// Resolves whether a user has permission to perform an action.
-// Caches results for the duration of a single request via the returned Map.
-// Do NOT share this cache across requests.
-
-type PermissionScope = "own_practice" | "all" | "none";
-
-interface ResolvedPermission {
-  allowed: boolean;
-  scope: PermissionScope;
-}
-
-function makePermissionResolver(userId: number) {
-  const cache = new Map<string, ResolvedPermission>();
-
-  return async function checkPermission(action: string): Promise<ResolvedPermission> {
-    if (cache.has(action)) return cache.get(action)!;
-
-    const rows = await sql<{ scope: string }[]>`
-      SELECT p.scope
-      FROM user_roles ur
-      JOIN permissions p ON p.role_id = ur.role_id
-      WHERE ur.user_id = ${userId}
-        AND p.action = ${action}
-      LIMIT 1
-    `;
-
-    const result: ResolvedPermission = rows.length > 0
-      ? { allowed: rows[0].scope !== "none", scope: rows[0].scope as PermissionScope }
-      : { allowed: false, scope: "none" };
-
-    cache.set(action, result);
-    return result;
-  };
 }
 
 // ── Sanity ────────────────────────────────────────────────────────────────────
@@ -486,40 +288,19 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
   };
 }
 
-async function upsertUser(objectId: string, email: string, name: string, authTier: string): Promise<number> {
-  // tier column is retained for reference but is no longer the source of truth for capabilities.
-  // On first creation, tier is set from Azure group membership so backfill can assign the correct role.
-  // On subsequent logins, tier is NOT overwritten — capabilities come from user_roles.
+async function upsertUser(objectId: string, email: string, name: string, tier: string): Promise<number> {
+  // Tier is always derived from Azure AD group membership — never from the database.
   const [user] = await sql`
     INSERT INTO users (object_id, email, name, tier, created_at)
-    VALUES (${objectId}, ${email}, ${name}, ${authTier}, NOW())
+    VALUES (${objectId}, ${email}, ${name}, ${tier}, NOW())
     ON CONFLICT (object_id)
     DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
+      tier         = ${tier},
       last_seen_at = NOW()
     RETURNING id
   `;
-
-  // Backfill role assignment for new users — maps initial auth tier to a system role.
-  // Existing users already have roles from the migration seed, so ON CONFLICT ensures idempotency.
-  // authTier is now only "admin" or "practitioner" — practice_leader is a platform role, not an Azure tier.
-  const roleSlugMap: Record<string, string> = {
-    admin:        "content_admin",
-    practitioner: "practitioner",
-  };
-  const roleSlug = roleSlugMap[authTier] ?? "practitioner";
-  await sql`
-    INSERT INTO user_roles (user_id, role_id)
-    SELECT ${user.id as number}, r.id FROM roles r WHERE r.slug = ${roleSlug}
-    ON CONFLICT (user_id, role_id) DO NOTHING
-  `;
-
-  // Set portal_access for admin/practice_leader auth tiers
-  if (authTier === "admin" || authTier === "practice_leader") {
-    await sql`UPDATE users SET portal_access = TRUE WHERE id = ${user.id as number} AND portal_access = FALSE`;
-  }
-
   return user.id as number;
 }
 
@@ -538,10 +319,6 @@ function buildServer(auth: AuthResult): McpServer {
     version: "0.2.0",
   });
 
-  const checkPermission = makePermissionResolver(auth.userId);
-
-  // Legacy convenience flag — used for tier-aware copy only (not gating).
-  // All capability gating must go through checkPermission().
   const isPrivileged = auth.tier === "practice_leader" || auth.tier === "admin";
 
   // ── alexandria_list_methodologies ─────────────────────────────────────────
@@ -552,21 +329,15 @@ function buildServer(auth: AuthResult): McpServer {
       practice: z.string().optional().describe("Practice area slug to filter by (e.g. 'brand-strategy', 'content-marketing')"),
     },
     async ({ practice }) => {
-      // Apply practice scoping: if user's methodology:read scope is own_practice and they
-      // have a practice assigned, filter to their practice (unless they specified a practice).
-      const methPerm = await checkPermission("methodology:read");
-      const effectivePractice = practice
-        ?? (methPerm.scope === "own_practice" && auth.practice ? auth.practice : undefined);
-
       let query: string;
       let params: Record<string, unknown>;
 
-      if (effectivePractice) {
+      if (practice) {
         query = `*[_type == "productionMethodology" && practice->slug.current == $practice] | order(name asc) {
           _id, name, "slug": slug.current, aiClassification, provenStatus, version,
           "practice": practice->name
         }`;
-        params = { practice: effectivePractice };
+        params = { practice };
       } else {
         query = `*[_type == "productionMethodology"] | order(name asc) {
           _id, name, "slug": slug.current, aiClassification, provenStatus, version,
@@ -642,16 +413,9 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      // systemInstructions, visionOfGood, tips, checkPrompt — permission-gated fields
-      const [canSeeSystemInstructions, canSeeVisionOfGood, canSeeTips, canSeeCheckPrompt] = await Promise.all([
-        checkPermission("methodology_field:systemInstructions"),
-        checkPermission("methodology_field:visionOfGood"),
-        checkPermission("methodology_field:tips"),
-        checkPermission("methodology_field:checkPrompt"),
-      ]);
-
+      // systemInstructions — privileged only
       if (m.systemInstructions) {
-        if (canSeeSystemInstructions.allowed) {
+        if (isPrivileged) {
           lines.push("\n## System Instructions");
           lines.push(m.systemInstructions);
         } else {
@@ -683,11 +447,12 @@ function buildServer(auth: AuthResult): McpServer {
         for (const qc of m.qualityChecks as Record<string, string>[]) {
           lines.push(`- **${qc.name}**`);
           if (qc.description) lines.push(`  ${qc.description}`);
-          if (canSeeCheckPrompt.allowed && qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
+          // checkPrompt is internal — privileged only
+          if (isPrivileged && qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
         }
       }
 
-      if (m.visionOfGood && canSeeVisionOfGood.allowed) {
+      if (m.visionOfGood && isPrivileged) {
         lines.push("\n## Vision of Good");
         lines.push(m.visionOfGood);
       }
@@ -701,7 +466,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      if (m.tips && canSeeTips.allowed) {
+      if (m.tips && isPrivileged) {
         lines.push("\n## Tips");
         lines.push(m.tips as string);
       }
@@ -1367,18 +1132,9 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`# Alexandria — Platform Inventory`);
       lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
 
-      // ── Elevated access callout — shown prominently at top ───────────────────
-      const [canSaveBrand, canUpdateCapability] = await Promise.all([
-        checkPermission("mcp_tool:alexandria_save_brand_package"),
-        checkPermission("mcp_tool:alexandria_update_capability"),
-      ]);
-      const hasElevatedAccess = canSaveBrand.allowed || canUpdateCapability.allowed;
-      if (hasElevatedAccess) {
-        const elevatedTools = [
-          canSaveBrand.allowed ? "`alexandria_save_brand_package`" : "",
-          canUpdateCapability.allowed ? "`alexandria_update_capability`" : "",
-        ].filter(Boolean).join(", ");
-        lines.push(`> **Elevated access** — You have write tools available: ${elevatedTools}. Plus elevated methodology visibility.\n`);
+      // ── Tier callout — shown prominently at top ───────────────────────────
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`> **Your access tier: ${auth.tier}** — You have write access to brand packages and capability records, plus elevated methodology visibility.\n`);
       }
 
       // ── Methodologies ────────────────────────────────────────────────────
@@ -1447,15 +1203,15 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`\n**Brand Packages**`);
       lines.push(`- \`alexandria_list_brand_packages\` — list all loaded client brand packages`);
       lines.push(`- \`alexandria_get_brand_package\` — load colors, fonts, logos, voice for a specific client`);
-      if (canSaveBrand.allowed) {
-        lines.push(`- \`alexandria_save_brand_package\` *(elevated)* — save or update a brand package`);
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`- \`alexandria_save_brand_package\` *(${auth.tier})* — save or update a brand package`);
       }
       lines.push(`\n**Capabilities Matrix**`);
       lines.push(`- \`alexandria_list_capabilities\` — browse deliverable types by practice area, classification, or status`);
       lines.push(`- \`alexandria_get_capability\` — get the AI assessment for a specific deliverable type`);
       lines.push(`- \`alexandria_log_capability_gap\` — flag an unrecognized deliverable type for the backlog`);
-      if (canUpdateCapability.allowed) {
-        lines.push(`- \`alexandria_update_capability\` *(elevated)* — update classification and capability assessment`);
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`- \`alexandria_update_capability\` *(${auth.tier})* — update classification and capability assessment`);
       }
       lines.push(`\n**Discovery**`);
       lines.push(`- \`alexandria_list_practice_areas\` — list JDA practice areas`);
@@ -1497,13 +1253,8 @@ function buildServer(auth: AuthResult): McpServer {
       status: z.enum(["not_evaluated", "classified", "methodology_built", "proven_status"]).optional().describe("Filter by transformation status"),
     },
     async ({ practice_area, classification, status }) => {
-      // Apply practice scoping if user's capability_record:read scope is own_practice
-      const capPerm = await checkPermission("capability_record:read");
-      const effectivePracticeArea = practice_area
-        ?? (capPerm.scope === "own_practice" && auth.practice ? auth.practice : undefined);
-
       let filter = `_type == "capabilityRecord"`;
-      if (effectivePracticeArea) filter += ` && practiceArea == "${effectivePracticeArea}"`;
+      if (practice_area) filter += ` && practiceArea == "${practice_area}"`;
       if (classification) filter += ` && aiClassification == "${classification}"`;
       if (status) filter += ` && status == "${status}"`;
 
@@ -1735,9 +1486,8 @@ function buildServer(auth: AuthResult): McpServer {
       notes: z.string().optional(),
     },
     async ({ slug, ai_classification, status, current_ai_ceiling, ai_support_role, recommended_tool_stack, live_search_enabled, baseline_production_time, ai_native_production_time, notes }) => {
-      const perm = await checkPermission("mcp_tool:alexandria_update_capability");
-      if (!perm.allowed) {
-        return { content: [{ type: "text", text: "Permission denied. Updating capability records requires practice_leader or admin role. Contact your administrator to request access." }], isError: true };
+      if (auth.tier === "practitioner") {
+        return { content: [{ type: "text", text: "Permission denied. Updating capability records requires practice_leader or admin tier." }], isError: true };
       }
 
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -1786,9 +1536,8 @@ function buildServer(auth: AuthResult): McpServer {
       notes:           z.string().optional().describe("Extraction notes, stale data warnings, gaps, or caveats"),
     },
     async ({ client_name, slug, content, abbreviations, source_document, extracted_by, dropbox_link, notes }) => {
-      const perm = await checkPermission("mcp_tool:alexandria_save_brand_package");
-      if (!perm.allowed) {
-        return { content: [{ type: "text", text: "Permission denied. Saving brand packages requires practice_leader or admin role. Contact your administrator to request access." }], isError: true };
+      if (auth.tier === "practitioner") {
+        return { content: [{ type: "text", text: "Permission denied. Saving brand packages requires practice_leader or admin tier. Contact your administrator to request access." }], isError: true };
       }
 
       // Normalize slug — lowercase, hyphens only
@@ -1896,7 +1645,6 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-
   // ── OAuth: Step 1 — Claude hits our /authorize ────────────────────────────
   // We store Claude's params, then redirect to Azure AD
   if (pathname === "/oauth/authorize" || pathname === "/authorize") {
@@ -1919,7 +1667,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       client_id: AZURE_CLIENT_ID!,
       response_type: "code",
       redirect_uri: `${MCP_BASE_URL}/oauth/callback`,
-      scope: "openid profile email User.Read GroupMember.Read.All",
+      scope: "openid profile email User.Read",
       state: azureState,
       prompt: "select_account",
     });
@@ -1959,9 +1707,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       return;
     }
 
-    // Azure AD groups gate authentication only — not capabilities.
-    // Capabilities are determined by user_roles in the permissions matrix.
-    const tier = authTierFromGroups(profile.groups);
+    // Derive tier from Azure AD group membership — reject if not authorized
+    const tier = tierFromGroups(profile.groups);
     if (!tier) {
       res.writeHead(403, { "Content-Type": "text/html" });
       res.end(`

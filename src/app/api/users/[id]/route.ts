@@ -3,8 +3,6 @@ import { db } from "@/lib/db";
 import { getUserByObjectId } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
-const VALID_TIERS = ["practitioner", "practice_leader", "admin"] as const;
-
 async function requireAdmin() {
   const session = await auth();
   if (!session?.user?.id) return null;
@@ -13,7 +11,7 @@ async function requireAdmin() {
   return user;
 }
 
-// PATCH /api/users/[id] — update tier and/or practice (admin only)
+// PATCH /api/users/[id] — update practice, portal_access, or role assignment (admin only)
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -26,26 +24,53 @@ export async function PATCH(
   if (isNaN(userId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
 
   const body = await request.json().catch(() => ({}));
-  const { tier, practice } = body as { tier?: string; practice?: string };
+  const {
+    practice,
+    portal_access,
+    mcp_access,
+    add_role,    // role UUID to assign
+    remove_role, // role UUID to remove
+  } = body as {
+    practice?: string;
+    portal_access?: boolean;
+    mcp_access?: boolean;
+    add_role?: string;
+    remove_role?: string;
+  };
 
-  if (tier !== undefined && !VALID_TIERS.includes(tier as typeof VALID_TIERS[number])) {
-    return NextResponse.json({ error: "Invalid tier" }, { status: 400 });
-  }
-
-  // Prevent admins from demoting themselves (would lock out the last admin)
-  if (userId === admin.id && tier !== undefined && tier !== "admin") {
-    return NextResponse.json({ error: "You cannot change your own tier" }, { status: 403 });
-  }
-
+  // Update user fields
   const [updated] = await db`
     UPDATE users SET
-      tier         = COALESCE(${tier ?? null}, tier),
-      practice     = COALESCE(${practice ?? null}, practice)
+      practice     = COALESCE(${practice ?? null}, practice),
+      portal_access = COALESCE(${portal_access ?? null}, portal_access),
+      mcp_access    = COALESCE(${mcp_access ?? null}, mcp_access)
     WHERE id = ${userId}
-    RETURNING id, email, name, tier, practice
+    RETURNING id, email, name, tier, practice, portal_access, mcp_access
   `;
 
   if (!updated) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
-  return NextResponse.json({ user: updated });
+  // Role assignment
+  if (add_role) {
+    await db`
+      INSERT INTO user_roles (user_id, role_id, granted_by)
+      VALUES (${userId}, ${add_role}, ${admin.id})
+      ON CONFLICT (user_id, role_id) DO NOTHING
+    `;
+  }
+
+  if (remove_role) {
+    await db`DELETE FROM user_roles WHERE user_id = ${userId} AND role_id = ${remove_role}`;
+  }
+
+  // Fetch updated roles
+  const roles = await db`
+    SELECT r.id, r.slug, r.display_name, r.is_system
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id
+    WHERE ur.user_id = ${userId}
+    ORDER BY r.display_name
+  `;
+
+  return NextResponse.json({ user: { ...updated, roles } });
 }

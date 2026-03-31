@@ -213,17 +213,41 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 
 ---
 
-### Step 4: Deliverable Classifications + Quality Gates + Capabilities Matrix
+### Step 4: Capabilities Matrix — ✅ COMPLETE (with open items)
 
-Add the structured reference data content types. Needs a discovery session before building.
+**Discovery:** `ref/step-4-discovery-and-plan-updates.md` — March 30, 2026. Original Step 4 placeholder (three separate content types) collapsed into one coherent data model.
 
-**Questions to resolve in discovery:**
-- What fields matter? What does the MCP server return?
-- How do practice leaders maintain these? (Portal, Claude write-back, or both?)
-- How do these integrate with the production context assembly chain?
-- Are these worth building before the Claude Project architecture is defined? They're most useful when assembled into a production context — but if `assemble_production_context` is deferred, these might be premature.
+**What was built:**
 
-**Depends on:** Step 2 complete.
+*Schema:*
+- `capabilityRecord` Sanity document type — 4-stage status pipeline (Not Evaluated → Classified → Methodology Built → Proven Status), AI classification (AI-Led / AI-Assisted / Human-Led), capability assessment fields (AI ceiling, support role, tool stack, live search flag), production time before/after, source tracking
+- `productionMethodology` additions — `qualityChecklist` (human handoff gates Claude surfaces post-production as "Before This Goes Downstream"), `baselineProductionTime`, `aiNativeProductionTime`
+
+*Data:*
+- 72 capability records seeded across 10 JDA practice areas — extracted from KIRU deliverable inventory, no KIRU references in the data
+- JDA practice area taxonomy established: Brand Creative, Campaign and Production Creative, Digital Marketing/Social/Email/Data, Development, Strategic Communications/PR/Crisis Comms, Paid Media and Search, Business Development, Account Services, Operations, Logistics
+
+*MCP tools:*
+- ✅ `alexandria_list_capabilities` — browse by practice area, classification, or status
+- ✅ `alexandria_get_capability` — full assessment by classification type (AI-Led → methodology link; Human-Led → ceiling assessment + live search supplement)
+- ✅ `alexandria_log_capability_gap` — practitioners flag unknown deliverable types, auto-creates stub record in backlog
+- ✅ `alexandria_update_capability` *(practice_leader+)* — classify records and update assessments through Claude
+- ✅ `alexandria_get_methodology` updated — quality checklist appended as handoff block after every production run
+- ✅ `alexandria_help` updated — full 17-tool inventory across 5 categories, live capabilities matrix summary (count, methodology built, proven)
+
+*Portal:*
+- ✅ `/capabilities` page — unified flat sortable table, pill filter system (practice × classification × status), stats strip with stacked progress bar, CSV export
+- ✅ Added to nav
+
+**Validated:** MCP tools confirmed working. Portal page rendering correctly.
+
+**Open items (human work, not code):**
+- ⬜ **Human review of deliverable inventory** — the 72 seeded records came from a proof-of-concept and should be reviewed by practice leaders for accuracy, additions, and removals before Discovery Intensives begin
+- ⬜ **Asana history extraction** — pull historical project data from Asana to supplement and validate the deliverable inventory (adds `source: asana_history` records). Likely produces additional records not covered by the KIRU seed.
+- ⬜ **Human-Led methodology authoring** — video production, logo production, brand discovery sessions, crisis communications. Content work, not code. Required before Human-Led records can advance to `methodology_built`.
+- ⬜ **Discovery Intensives** — the process that moves records from `not_evaluated` to `classified` and beyond. All 72 records are currently `not_evaluated`.
+
+**Step 6 dependency notes preserved from discovery:** See `ref/step-4-discovery-and-plan-updates.md` Part 3. Step 6 dashboard data sources are entirely sourced from Step 3 (`alexandria_request_log`) and Step 4 (`capabilityRecord` schema). No new data model needed in Step 6.
 
 ---
 
@@ -243,20 +267,39 @@ Add the remaining content types that complete the knowledge model. Needs practic
 
 ### Step 6: Dashboards and Measurement Layer
 
-Wire up adoption tracking and practice leader views.
+Wire up the measurement infrastructure for the transformation. This is a visualization layer — the data model was established in Steps 3 and 4. Do not invent a new data model here.
+
+**Data available by the time Step 6 is built:**
+- `alexandria_request_log` (Step 3) — all MCP activity, by user, tool, practice
+- `capabilityRecord` (Step 4) — full deliverable taxonomy with status, classification, proven status, production time data
+- `capability_gap_log` via `alexandria_log_capability_gap` (Step 4) — unsupported requests and unidentified deliverable types
 
 **Build:**
-- MCP usage tracking (who's querying, how often, which content types, which practices)
-- Practice leader dashboard views in the portal
-- Asana API integration for adoption tracking
-- n8n workflows for background data routing (Fireflies transcripts, etc.)
+- Executive dashboard (Chance): transformation progress — workflows identified, classification coverage, proven status progression, practice-by-practice breakdown. Sourced from Capability Records.
+- Practice leader dashboard: their practice slice of the Capabilities Matrix + MCP usage data for their team
+- Admin dashboard (Brandon): full platform view — all of the above + request log volume, unsupported request patterns, capability gap trends
+- n8n: background data routing as needed. First workflow TBD based on what's actually needed.
 
-**Open questions:**
-- What metrics actually matter to practice leaders? This needs to be defined before building dashboards.
-- Is Asana the right adoption proxy, or is MCP usage data sufficient?
-- n8n hasn't been touched — what does the first workflow actually look like?
+**Primary metrics (defined in Step 4 discovery):**
+- Production time reduction by deliverable type (before/after from Capability Records)
+- Proven Status progression (% of JDA's production surface area validated AI-native)
 
-**Depends on:** Defining what metrics matter. MCP usage data is available from Step 1 onward.
+**Secondary metrics:**
+- MCP usage volume by practice and practitioner (leading indicator of adoption)
+- Classification coverage (% of identified workflows evaluated)
+- Revision rate comparison (requires manual input — likely deferred)
+
+**Executive metrics (Chance):**
+- Blended production time reduction across agency (target: 50% at 6 months)
+- Proven Status count and practice distribution
+- Revenue pipeline implications (requires BD input — manual at first)
+
+**Open questions (still to resolve before building):**
+- Is Asana API integration worth building for adoption tracking, or is MCP request log sufficient?
+- What does the first n8n workflow actually look like?
+- Does the practice leader dashboard need write capability (log production time, mark proven status) or is it read-only?
+
+**Depends on:** Steps 3 and 4 complete. Capability Records seeded and partially evaluated through at least two Discovery Intensives.
 
 ---
 
@@ -383,15 +426,13 @@ The original plan deferred this to Step 6, but the decisions here affect everyth
 - How do Projects stay current when Alexandria content changes? MCP solves this for live lookups — but system prompt content goes stale.
 - Is there a meaningful difference between a "practice Project" and a "client Project" or does MCP make that distinction irrelevant?
 
-### Alexandria Help + Discovery Surface (Step 3)
+### Alexandria Help + Discovery Surface (Step 3) — ✅ Resolved
 
-Scope validated by `ref/alexandria-intake-enforcement.md` — use that as the starting point for the discovery session. Discovery session required before building.
+Built and validated. See Step 3 above.
 
-### Deliverable Classifications + Quality Gates (Step 4)
+### Deliverable Classifications + Quality Gates (Step 4) — ✅ Resolved
 
-- Are these worth building as dedicated Sanity content types, or are they better as structured sections within methodologies?
-- Who actually uses quality gates — Claude enforcing them automatically, or practitioners checking manually?
-- What's the minimum viable version? A simple list of deliverable types with AI classification might be enough to start.
+Resolved in discovery. Deliverable classifications are a field on `capabilityRecord`, not a standalone type. Quality gates are `qualityChecklist` on methodologies — human-executed handoff prompts, not autonomous Claude gates. See Step 4 above.
 
 ### Workflow Guides (Step 5)
 
@@ -418,4 +459,4 @@ Scope validated by `ref/alexandria-intake-enforcement.md` — use that as the st
 
 ---
 
-*Updated March 30, 2026. Steps 1–3 complete. Steps 4–11 pending discovery sessions outlined above.*
+*Updated March 31, 2026. Steps 1–4 complete. Steps 5–11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives) before the matrix is production-ready.*

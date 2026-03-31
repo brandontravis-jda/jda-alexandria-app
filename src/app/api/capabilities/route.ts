@@ -7,7 +7,8 @@ async function requirePortalAccess() {
   const session = await auth();
   if (!session?.user?.id) return null;
   const user = await getUserByObjectId(session.user.id);
-  if (!user || user.tier === "practitioner") return null;
+  // Gate on portal_access column — set by permissions migration, not hardcoded tier
+  if (!user || !user.portal_access) return null;
   return user;
 }
 
@@ -21,8 +22,9 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
 
   let filter = `_type == "capabilityRecord"`;
-  // Practice leaders see only their practice area
-  if (user.tier === "practice_leader" && user.practice) {
+  // Scoping: admin sees all; non-admin with a practice assignment sees own practice by default
+  const isAdmin = user.tier === "admin";
+  if (!isAdmin && user.practice && !practiceArea) {
     filter += ` && practiceArea == "${user.practice}"`;
   } else if (practiceArea) {
     filter += ` && practiceArea == "${practiceArea}"`;

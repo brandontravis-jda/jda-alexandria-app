@@ -1896,14 +1896,6 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     return;
   }
 
-  if (pathname === "/.well-known/oauth-protected-resource") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      resource: MCP_BASE_URL,
-      authorization_servers: [`${MCP_BASE_URL}/.well-known/oauth-authorization-server`],
-    }));
-    return;
-  }
 
   // ── OAuth: Step 1 — Claude hits our /authorize ────────────────────────────
   // We store Claude's params, then redirect to Azure AD
@@ -2061,10 +2053,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
   const auth = await resolveAuth(req);
   if (!auth) {
-    res.writeHead(401, {
-      "Content-Type": "application/json",
-      "WWW-Authenticate": `Bearer realm="alexandria", resource_metadata="${MCP_BASE_URL}/.well-known/oauth-protected-resource"`,
-    });
+    res.writeHead(401, { "Content-Type": "application/json" });
     res.end(JSON.stringify({
       error: "Unauthorized. Use Authorization: Bearer <token> with an OAuth session token or API key.",
       oauth_url: `${MCP_BASE_URL}/oauth/authorize`,

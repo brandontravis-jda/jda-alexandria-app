@@ -38,6 +38,31 @@ independent systems.
 
 ---
 
+## Critical: Lessons from the Failed Step 5 Attempt (March 31, 2026)
+
+Step 5 was attempted and broke the Alexandria MCP connector for several hours. Read this before writing a single line of code.
+
+**What went wrong:**
+1. The initial commit swapped Azure group IDs — GROUP_ADMINS was assigned the Owners UUID, GROUP_EDITORS was assigned the Admins UUID. Required a follow-up fix commit.
+2. The `/authorize` redirect to Microsoft was missing `GroupMember.Read.All` in the scope. The token exchange had it, the redirect didn't. This caused every user to be rejected as unauthorized. Not caught before deploy.
+3. A `WWW-Authenticate` header was added to the 401 response as a supposed fix. This broke the Claude Desktop OAuth popup entirely — it opens blank and never reaches the Microsoft login page. Required a revert.
+4. All of the above was deployed to production (`main` → Railway auto-deploy) before end-to-end validation. The connector was broken in production for hours.
+5. The root cause of the blank popup — missing OAuth Client ID in the Claude Desktop connector config — was not identified until after all of the above debugging. The OAuth Client ID must be entered in the Claude Desktop connector setup (value: `AZURE_CLIENT_ID` from Railway MCP service variables).
+
+**Rules for this implementation — non-negotiable:**
+
+1. **Do not push to `main` until end-to-end validation passes.** Work on a feature branch. Deploy to Railway from the branch only when the full Step 7 validation checklist is complete.
+2. **Do not add or modify any HTTP response headers on the MCP endpoint** without confirming the effect on Claude Desktop's OAuth popup behavior. The working state is: `401` with no `WWW-Authenticate` header, `oauth_url` in the JSON body. Do not change this.
+3. **The `/authorize` redirect to Microsoft must include `GroupMember.Read.All` in the scope.** It is currently on line 1670 of `mcp/src/index.ts`. Do not remove it. Verify it is present after any auth flow changes.
+4. **Verify Azure group ID constants before any deploy.** Current confirmed correct values:
+   - `GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"` (Alexandria-Owners)
+   - `GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"` (Alexandria-Admins)
+   - `GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"` (Alexandria-Users)
+5. **Test the OAuth popup manually before declaring anything complete.** Click Connect in Claude Desktop, confirm the Microsoft login page appears, log in, confirm Connected status. Do not rely on server-side tests alone.
+6. **Do not touch the OAuth `/authorize` endpoint flow without re-reading the postmortem** at `ref/# Step 5 OAuth Postmortem.md`.
+
+---
+
 ## Part 1: Permissions Infrastructure
 
 ### The New Auth Model
@@ -74,28 +99,24 @@ hardcoded in middleware.
 
 ### Database Schema
 
-**Confirmed schema context (audit complete — do not re-audit):**
-
-The current `users` table uses `SERIAL PRIMARY KEY` (integer), not UUID. All existing foreign
-keys referencing `users(id)` use `INTEGER`. The `oauth_sessions` table FK is
-`user_id INTEGER NOT NULL REFERENCES users(id)`. The `alexandria_request_log.user_id` is
-stored as `TEXT` (cast from integer). The `practice` column already exists on `users`.
-
-The new tables must use `INTEGER` for any FK that references `users(id)`. Do not use UUID
-for these FKs. The roles and permissions tables use UUID primary keys internally (no
-external references require them to be integer).
+**Audit step first:** Before building, read the current `users` table schema in Postgres and
+the full `requireAuth()` middleware implementation. Understand exactly what fields exist and
+where tier checks are performed. Do not proceed until you have a clear picture of the current
+state.
 
 **New and modified tables:**
 
 ```sql
 -- Modified: users table
--- practice column likely already exists — use IF NOT EXISTS to be safe.
+-- Add practice field if not present. Remove tier as capability source (keep for
+-- migration period, but stop overwriting from Azure after cutover).
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS practice TEXT,
   ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT TRUE;
 
 -- New: roles table
+-- Seeded with initial role set. Admins can create new roles via portal UI.
 CREATE TABLE roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   slug TEXT UNIQUE NOT NULL,          -- 'practice_leader', 'developer', 'pm', etc.
@@ -103,11 +124,11 @@ CREATE TABLE roles (
   description TEXT,
   is_system BOOLEAN DEFAULT FALSE,    -- system roles cannot be deleted
   created_at TIMESTAMPTZ DEFAULT NOW(),
-  created_by INTEGER REFERENCES users(id)  -- INTEGER, not UUID — users.id is SERIAL
+  created_by UUID REFERENCES users(id)
 );
 
 -- New: permissions table
--- action format: 'content_type:operation'
+-- Defines what each role can do. action format: 'content_type:operation'
 -- Examples: 'methodology:read', 'brand_package:write', 'capability_record:update',
 --           'mcp_tool:alexandria_save_brand_package', 'portal:access'
 CREATE TABLE permissions (
@@ -122,9 +143,9 @@ CREATE TABLE permissions (
 -- A user can have multiple roles. Roles are additive.
 CREATE TABLE user_roles (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,  -- INTEGER, not UUID
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
-  granted_by INTEGER REFERENCES users(id),                          -- INTEGER, not UUID
+  granted_by UUID REFERENCES users(id),
   granted_at TIMESTAMPTZ DEFAULT NOW(),
   UNIQUE(user_id, role_id)
 );
@@ -224,13 +245,6 @@ Create a `checkPermission(userId, action, scope?)` function that:
 3. Returns true/false for the requested action and scope
 4. Caches the result for the duration of the request (not across requests)
 
-**Caching scope note:** In the MCP server, each request is short-lived and scoped to a single
-`buildServer()` call — request-scoped caching (a local `Map` inside the handler) is safe.
-In Next.js portal API routes, do NOT use module-level variables or singletons for permission
-caching — routes are persistent across requests and a module-level cache would leak
-permissions across users. Portal routes should call `checkPermission()` fresh per request,
-or use a `Map` scoped to the route handler function call only.
-
 **Step 5: Replace hardcoded tier checks with permissions resolver**
 Work through the checklist from Step 1. Replace every `if (user.tier === 'practice_leader')`
 style check with `checkPermission(userId, 'relevant:action')`. Do them all. Leave none
@@ -259,6 +273,36 @@ With the permissions resolver in place and `users.practice` populated, update al
 that return lists (`alexandria_list_methodologies`, `alexandria_list_capabilities`,
 `alexandria_list_templates`, etc.) to filter by the authenticated user's practice when their
 role scope is `own_practice`. Admins and content_admin role see everything.
+
+---
+
+### Pre-Deploy Checklist
+
+Do not merge to `main` or deploy to Railway until every item is checked.
+
+**Auth flow:**
+- [ ] `GET /mcp` returns `401` with no `WWW-Authenticate` header and `oauth_url` in JSON body
+- [ ] `GET /.well-known/oauth-authorization-server` returns `200` with correct metadata
+- [ ] `GET /authorize?...` redirects to Microsoft login with scope including `GroupMember.Read.All`
+- [ ] OAuth popup in Claude Desktop opens the Microsoft login page (not blank)
+- [ ] Login completes and connector shows Connected
+
+**Permissions:**
+- [ ] Practitioner-role user cannot access `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt`
+- [ ] Practice-leader-role user can call `alexandria_update_capability` and `alexandria_save_brand_package`
+- [ ] Admin-role user sees full methodology content and can access portal
+- [ ] Azure group removal blocks login but does not alter capability assignments
+
+**Database:**
+- [ ] `roles`, `permissions`, `user_roles` tables exist with seeded data
+- [ ] Existing users have been backfilled with correct roles from their current `tier` value
+- [ ] `portal_access` is `true` for all admin and practice_leader users
+
+**Portal:**
+- [ ] Users page shows role assignment UI
+- [ ] Roles page lists all seeded roles with permissions
+- [ ] Admin can add/remove permissions from a role
+- [ ] System roles cannot be deleted
 
 ---
 

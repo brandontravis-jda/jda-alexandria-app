@@ -16,9 +16,30 @@ The platform is a structured content and knowledge layer that makes Claude opera
 
 **The Claude Environment** — Claude Projects scoped per practice area and/or per client, with MCP providing live platform content on demand. The practitioner works in Claude. The platform ensures Claude has the right knowledge for the practitioner's role, practice, and client context.
 
+### MCP Connector Configuration
+
+The Alexandria connector is configured **once at the Claude Teams organization level** by an admin. Individual practitioners do not configure it — they authorize against it via their own Azure AD login when they first use it.
+
+**Connector setup (admin, one-time):**
+- **Name:** Alexandria
+- **Remote MCP server URL:** `https://mcp-production-3192.up.railway.app/mcp`
+- **OAuth Client ID:** `AZURE_CLIENT_ID` value from the MCP Railway service variables (the Azure app registration UUID)
+- **OAuth Client Secret:** Leave blank — the secret lives server-side in Railway environment variables, never in the client
+
+**Why the OAuth Client ID is required:** Claude Desktop uses it to identify which OAuth application to authorize against. Without it, the OAuth popup opens blank and never reaches the Microsoft login page. This was confirmed through a painful debugging session on March 31, 2026.
+
+**Azure app registration — confirmed correct redirect URIs:**
+- `https://mcp-production-3192.up.railway.app/oauth/callback`
+- `https://jda-alexandria-app-production.up.railway.app/api/auth/callback/microsoft-entra-id`
+- `http://localhost:3000/api/auth/callback/microsoft-entra-id`
+
+**Azure API permissions required (both delegated, admin consent granted):**
+- `User.Read`
+- `GroupMember.Read.All` — required in BOTH the `/authorize` redirect scope AND the token exchange. If missing from either, group membership cannot be read and every user is rejected as unauthorized.
+
 ### MCP Connector Reauth Note
 
-Practitioners connecting Alexandria through Claude Teams must disconnect and reconnect the connector whenever **new MCP tools are added** (Claude re-fetches the tool manifest on reconnect). This is a Claude protocol constraint — not something the platform can eliminate. Content changes (Sanity edits, brand package updates, `platformGuide` text) are live immediately and never require reauth. A practitioner-facing changelog should communicate when a reconnect is needed. See Step 10 for changelog as portal content.
+The connector is set at the org level — practitioners do not need to reconnect individually. However, reconnection is required whenever **new MCP tools are added** (Claude re-fetches the tool manifest on reconnect). This is a Claude protocol constraint. Content changes (Sanity edits, brand package updates, `platformGuide` text) are live immediately and never require reauth. A practitioner-facing changelog should communicate when a reconnect is needed. See Step 10 for changelog as portal content.
 
 ### Key Architecture Principle
 

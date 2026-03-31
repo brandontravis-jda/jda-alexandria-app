@@ -267,6 +267,7 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 - ⬜ **Asana history extraction** — pull historical project data from Asana to supplement and validate the deliverable inventory (adds `source: asana_history` records). Likely produces additional records not covered by the KIRU seed.
 - ⬜ **Human-Led methodology authoring** — video production, logo production, brand discovery sessions, crisis communications. Content work, not code. Required before Human-Led records can advance to `methodology_built`.
 - ⬜ **Discovery Intensives** — the process that moves records from `not_evaluated` to `classified` and beyond. All 72 records are currently `not_evaluated`.
+- ⬜ **Define Proven Status threshold** — once Step 9.5 feedback logging ships, establish the minimum feedback count and average quality score required for a record to advance to Proven Status. Suggested starting point: ≥3 feedback entries, average score ≥4.
 
 **Step 6 dependency notes preserved from discovery:** See `ref/step-4-discovery-and-plan-updates.md` Part 3. Step 6 dashboard data sources are entirely sourced from Step 3 (`alexandria_request_log`) and Step 4 (`capabilityRecord` schema). No new data model needed in Step 6.
 
@@ -294,6 +295,7 @@ Wire up the measurement infrastructure for the transformation. This is a visuali
 - `alexandria_request_log` (Step 3) — all MCP activity, by user, tool, practice
 - `capabilityRecord` (Step 4) — full deliverable taxonomy with status, classification, proven status, production time data
 - `capability_gap_log` via `alexandria_log_capability_gap` (Step 4) — unsupported requests and unidentified deliverable types
+- `production_feedback` (Step 9.5) — practitioner quality scores and observations per output; average score and feedback count per capability record
 
 **Build:**
 - Executive dashboard (Chance): transformation progress — workflows identified, classification coverage, proven status progression, practice-by-practice breakdown. Sourced from Capability Records.
@@ -375,6 +377,63 @@ Build the first standalone tool modules in the portal.
 Originally designed to generate everything needed to stand up a new Claude Project. May be unnecessary if Project setup is simple, or may be repurposed as a content package generator (assembles the right Alexandria content into a format ready to paste into a Project system prompt).
 
 **Depends on:** Outcomes of Step 7 discovery.
+
+---
+
+### Step 9.5: Production Feedback Loop
+
+**What this is:** A lightweight structured feedback mechanism triggered immediately after every production output — templates and methodology runs alike. The practitioner rates the output and logs qualitative observations directly through Claude. Feedback is stored in Alexandria and surfaced in the portal. This is the primary data source for advancing capability records to Proven Status.
+
+**Why this matters:** The platform has no signal on output quality today. Request logs tell us what tools were called. The capabilities matrix tells us what we believe is possible. Neither tells us whether the actual output was good. Without practitioner feedback, "Proven Status" is a label we assign ourselves. With it, Proven Status means something — it's backed by logged, attributed practitioner validation.
+
+**What feedback is NOT:** It is not an edit request. It is not a revision workflow. It is not a rating that gates anything. It is structured qualitative observation — "the navigation was broken in slide mode," "the brand colors weren't applied correctly," "the order of questions felt backwards" — logged to Alexandria for the practice leader and Brandon to act on through content updates.
+
+**Trigger:** Immediately after a production output is delivered. Claude prompts for feedback as the final step of any template or methodology run. The prompt is brief — one sentence framing, a 1–5 quality signal, and an optional freetext observation field. The entire feedback exchange should take under 30 seconds.
+
+**MCP tool: `alexandria_log_feedback`**
+
+Inputs:
+- `capability_id` — the capabilityRecord slug this output relates to (required)
+- `methodology_slug` or `template_slug` — which content was used (required, one or the other)
+- `quality_score` — integer 1–5 (required)
+- `observation` — freetext, practitioner's own words (optional but encouraged)
+- `output_type` — e.g. "html-deliverable", "post-discovery-brief" (optional, for dashboard filtering)
+
+Logged automatically by the tool:
+- `user_id` — who gave the feedback
+- `permission_tier` — their role
+- `created_at`
+
+**Database table: `production_feedback`**
+```sql
+CREATE TABLE production_feedback (
+  id              SERIAL PRIMARY KEY,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  capability_id   TEXT,
+  methodology_slug TEXT,
+  template_slug   TEXT,
+  quality_score   INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
+  observation     TEXT,
+  output_type     TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+**Portal surface:**
+- Feedback log visible on the portal Capabilities page per capability record — count of feedback entries, average score, most recent observations
+- Feed into Step 6 dashboard as a quality signal alongside request volume
+- Observations visible to practice leaders for their practice's records; all observations visible to admin
+
+**Connection to Proven Status:** A capability record cannot reach Proven Status without at least N feedback entries (exact threshold TBD — suggested: 3 successful outputs, average score ≥ 4). The portal capabilities page shows feedback count and score alongside status. Practice leaders can see at a glance how close a record is to Proven Status based on accumulated feedback.
+
+**Claude prompt template (appended to every template/methodology output):**
+> Before we close this out — take 30 seconds to log feedback on this output. It goes directly into Alexandria and helps improve the methodology. How would you rate this output? (1 = significant problems, 5 = production-ready as-is). Anything specific to note?
+
+Claude collects the score and optional observation, calls `alexandria_log_feedback`, confirms it was logged.
+
+**Access:** All tiers. Practitioners and practice leaders both log feedback. Admins see all feedback in the portal.
+
+**Depends on:** Step 3 (request logging infrastructure established), Step 4 (capability records exist to attach feedback to). Can be built independently of Step 5. Should ship before team rollout (May 11) so feedback accumulates from day one.
 
 ---
 

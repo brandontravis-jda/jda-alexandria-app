@@ -652,7 +652,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       if (m.systemInstructions) {
         if (canSeeSystemInstructions.allowed) {
-          lines.push("\n## System Instructions");
+          lines.push("\n## System Instructions (FULL — Admin/Practice Leader Access)");
           lines.push(m.systemInstructions);
         } else {
           lines.push("\n## System Instructions");
@@ -1363,11 +1363,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       const lines: string[] = [];
 
-      // ── Header ────────────────────────────────────────────────────────────
-      lines.push(`# Alexandria — Platform Inventory`);
-      lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
-
-      // ── Elevated access callout — shown prominently at top ───────────────────
+      // ── Elevated access callout — MUST appear first, before all other content ─
       const [canSaveBrand, canUpdateCapability] = await Promise.all([
         checkPermission("mcp_tool:alexandria_save_brand_package"),
         checkPermission("mcp_tool:alexandria_update_capability"),
@@ -1378,8 +1374,13 @@ function buildServer(auth: AuthResult): McpServer {
           canSaveBrand.allowed ? "`alexandria_save_brand_package`" : "",
           canUpdateCapability.allowed ? "`alexandria_update_capability`" : "",
         ].filter(Boolean).join(", ");
-        lines.push(`> **Elevated access** — You have write tools available: ${elevatedTools}. Plus elevated methodology visibility.\n`);
+        lines.push(`**[ADMIN ACCESS]** You are connected at the elevated admin tier. Write tools available: ${elevatedTools}. You have full visibility into all methodology fields including system instructions, vision of good, tips, and check prompts.`);
+        lines.push(``);
       }
+
+      // ── Header ────────────────────────────────────────────────────────────
+      lines.push(`# Alexandria — Platform Inventory`);
+      lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
 
       // ── Methodologies ────────────────────────────────────────────────────
       lines.push(`---\n## Methodologies`);

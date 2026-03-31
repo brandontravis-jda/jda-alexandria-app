@@ -1918,7 +1918,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       client_id: AZURE_CLIENT_ID!,
       response_type: "code",
       redirect_uri: `${MCP_BASE_URL}/oauth/callback`,
-      scope: "openid profile email User.Read",
+      scope: "openid profile email User.Read GroupMember.Read.All",
       state: azureState,
       prompt: "select_account",
     });

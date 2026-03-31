@@ -26,28 +26,26 @@ if (!AZURE_TENANT_ID) throw new Error("AZURE_TENANT_ID is not set");
 const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "https://mcp-production-3192.up.railway.app";
 
 // ── Azure AD security groups ──────────────────────────────────────────────────
-// Azure AD group membership answers ONE question: are you allowed into the system at all?
-// Capabilities are now determined by the permissions matrix (roles/permissions tables),
-// not by Azure group membership.
+// Azure AD groups gate authentication only — not capabilities.
+// Capabilities are determined by the permissions matrix (roles/permissions tables).
 //
-// The three groups below gate authentication only:
-//   - GROUP_OWNERS: Brandon-only seat — can manage admins
-//   - GROUP_ADMINS: Portal admin access — can manage users and roles
-//   - GROUP_USERS:  All practitioners — what they can do is defined by user_roles
+// Azure group → auth tier:
+//   Alexandria-Owners (cba99ef2) → "admin"       — Brandon only; full platform control
+//   Alexandria-Admins (c85b685b) → "admin"       — Portal admin; manage users and roles
+//   Alexandria-Users  (6864b47f) → "practitioner" — All practitioners; capabilities from matrix
 //
-// The legacy GROUP_EDITORS → practice_leader mapping is retained ONLY for the
-// transition period so existing users get the correct initial role via backfill.
-// Once all users have been backfilled, the group can be merged into GROUP_USERS.
-const GROUP_ADMINS  = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Portal administration
-const GROUP_EDITORS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Legacy: practice_leader role backfill
-const GROUP_USERS   = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // All practitioners
+// Both Owners and Admins map to auth tier "admin" — same portal access level.
+// Owner-specific controls are not yet built; add when needed.
+const GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Alexandria-Owners
+const GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Alexandria-Admins
+const GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
 
 // Returns the auth tier for the session — used ONLY for portal admin gating,
 // NOT for capability decisions. Capability decisions go through checkPermission().
-function authTierFromGroups(groups: string[]): "admin" | "practice_leader" | "practitioner" | null {
-  if (groups.includes(GROUP_ADMINS))  return "admin";
-  if (groups.includes(GROUP_EDITORS)) return "practice_leader"; // Transition period only
-  if (groups.includes(GROUP_USERS))   return "practitioner";
+function authTierFromGroups(groups: string[]): "admin" | "practitioner" | null {
+  if (groups.includes(GROUP_OWNERS)) return "admin";
+  if (groups.includes(GROUP_ADMINS)) return "admin";
+  if (groups.includes(GROUP_USERS))  return "practitioner";
   return null; // Not in any authorized group — reject
 }
 
@@ -505,10 +503,10 @@ async function upsertUser(objectId: string, email: string, name: string, authTie
 
   // Backfill role assignment for new users — maps initial auth tier to a system role.
   // Existing users already have roles from the migration seed, so ON CONFLICT ensures idempotency.
+  // authTier is now only "admin" or "practitioner" — practice_leader is a platform role, not an Azure tier.
   const roleSlugMap: Record<string, string> = {
-    admin:           "content_admin",
-    practice_leader: "practice_leader",
-    practitioner:    "practitioner",
+    admin:        "content_admin",
+    practitioner: "practitioner",
   };
   const roleSlug = roleSlugMap[authTier] ?? "practitioner";
   await sql`

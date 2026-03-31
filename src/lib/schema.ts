@@ -96,12 +96,13 @@ export async function upsertUser({
     RETURNING *
   `;
 
-  // Backfill role assignment for new users
+  // Backfill role assignment for new users.
+  // With the new Azure group model, authTier is only "admin" or "practitioner".
+  // "admin" → content_admin role; "practitioner" → practitioner role.
   if (tier) {
     const roleSlugMap: Record<string, string> = {
-      admin:           "content_admin",
-      practice_leader: "practice_leader",
-      practitioner:    "practitioner",
+      admin:        "content_admin",
+      practitioner: "practitioner",
     };
     const roleSlug = roleSlugMap[tier] ?? "practitioner";
     await db`

@@ -6,16 +6,20 @@ let migrated = false;
 
 // Azure AD groups gate authentication only — not capabilities.
 // Capabilities are determined by the permissions matrix (user_roles / permissions tables).
-const GROUP_ADMINS  = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Portal admin access
-const GROUP_EDITORS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Legacy: practice_leader role backfill
-const GROUP_USERS   = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // All practitioners
+//
+// Alexandria-Owners (cba99ef2) → "admin"       — Brandon only; full platform control
+// Alexandria-Admins (c85b685b) → "admin"       — Portal admin; manage users and roles
+// Alexandria-Users  (6864b47f) → "practitioner" — All practitioners; capabilities from matrix
+const GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Alexandria-Owners
+const GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Alexandria-Admins
+const GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
 
 // Returns auth tier for gating portal admin screens only (users/roles management).
 // Do NOT use this for capability decisions — use the permissions matrix.
-function authTierFromGroups(groups: string[]): "admin" | "practice_leader" | "practitioner" | null {
-  if (groups.includes(GROUP_ADMINS))  return "admin";
-  if (groups.includes(GROUP_EDITORS)) return "practice_leader";
-  if (groups.includes(GROUP_USERS))   return "practitioner";
+function authTierFromGroups(groups: string[]): "admin" | "practitioner" | null {
+  if (groups.includes(GROUP_OWNERS)) return "admin";
+  if (groups.includes(GROUP_ADMINS)) return "admin";
+  if (groups.includes(GROUP_USERS))  return "practitioner";
   return null;
 }
 

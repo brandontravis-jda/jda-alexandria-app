@@ -4,6 +4,7 @@ import productionMethodology from "./documents/productionMethodology";
 import clientBrandPackage from "./documents/clientBrandPackage";
 import template from "./documents/template";
 import platformGuide from "./documents/platformGuide";
+import capabilityRecord from "./documents/capabilityRecord";
 
 export const schemaTypes = [
   productionMethodology,
@@ -12,4 +13,5 @@ export const schemaTypes = [
   practiceArea,
   deliverableClassification,
   platformGuide,
+  capabilityRecord,
 ];

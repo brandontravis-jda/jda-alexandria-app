@@ -382,8 +382,9 @@ function buildServer(auth: AuthResult): McpServer {
         "practice": practice->{ name, "slug": slug.current },
         aiClassification, toolsInvolved, requiredInputs,
         systemInstructions, steps, outputFormat,
-        qualityChecks, failureModes, visionOfGood, tips,
-        clientRefinements, provenStatus, version, author, validatedBy
+        qualityChecks, qualityChecklist, failureModes, visionOfGood, tips,
+        clientRefinements, provenStatus, baselineProductionTime, aiNativeProductionTime,
+        version, author, validatedBy
       }`;
 
       const lowerName = slug.trim().toLowerCase();
@@ -476,6 +477,22 @@ function buildServer(auth: AuthResult): McpServer {
           lines.push(`- **${cr.client}**`);
           if (cr.refinementText) lines.push(`  ${cr.refinementText}`);
           if (cr.context) lines.push(`  Context: ${cr.context}`);
+        }
+      }
+
+      if (m.baselineProductionTime || m.aiNativeProductionTime) {
+        lines.push("\n## Production Time");
+        if (m.baselineProductionTime) lines.push(`Legacy: ${m.baselineProductionTime}`);
+        if (m.aiNativeProductionTime) lines.push(`AI-native: ${m.aiNativeProductionTime}`);
+      }
+
+      // Quality checklist — appended as a handoff block AFTER production output
+      if (m.qualityChecklist?.length) {
+        const tierLabel: Record<string, string> = { practitioner: "Practitioner", practice_leader: "Practice Leader", gatekeeper: "Gatekeeper" };
+        lines.push("\n---\n## Before This Goes Downstream");
+        lines.push("A human must verify the following before this output is shared with a client or used in production:\n");
+        for (const gate of m.qualityChecklist as Record<string, string>[]) {
+          lines.push(`☐ **${gate.gate}** *(${tierLabel[gate.tier] ?? gate.tier})* — ${gate.description ?? ""}`);
         }
       }
 
@@ -1181,6 +1198,284 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`- **Something else** — describe it and Alexandria will tell you if it has it`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_list_capabilities ──────────────────────────────────────────
+  server.tool(
+    "alexandria_list_capabilities",
+    "List JDA's Capability Records — the full map of deliverable types, their AI classification (AI-Led, AI-Assisted, Human-Led), and transformation status. Use this when a practitioner asks what AI can do for a given type of work, what JDA produces, or how far along the AI transformation is. Optionally filter by practice area, classification, or status.",
+    {
+      practice_area: z.string().optional().describe("Filter by practice area (e.g. 'Brand Strategy', 'PR', 'Copy and Content')"),
+      classification: z.enum(["ai_led", "ai_assisted", "human_led"]).optional().describe("Filter by AI classification"),
+      status: z.enum(["not_evaluated", "classified", "methodology_built", "proven_status"]).optional().describe("Filter by transformation status"),
+    },
+    async ({ practice_area, classification, status }) => {
+      let filter = `_type == "capabilityRecord"`;
+      if (practice_area) filter += ` && practiceArea == "${practice_area}"`;
+      if (classification) filter += ` && aiClassification == "${classification}"`;
+      if (status) filter += ` && status == "${status}"`;
+
+      const records = await sanity.fetch<Array<{
+        deliverableName: string;
+        slug: { current: string };
+        practiceArea: string;
+        status: string;
+        aiClassification?: string;
+        linkedMethodology?: { name: string; slug: { current: string } };
+      }>>(
+        `*[${filter}] | order(practiceArea asc, deliverableName asc) {
+          deliverableName, slug, practiceArea, status, aiClassification,
+          "linkedMethodology": linkedMethodology->{ name, "slug": slug.current }
+        }`
+      );
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_list_capabilities", requestSummary: `list capabilities (practice: ${practice_area ?? "all"}, class: ${classification ?? "all"}, status: ${status ?? "all"})`, matchedCapability: records.length > 0 });
+
+      const statusLabel: Record<string, string> = {
+        not_evaluated: "Not Evaluated",
+        classified: "Classified",
+        methodology_built: "Methodology Built",
+        proven_status: "✓ Proven Status",
+      };
+      const classLabel: Record<string, string> = {
+        ai_led: "AI-Led",
+        ai_assisted: "AI-Assisted",
+        human_led: "Human-Led",
+      };
+
+      const lines: string[] = [`# Capabilities (${records.length} records)\n`];
+
+      // Group by practice area
+      const byPractice: Record<string, typeof records> = {};
+      for (const r of records) {
+        if (!byPractice[r.practiceArea]) byPractice[r.practiceArea] = [];
+        byPractice[r.practiceArea].push(r);
+      }
+
+      for (const [area, items] of Object.entries(byPractice)) {
+        lines.push(`## ${area}`);
+        for (const r of items) {
+          const cls = r.aiClassification ? ` · ${classLabel[r.aiClassification]}` : " · Not Classified";
+          const st = statusLabel[r.status] ?? r.status;
+          const meth = r.linkedMethodology ? ` → ${r.linkedMethodology.name}` : "";
+          lines.push(`- **${r.deliverableName}** — ${st}${cls}${meth}`);
+        }
+        lines.push("");
+      }
+
+      // Summary counts
+      const counts: Record<string, number> = { not_evaluated: 0, classified: 0, methodology_built: 0, proven_status: 0 };
+      for (const r of records) counts[r.status] = (counts[r.status] ?? 0) + 1;
+      lines.push(`---\n**Summary:** ${records.length} total · ${counts.not_evaluated} not evaluated · ${counts.classified} classified · ${counts.methodology_built} methodology built · ${counts.proven_status} proven`);
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_get_capability ─────────────────────────────────────────────
+  server.tool(
+    "alexandria_get_capability",
+    "Get the full capability assessment for a specific deliverable type. Returns AI classification, current AI ceiling, support role, and links to the associated methodology. For AI-Led deliverables, directs the practitioner to the production methodology. For Human-Led deliverables, returns an honest assessment with a live search supplement if enabled. Use this when a practitioner asks what AI can do for a specific deliverable type.",
+    {
+      slug: z.string().describe("Deliverable slug (e.g. 'press-release', 'brand-positioning-and-concept-development'). Use alexandria_list_capabilities to find available slugs."),
+    },
+    async ({ slug }) => {
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+      const lowerName = slug.trim().toLowerCase();
+
+      const r = await sanity.fetch<{
+        deliverableName: string;
+        slug: { current: string };
+        practiceArea: string;
+        status: string;
+        aiClassification?: string;
+        currentAiCeiling?: string;
+        aiSupportRole?: string;
+        recommendedToolStack?: string[];
+        ceilingLastReviewed?: string;
+        liveSearchEnabled?: boolean;
+        baselineProductionTime?: string;
+        aiNativeProductionTime?: string;
+        linkedMethodology?: { name: string; slug: string };
+        notes?: string;
+      } | null>(
+        `*[_type == "capabilityRecord" && (
+          slug.current == $slug ||
+          slug.current == $normalizedSlug ||
+          lower(deliverableName) == $lowerName ||
+          lower(deliverableName) match $namePattern
+        )][0] {
+          deliverableName, slug, practiceArea, status, aiClassification,
+          currentAiCeiling, aiSupportRole, recommendedToolStack,
+          ceilingLastReviewed, liveSearchEnabled,
+          baselineProductionTime, aiNativeProductionTime,
+          "linkedMethodology": linkedMethodology->{ name, "slug": slug.current },
+          notes
+        }`,
+        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
+      );
+
+      if (!r) {
+        logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${slug}`, matchedCapability: false });
+        return {
+          content: [{ type: "text", text: `No capability record found for: ${slug}. Use alexandria_list_capabilities to browse available records, or alexandria_log_capability_gap to flag this as a missing capability.` }],
+          isError: true,
+        };
+      }
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${r.deliverableName}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: r.slug.current });
+
+      const classLabel: Record<string, string> = {
+        ai_led: "AI-Led",
+        ai_assisted: "AI-Assisted",
+        human_led: "Human-Led",
+      };
+      const statusLabel: Record<string, string> = {
+        not_evaluated: "Not Evaluated",
+        classified: "Classified",
+        methodology_built: "Methodology Built",
+        proven_status: "Proven Status ✓",
+      };
+
+      const lines: string[] = [`# ${r.deliverableName}`];
+      lines.push(`**Practice:** ${r.practiceArea} · **Status:** ${statusLabel[r.status] ?? r.status}`);
+      if (r.aiClassification) lines.push(`**AI Classification:** ${classLabel[r.aiClassification]}`);
+
+      if (r.aiClassification === "ai_led") {
+        lines.push(`\nThis is an **AI-Led** deliverable. Alexandria has a full production methodology for this.`);
+        if (r.linkedMethodology) {
+          lines.push(`\n**Production methodology:** ${r.linkedMethodology.name}`);
+          lines.push(`To build this, start with: *"I need to run the ${r.linkedMethodology.name} methodology from Alexandria."*`);
+        } else {
+          lines.push(`\nNo methodology is linked yet. A Discovery Intensive is needed before production begins.`);
+        }
+      } else if (r.aiClassification === "ai_assisted") {
+        lines.push(`\nThis is an **AI-Assisted** deliverable. A human leads this work; AI accelerates specific stages.`);
+        if (r.aiSupportRole) lines.push(`\n**Where AI helps:** ${r.aiSupportRole}`);
+        if (r.currentAiCeiling) lines.push(`\n**Current AI ceiling:** ${r.currentAiCeiling}`);
+        if (r.recommendedToolStack?.length) lines.push(`\n**Recommended tools:** ${r.recommendedToolStack.join(", ")}`);
+        if (r.linkedMethodology) lines.push(`\n**Support methodology:** ${r.linkedMethodology.name} (${r.linkedMethodology.slug})`);
+      } else if (r.aiClassification === "human_led") {
+        lines.push(`\nThis is a **Human-Led** deliverable. Human judgment is primary; AI supports upstream stages only.`);
+        if (r.currentAiCeiling) {
+          const reviewNote = r.ceilingLastReviewed
+            ? ` *(Assessment last reviewed: ${new Date(r.ceilingLastReviewed).toLocaleDateString()})*`
+            : " *(Assessment date unknown — may be stale)*";
+          lines.push(`\n**Current AI ceiling:**${reviewNote}\n${r.currentAiCeiling}`);
+        }
+        if (r.aiSupportRole) lines.push(`\n**Where AI can help:** ${r.aiSupportRole}`);
+        if (r.recommendedToolStack?.length) lines.push(`\n**Recommended tools:** ${r.recommendedToolStack.join(", ")}`);
+        if (r.liveSearchEnabled) {
+          lines.push(`\n*Performing a live search to supplement this assessment with current tool capabilities...*`);
+          lines.push(`[Search: "current AI tools for ${r.deliverableName.toLowerCase()} 2026"]`);
+        }
+      } else {
+        lines.push(`\nThis deliverable type has not yet been evaluated through a Discovery Intensive. No AI classification exists yet.`);
+        if (r.notes) lines.push(`\n**Notes:** ${r.notes}`);
+      }
+
+      if (r.baselineProductionTime || r.aiNativeProductionTime) {
+        lines.push(`\n---\n**Production Time**`);
+        if (r.baselineProductionTime) lines.push(`Legacy: ${r.baselineProductionTime}`);
+        if (r.aiNativeProductionTime) lines.push(`AI-native: ${r.aiNativeProductionTime}`);
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_log_capability_gap ─────────────────────────────────────────
+  server.tool(
+    "alexandria_log_capability_gap",
+    "Log a practitioner request for a deliverable type that doesn't have a Capability Record in Alexandria yet. Creates a not_evaluated stub record so it appears in the backlog for the next Discovery Intensive. Call this when a practitioner asks about AI capability for a deliverable type you cannot find in alexandria_list_capabilities.",
+    {
+      deliverable_name: z.string().describe("The name of the deliverable type the practitioner is asking about."),
+      practice_area: z.string().optional().describe("Practice area if known."),
+      context: z.string().optional().describe("Brief context — what the practitioner was trying to do."),
+    },
+    async ({ deliverable_name, practice_area, context }) => {
+      const slug = deliverable_name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
+
+      // Check if already exists
+      const existing = await sanity.fetch<{ _id: string } | null>(
+        `*[_type == "capabilityRecord" && slug.current == $slug][0]{ _id }`,
+        { slug }
+      );
+
+      if (existing) {
+        return { content: [{ type: "text", text: `A capability record for "${deliverable_name}" already exists (slug: ${slug}). Use alexandria_get_capability to retrieve it.` }] };
+      }
+
+      const doc = {
+        _type: "capabilityRecord",
+        deliverableName: deliverable_name,
+        slug: { _type: "slug", current: slug },
+        practiceArea: practice_area ?? "Unassigned",
+        status: "not_evaluated",
+        source: "capability_gap_log",
+        notes: context ? `Gap logged from practitioner request: ${context}` : "Gap logged from practitioner request.",
+      };
+
+      await sanity.create(doc);
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_log_capability_gap", requestSummary: `Gap logged: ${deliverable_name}`, matchedCapability: false });
+
+      return {
+        content: [{ type: "text", text: `Logged "${deliverable_name}" as a capability gap. It has been added to the backlog as a not_evaluated record and will be reviewed in the next Discovery Intensive. Alexandria doesn't currently have AI capability guidance for this deliverable type — I'm happy to help using general best practices. Want me to proceed?` }],
+      };
+    }
+  );
+
+  // ── alexandria_update_capability ──────────────────────────────────────────
+  server.tool(
+    "alexandria_update_capability",
+    "Update the capability assessment fields on a Capability Record. Practice Leader and Admin tier only. Use this to update AI ceiling assessments, support role descriptions, recommended tool stacks, and review timestamps after a Discovery Intensive or when AI capabilities have changed.",
+    {
+      slug: z.string().describe("Slug of the capability record to update."),
+      ai_classification: z.enum(["ai_led", "ai_assisted", "human_led"]).optional(),
+      status: z.enum(["not_evaluated", "classified", "methodology_built", "proven_status"]).optional(),
+      current_ai_ceiling: z.string().optional(),
+      ai_support_role: z.string().optional(),
+      recommended_tool_stack: z.array(z.string()).optional(),
+      live_search_enabled: z.boolean().optional(),
+      baseline_production_time: z.string().optional(),
+      ai_native_production_time: z.string().optional(),
+      notes: z.string().optional(),
+    },
+    async ({ slug, ai_classification, status, current_ai_ceiling, ai_support_role, recommended_tool_stack, live_search_enabled, baseline_production_time, ai_native_production_time, notes }) => {
+      if (auth.tier === "practitioner") {
+        return { content: [{ type: "text", text: "Permission denied. Updating capability records requires practice_leader or admin tier." }], isError: true };
+      }
+
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+      const existing = await sanity.fetch<{ _id: string } | null>(
+        `*[_type == "capabilityRecord" && slug.current == $slug][0]{ _id }`,
+        { slug: normalizedSlug }
+      );
+
+      if (!existing) {
+        return { content: [{ type: "text", text: `No capability record found for slug: ${slug}` }], isError: true };
+      }
+
+      const patch: Record<string, unknown> = {};
+      if (ai_classification !== undefined) patch.aiClassification = ai_classification;
+      if (status !== undefined) patch.status = status;
+      if (current_ai_ceiling !== undefined) patch.currentAiCeiling = current_ai_ceiling;
+      if (ai_support_role !== undefined) patch.aiSupportRole = ai_support_role;
+      if (recommended_tool_stack !== undefined) patch.recommendedToolStack = recommended_tool_stack;
+      if (live_search_enabled !== undefined) patch.liveSearchEnabled = live_search_enabled;
+      if (baseline_production_time !== undefined) patch.baselineProductionTime = baseline_production_time;
+      if (ai_native_production_time !== undefined) patch.aiNativeProductionTime = ai_native_production_time;
+      if (notes !== undefined) patch.notes = notes;
+      if (status === "proven_status") patch.provenStatusAchievedAt = new Date().toISOString();
+      if (current_ai_ceiling !== undefined) patch.ceilingLastReviewed = new Date().toISOString();
+
+      await sanity.patch(existing._id).set(patch).commit();
+
+      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_update_capability", requestSummary: `Updated capability: ${slug}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: normalizedSlug });
+
+      return { content: [{ type: "text", text: `Capability record updated: ${slug}\n\nFields updated: ${Object.keys(patch).join(", ")}` }] };
     }
   );
 

@@ -1,4 +1,4 @@
-import { defineField, defineType } from "sanity";
+import { defineField, defineType, defineArrayMember } from "sanity";
 
 export default defineType({
   name: "productionMethodology",
@@ -223,6 +223,63 @@ export default defineType({
           preview: { select: { title: "client" } },
         },
       ],
+    }),
+
+    // --- Quality Checklist (human handoff gates — surfaced by Claude after production) ---
+    defineField({
+      name: "qualityChecklist",
+      title: "Quality Checklist",
+      type: "array",
+      description: "Human-executed gates Claude surfaces at the end of every production run. Claude does not run these — it presents them as a handoff prompt.",
+      of: [
+        defineArrayMember({
+          type: "object",
+          fields: [
+            defineField({ name: "gate", title: "Gate Name", type: "string", validation: (R) => R.required() }),
+            defineField({ name: "description", title: "What to check", type: "text", rows: 2 }),
+            defineField({
+              name: "tier",
+              title: "Who performs this check",
+              type: "string",
+              options: {
+                list: [
+                  { title: "Practitioner", value: "practitioner" },
+                  { title: "Practice Leader", value: "practice_leader" },
+                  { title: "Gatekeeper", value: "gatekeeper" },
+                ],
+              },
+            }),
+          ],
+          preview: {
+            select: { title: "gate", subtitle: "tier" },
+            prepare(value: Record<string, unknown>) {
+              const tierLabel: Record<string, string> = {
+                practitioner: "Practitioner",
+                practice_leader: "Practice Leader",
+                gatekeeper: "Gatekeeper",
+              };
+              return {
+                title: value.title as string,
+                subtitle: tierLabel[(value.subtitle as string) ?? ""] ?? "",
+              };
+            },
+          },
+        }),
+      ],
+    }),
+
+    // --- Production Time ---
+    defineField({
+      name: "baselineProductionTime",
+      title: "Legacy Baseline Production Time",
+      type: "string",
+      description: 'How long this deliverable type took before AI-native production. From Discovery Intensive estimates. Example: "4–6 hours"',
+    }),
+    defineField({
+      name: "aiNativeProductionTime",
+      title: "AI-Native Production Time",
+      type: "string",
+      description: "Observed production time using the AI-native workflow. Populated after reaching Proven Status.",
     }),
 
     // --- Status ---

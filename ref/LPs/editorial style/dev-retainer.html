@@ -1,0 +1,1438 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>The Development Retainer — JDA Worldwide</title>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;900&family=Barlow:ital,wght@0,400;0,500;0,600;1,400;1,600&family=Playfair+Display:ital,wght@0,700;0,900;1,700;1,900&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #1A1018;
+  --red: #ED1A3B;
+  --cream: #F0EBE1;
+  --muted: #8A7A72;
+  --rule-light: rgba(240, 235, 225, 0.12);
+  --rule-strong: rgba(240, 235, 225, 0.3);
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--cream);
+  font-family: 'Barlow', sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============ UTILITY ============ */
+.container { max-width: 1100px; margin: 0 auto; padding: 0 40px; }
+.section { padding: 120px 0; position: relative; }
+.section--cream { background: var(--cream); color: var(--bg); }
+.section--cream .muted { color: var(--muted); }
+.section--cream .rule { border-color: rgba(26,16,24,0.12); }
+
+.label {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--red);
+  margin-bottom: 16px;
+  display: block;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.rule {
+  border: none;
+  border-top: 1px solid var(--rule-light);
+  margin: 60px 0;
+}
+
+.section--cream .rule {
+  border-top: 1px solid rgba(26,16,24,0.12);
+}
+
+/* ============ TYPOGRAPHY ============ */
+h1, h2, h3 {
+  font-family: 'Barlow Condensed', sans-serif;
+  text-transform: uppercase;
+  font-weight: 900;
+  line-height: 0.95;
+}
+
+h1 { font-size: clamp(56px, 8vw, 140px); }
+h2 { font-size: clamp(40px, 5vw, 72px); }
+h3 { font-size: clamp(28px, 3vw, 42px); }
+
+.editorial {
+  font-family: 'Playfair Display', serif;
+  font-weight: 700;
+  text-transform: none;
+  line-height: 1.2;
+}
+
+.editorial em {
+  font-style: italic;
+}
+
+.red { color: var(--red); }
+
+p { max-width: 680px; }
+p + p { margin-top: 1em; }
+
+/* ============ HERO ============ */
+.hero {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 80px 0;
+}
+
+.hero .label { margin-bottom: 32px; }
+
+.hero h1 {
+  margin-bottom: 40px;
+}
+
+.hero h1 span.line {
+  display: block;
+}
+
+.hero-sub {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(20px, 2.5vw, 30px);
+  font-weight: 700;
+  line-height: 1.35;
+  max-width: 700px;
+  margin-bottom: 48px;
+}
+
+.hero-meta {
+  font-size: 13px;
+  color: var(--muted);
+  letter-spacing: 0.05em;
+}
+
+.hero-meta strong {
+  color: var(--cream);
+  font-weight: 600;
+}
+
+/* ============ STAT GRID ============ */
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 48px;
+  margin: 48px 0;
+}
+
+.stat-item {}
+
+.stat-number {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: clamp(48px, 6vw, 80px);
+  line-height: 1;
+  color: var(--red);
+  text-transform: uppercase;
+}
+
+.stat-label {
+  font-family: 'Barlow', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--muted);
+  margin-top: 8px;
+  line-height: 1.4;
+}
+
+.section--cream .stat-number { color: var(--red); }
+.section--cream .stat-label { color: var(--muted); }
+
+/* ============ THE PROBLEM ============ */
+.problem-quote {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(24px, 3vw, 40px);
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 48px 0;
+  max-width: 800px;
+}
+
+/* ============ COMPARISON ============ */
+.compare-row {
+  display: grid;
+  grid-template-columns: 1fr 40px 1fr;
+  gap: 0;
+  align-items: start;
+  margin: 40px 0;
+}
+
+.compare-col { }
+
+.compare-col h3 {
+  font-size: 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  letter-spacing: 0.2em;
+  color: var(--muted);
+  margin-bottom: 20px;
+  font-weight: 700;
+}
+
+.compare-col.new h3 { color: var(--red); }
+
+.compare-divider {
+  width: 1px;
+  background: var(--rule-light);
+  height: 100%;
+  justify-self: center;
+  min-height: 200px;
+}
+
+.compare-item {
+  margin-bottom: 24px;
+}
+
+.compare-item .val {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  text-transform: uppercase;
+}
+
+.compare-item .desc {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+
+.compare-col.new .val { color: var(--cream); }
+
+/* ============ TIER TABLE ============ */
+.tiers {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin: 48px 0;
+}
+
+.tier {
+  border: 1px solid var(--rule-light);
+  padding: 40px 32px;
+  position: relative;
+  transition: border-color 0.3s;
+}
+
+.tier:hover { border-color: var(--rule-strong); }
+
+.tier.featured {
+  border-color: var(--red);
+  background: rgba(237, 26, 59, 0.04);
+}
+
+.tier-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.tier.featured .tier-name { color: var(--red); }
+
+.tier-price {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 42px;
+  line-height: 1;
+  margin: 16px 0 4px;
+}
+
+.tier-period {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 24px;
+}
+
+.tier-desc {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--cream);
+  opacity: 0.85;
+  margin-bottom: 24px;
+}
+
+.tier-list {
+  list-style: none;
+  padding: 0;
+}
+
+.tier-list li {
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 8px 0;
+  border-top: 1px solid var(--rule-light);
+  color: var(--cream);
+  opacity: 0.8;
+}
+
+.tier-list li:last-child {
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.tier-ideal {
+  margin-top: 24px;
+  font-size: 12px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ============ ADD-ONS / ONRAMPS ============ */
+.addon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+  margin: 40px 0;
+}
+
+.addon {
+  border: 1px solid rgba(26,16,24,0.12);
+  padding: 22px 20px;
+}
+
+.addon-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+
+.addon-price {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--red);
+  margin-bottom: 10px;
+}
+
+.addon-desc {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+/* ============ PROOF SECTION ============ */
+.proof-item {
+  padding: 32px 0;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.proof-item:first-child { border-top: 1px solid var(--rule-light); }
+
+.proof-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.proof-name {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  text-transform: uppercase;
+}
+
+.proof-time {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--red);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.proof-desc {
+  font-size: 14px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+/* ============ ECONOMICS ============ */
+.econ-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 60px;
+  margin: 48px 0;
+}
+
+.econ-block {}
+
+.econ-block h3 {
+  font-size: 16px;
+  letter-spacing: 0.15em;
+  color: var(--muted);
+  margin-bottom: 20px;
+}
+
+.econ-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid rgba(26,16,24,0.08);
+  font-size: 14px;
+}
+
+.econ-line .val {
+  font-weight: 600;
+}
+
+.econ-line.econ-sub {
+  padding: 2px 0 8px;
+  border-bottom: none;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.econ-client-fit {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(26,16,24,0.08);
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.econ-client-fit .econ-client-fit-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  color: var(--muted);
+  opacity: 0.9;
+}
+
+.econ-client-fit .econ-client-fit-row {
+  margin-bottom: 6px;
+}
+
+.econ-client-fit .econ-client-fit-row strong {
+  font-weight: 600;
+  color: rgba(26,16,24,0.6);
+  margin-right: 6px;
+}
+
+.econ-addition-callout {
+  border: 1px solid var(--red);
+  background: rgba(237, 26, 59, 0.06);
+  padding: 16px 24px;
+  margin: 24px 0 32px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--bg);
+}
+
+.econ-addition-callout strong { color: var(--red); }
+
+/* ============ TEAM STRUCTURE ============ */
+.team-grid {
+  display: grid;
+  grid-template-columns: 1fr 60px 1fr;
+  gap: 0;
+  margin: 48px 0;
+  align-items: start;
+}
+
+.team-col { }
+
+.team-col-header {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+}
+
+.team-col-header.current { color: var(--muted); }
+.team-col-header.proposed { color: var(--red); }
+
+.team-arrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  color: var(--red);
+}
+
+.team-role {
+  padding: 16px 0;
+  border-bottom: 1px solid var(--rule-light);
+}
+
+.team-role:first-of-type { border-top: 1px solid var(--rule-light); }
+
+.team-role-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  text-transform: uppercase;
+}
+
+.team-role-detail {
+  font-size: 13px;
+  color: var(--muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.team-role.highlighted .team-role-title { color: var(--red); }
+
+.team-role.dimmed { opacity: 0.45; }
+
+.contractor-callout {
+  border: 1px solid var(--red);
+  padding: 28px 32px;
+  margin: 48px 0 0;
+  background: rgba(237, 26, 59, 0.04);
+}
+
+.contractor-callout-header {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--red);
+  margin-bottom: 12px;
+}
+
+.contractor-callout p {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--cream);
+  opacity: 0.85;
+}
+
+.contractor-margin-block {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(240,235,225,0.2);
+  font-size: 14px;
+}
+
+.contractor-margin-block .contractor-margin-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--cream);
+  margin-bottom: 12px;
+}
+
+.contractor-margin-block .econ-line {
+  color: var(--cream);
+  opacity: 0.9;
+}
+
+.contractor-margin-block .econ-line .val {
+  color: var(--cream);
+  font-weight: 600;
+}
+
+/* ============ GROWTH ENGINES ============ */
+.growth-engines-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+  margin: 48px 0 0;
+}
+
+.growth-engine-card {
+  border-left: 3px solid var(--red);
+  padding: 24px 0 24px 28px;
+  font-family: 'Barlow', sans-serif;
+}
+
+.growth-engine-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 48px;
+  line-height: 1;
+  color: var(--red);
+  margin-bottom: 16px;
+  letter-spacing: 0.02em;
+}
+
+.growth-engine-title {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 22px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--cream);
+  margin-bottom: 12px;
+}
+
+.growth-engine-body {
+  font-family: 'Barlow', sans-serif;
+  font-weight: 400;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--cream);
+  opacity: 0.85;
+}
+
+/* ============ CTA SECTION ============ */
+.cta-section {
+  text-align: center;
+  padding: 140px 0;
+}
+
+.cta-section h2 {
+  margin-bottom: 24px;
+}
+
+.cta-section p {
+  margin: 0 auto 48px;
+  font-size: 16px;
+  max-width: 600px;
+}
+
+.cta-steps {
+  display: flex;
+  justify-content: center;
+  gap: 60px;
+  margin: 48px 0;
+  flex-wrap: wrap;
+}
+
+.cta-step {
+  text-align: center;
+}
+
+.cta-step-num {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 48px;
+  color: var(--red);
+  line-height: 1;
+}
+
+.cta-step-text {
+  font-size: 14px;
+  margin-top: 8px;
+  color: var(--muted);
+  max-width: 160px;
+}
+
+.cta-section-footer {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--rule-light);
+  font-size: 13px;
+  color: var(--muted);
+  font-family: 'Barlow', sans-serif;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ============ FOOTER ============ */
+.footer {
+  padding: 60px 0;
+  border-top: 1px solid var(--rule-light);
+  text-align: center;
+}
+
+.footer-logo {
+  margin-bottom: 16px;
+}
+
+.footer-logo-img {
+  height: 48px;
+  width: auto;
+  display: inline-block;
+  color: var(--cream);
+}
+
+.footer p.footer-tagline,
+.footer .footer-tagline {
+  font-family: 'Playfair Display', serif;
+  font-size: 32px;
+  font-weight: 700;
+  margin: 60px auto;
+  color: var(--muted);
+  text-align: center;
+}
+
+.footer-tagline em {
+  color: var(--red);
+  font-style: italic;
+}
+
+.footer p:not(.footer-tagline) {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 0 auto;
+}
+
+/* ============ LOGIN SCREEN ============ */
+.login-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 0.5s ease;
+}
+.login-overlay.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.login-box {
+  text-align: center;
+  max-width: 400px;
+  width: 90%;
+}
+.login-box .login-logo {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 18px;
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  color: var(--cream);
+  margin-bottom: 32px;
+}
+.login-box h2 {
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 900;
+  font-size: 28px;
+  text-transform: uppercase;
+  color: var(--cream);
+  margin-bottom: 6px;
+}
+.login-box .login-sub {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 28px;
+}
+.login-box input[type="password"] {
+  width: 100%;
+  padding: 14px 18px;
+  font-size: 16px;
+  font-family: 'Barlow', sans-serif;
+  font-weight: 500;
+  color: var(--cream);
+  border: 2px solid rgba(240,235,225,0.15);
+  border-radius: 0;
+  outline: none;
+  background: transparent;
+  text-align: center;
+  letter-spacing: 2px;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  box-sizing: border-box;
+}
+.login-box input[type="password"]::placeholder {
+  color: var(--muted);
+  opacity: 0.6;
+}
+.login-box input[type="password"]:focus {
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(237,26,59,0.15);
+}
+.login-box .login-btn {
+  width: 100%;
+  padding: 14px;
+  margin-top: 14px;
+  font-size: 14px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--bg);
+  background: var(--red);
+  border: none;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+.login-box .login-btn:hover {
+  background: #d4152f;
+}
+.login-box .login-btn:active {
+  transform: scale(0.98);
+}
+.login-error {
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 14px;
+  min-height: 20px;
+}
+.login-confidential {
+  margin-top: 40px;
+  font-size: 11px;
+  font-family: 'Barlow Condensed', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.5;
+}
+
+/* ============ ANIMATIONS ============ */
+.reveal {
+  opacity: 0;
+  transform: translateY(32px);
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+
+.reveal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* staggered children */
+.stagger > .reveal:nth-child(1) { transition-delay: 0s; }
+.stagger > .reveal:nth-child(2) { transition-delay: 0.1s; }
+.stagger > .reveal:nth-child(3) { transition-delay: 0.2s; }
+.stagger > .reveal:nth-child(4) { transition-delay: 0.3s; }
+.stagger > .reveal:nth-child(5) { transition-delay: 0.4s; }
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 800px) {
+  .container { padding: 0 24px; }
+  .section { padding: 80px 0; }
+  .tiers { grid-template-columns: 1fr; }
+  .addon-grid { grid-template-columns: 1fr; }
+  .compare-row { grid-template-columns: 1fr; gap: 40px; }
+  .compare-divider { display: none; }
+  .econ-row { grid-template-columns: 1fr; gap: 40px; }
+  .stat-grid { gap: 32px; }
+  .hero { min-height: auto; padding: 120px 0 80px; }
+  .login-box { padding: 0 16px; }
+  .login-box h2 { font-size: 24px; }
+  .team-grid { grid-template-columns: 1fr; gap: 40px; }
+  .team-arrow { display: none; }
+  .growth-engines-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ============================== LOGIN ============================== -->
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <div class="login-logo">JDA Worldwide</div>
+    <h2>Development <span class="red">Retainer</span></h2>
+    <p class="login-sub">Enter your access code to continue</p>
+    <form id="loginForm" autocomplete="off">
+      <input type="password" id="loginPassword" placeholder="Access Code" autofocus>
+      <button type="submit" class="login-btn">Continue</button>
+    </form>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-confidential">Confidential — Internal Strategy</div>
+  </div>
+</div>
+
+<!-- ============================== HERO ============================== -->
+<section class="hero section">
+  <div class="container">
+    <span class="label reveal">Confidential<br>Internal Strategy</span>
+    <h1 class="reveal">
+      <span class="line">The</span>
+      <span class="line"><span class="red">Development</span></span>
+      <span class="line">Retainer</span>
+    </h1>
+    <p class="hero-sub reveal">
+      A new recurring revenue model built on AI-native production. <em>Faster delivery. Higher margins. Unlimited upside.</em>
+    </p>
+  </div>
+</section>
+
+<!-- ============================== THE SHIFT ============================== -->
+<section class="section">
+  <div class="container">
+    <span class="label reveal">The Shift</span>
+    <h2 class="reveal">What changed <span class="red">in ten days</span></h2>
+
+    <p class="problem-quote reveal">
+      <span class="editorial">"We did months of work in ten days. A public data scraper producing 500k records. A SaaS product. A half dozen briefs. Over a dozen landing pages. Multiple client and internal deliverables. A 42-email Nutrer series completed in an afternoon. Two complete websites&thinsp;—&thinsp;<em>concept to live, in under 12 hours each.</em>"</span>
+    </p>
+
+    <div class="stat-grid stagger">
+      <div class="stat-item reveal">
+        <div class="stat-number">7–10</div>
+        <div class="stat-label">Month average dev cycle — our WordPress baseline</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number">8–12</div>
+        <div class="stat-label">Week target cycle — AI-native builds</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number">&lt;$400</div>
+        <div class="stat-label">Total tool subscriptions to produce all of the above</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number">1</div>
+        <div class="stat-label">Engineer required</div>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <p class="reveal" style="color: var(--muted); font-size: 14px;">
+      This isn't a demo. Two fully functional sites are live right now: <strong style="color: var(--cream);">kirutoday.com</strong> and <strong style="color: var(--cream);">showcase.kirutoday.com</strong> — both built start to finish in under 12 hours. The KIRU project produced 35+ deliverables, 800+ lines of copy, a full production website, brand video, PR plan, paid strategy, and more — all from one person using AI tools costing ~$400/month.
+    </p>
+  </div>
+</section>
+
+<!-- ============================== THE PROBLEM WE SOLVE ============================== -->
+<section class="section section--cream">
+  <div class="container">
+    <span class="label reveal">The Opportunity</span>
+    <h2 class="reveal" style="color: var(--bg);">Retainers have always <br>been <span class="red">hard to sell</span> in dev</h2>
+
+    <div class="compare-row" style="margin-top: 60px;">
+      <div class="compare-col reveal">
+        <h3>The Old Problem</h3>
+        <div class="compare-item">
+          <div class="val" style="color: var(--bg);">Break/Fix</div>
+          <div class="desc">Web retainers historically meant maintenance work — updating plugins, patching bugs. Hard to justify $1k+/month for that.</div>
+        </div>
+        <div class="compare-item">
+          <div class="val" style="color: var(--bg);">Slow Delivery</div>
+          <div class="desc">Retainer work currently takes roughly 40% on average of a developer's time, reducing their ability to engineer new systems efficiently.</div>
+        </div>
+        <div class="compare-item">
+          <div class="val" style="color: var(--bg);">Cost Misalignment</div>
+          <div class="desc">The labor cost to deliver anything meaningful exceeded what most clients would pay monthly. The math never worked.</div>
+        </div>
+      </div>
+      <div class="compare-divider" style="background: rgba(26,16,24,0.12);"></div>
+      <div class="compare-col new reveal">
+        <h3>What AI Changes</h3>
+        <div class="compare-item">
+          <div class="val" style="color: var(--red);">Continuous Builds</div>
+          <div class="desc">We can now ship new pages, features, and interactive experiences monthly — not yearly. The retainer delivers visible, tangible value every cycle.</div>
+        </div>
+        <div class="compare-item">
+          <div class="val" style="color: var(--red);">Speed = Margin</div>
+          <div class="desc">What took weeks now takes hours. The delivery cost per asset has collapsed. The value to the client hasn't.</div>
+        </div>
+        <div class="compare-item">
+          <div class="val" style="color: var(--red);">Premium Positioning</div>
+          <div class="desc">We're not selling maintenance. We're selling an embedded dev team that ships at startup speed with agency-grade quality.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE OFFERING ============================== -->
+<section class="section">
+  <div class="container">
+    <span class="label reveal">The Offering</span>
+    <h2 class="reveal">Three tiers. <span class="red">One model.</span></h2>
+    <p class="reveal" style="color: var(--muted); margin-bottom: 48px;">
+      Every tier includes brand-standard development, a dedicated point of contact, and a monthly deliverable commitment. Clients dream it — we build it.
+    </p>
+
+    <div class="tiers stagger">
+
+      <!-- TIER 1 -->
+      <div class="tier reveal">
+        <span class="label" style="margin-bottom: 8px;">Tier 1</span>
+        <div class="tier-name">Build</div>
+        <div class="tier-price">$5,000</div>
+        <div class="tier-period">per month &middot; 12-month minimum</div>
+        <div class="tier-desc">
+          Ongoing development support for clients with an existing site and brand. Ideal for smaller clients who need consistent digital output without a full engagement.
+        </div>
+        <ul class="tier-list">
+          <li>Up to 4 deliverables / month</li>
+          <li>Landing pages, microsites, page updates, new features</li>
+          <li>Brand-standard builds from existing guidelines</li>
+          <li>2 week turnaround on standard requests</li>
+          <li>Monthly status call</li>
+        </ul>
+        <div class="tier-ideal">Ideal for: $60–80k project clients</div>
+      </div>
+
+      <!-- TIER 2 -->
+      <div class="tier featured reveal">
+        <span class="label" style="margin-bottom: 8px;">Tier 2 &middot; Recommended</span>
+        <div class="tier-name">Scale</div>
+        <div class="tier-price">$10,000</div>
+        <div class="tier-period">per month &middot; 12-month minimum</div>
+        <div class="tier-desc">
+          A dedicated development relationship. We become the client's ongoing digital team — shipping pages, features, interactive tools, and campaign builds on a continuous basis.
+        </div>
+        <ul class="tier-list">
+          <li>Up to 10 deliverables / month</li>
+          <li>Full-page builds, interactive features, data tools</li>
+          <li>Campaign landing pages with one week turnaround</li>
+          <li>Brand-standard + light creative exploration to enhance an established brand</li>
+          <li>Bi-weekly status calls + Project Request Form</li>
+          <li>Quarterly roadmap planning</li>
+        </ul>
+        <div class="tier-ideal">Ideal for: $80–150k+ project clients / existing retainers</div>
+      </div>
+
+      <!-- TIER 3 -->
+      <div class="tier reveal">
+        <span class="label" style="margin-bottom: 8px;">Tier 3</span>
+        <div class="tier-name">Transform</div>
+        <div class="tier-price">$15,000</div>
+        <div class="tier-period">per month &middot; 12-month minimum</div>
+        <div class="tier-desc">
+          Full embedded development partnership. We function as the client's in-house engineering and digital product team — building whatever they can imagine, at whatever pace they need.
+        </div>
+        <ul class="tier-list">
+          <li>Unlimited deliverables (scoped monthly)</li>
+          <li>Web applications, rapid build single purpose web tools, data platforms</li>
+          <li>Interactive databases, API integrations</li>
+          <li>Dedicated Slack channel + weekly calls</li>
+          <li>Quarterly strategy + roadmap sessions</li>
+          <li>Priority turnaround — 24-48 hours for critical requests</li>
+        </ul>
+        <div class="tier-ideal">Ideal for: Whales — $150k+ projects / $20k+ retainers</div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============================== RETAINER ONRAMPS ============================== -->
+<section class="section section--cream">
+  <div class="container">
+    <span class="label reveal">Getting Started</span>
+    <h2 class="reveal" style="color: var(--bg);">Retainer <span class="red">onramps</span></h2>
+    <p class="reveal" style="color: var(--muted); margin-bottom: 16px;">
+      These remove blockers so clients can start a retainer — not standalone products. The retainer is the product; these just remove the excuse of &ldquo;we&rsquo;re not ready yet.&rdquo;
+    </p>
+
+    <div class="addon-grid stagger">
+      <div class="addon reveal">
+        <div class="addon-name">Rapid Site Build</div>
+        <div class="addon-price">$30–60k</div>
+        <div class="addon-desc">A modern, brand-standard website built on React/Next.js in under 90 days. For clients whose current site can&rsquo;t support the retainer&rsquo;s output. This is a foundation build, not a comprehensive website engagement — a fast-track so the retainer can start delivering immediately.</div>
+      </div>
+      <div class="addon reveal">
+        <div class="addon-name">Digital Brand in a Box</div>
+        <div class="addon-price">$25–35k</div>
+        <div class="addon-desc">Digital brand identity — color, typography, voice guidelines. Enough to build from, delivered in 4–6 weeks. For clients with no usable brand standards. Not a substitute for a comprehensive brand engagement — a launchpad.</div>
+      </div>
+      <div class="addon reveal">
+        <div class="addon-name">Brand + Site Bundle</div>
+        <div class="addon-price">$55–80k</div>
+        <div class="addon-desc">Both, packaged. New brand, new site, straight into a retainer. The fastest path from zero to ongoing development partnership.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== PROOF ============================== -->
+<section class="section">
+  <div class="container">
+    <span class="label reveal">The Proof</span>
+    <h2 class="reveal">Built. <span class="red">Shipped.</span> Live.</h2>
+    <p class="reveal" style="color: var(--muted); margin-bottom: 48px;">
+      Everything below was built in the last ten days by one person — using the exact workflow the Development Retainer would deliver to clients.
+    </p>
+
+    <div class="stagger">
+      <div class="proof-item reveal">
+        <div class="proof-header">
+          <span class="proof-name">KIRU — Full Brand + Website</span>
+          <span class="proof-time">&lt; 6 Hours</span>
+        </div>
+        <div class="proof-desc">Complete go-to-market brand identity, fully functional Next.js website, 35+ deliverables, 800+ lines of copy, brand video, PR plan, paid strategy. Live at kirutoday.com.</div>
+      </div>
+
+      <div class="proof-item reveal">
+        <div class="proof-header">
+          <span class="proof-name">KIRU Showcase — Case Study Site</span>
+          <span class="proof-time">&lt; 6 Hours</span>
+        </div>
+        <div class="proof-desc">Full React showcase site documenting the KIRU build process. Cinematic long-scroll presentation. Live at showcase.kirutoday.com.</div>
+      </div>
+
+      <div class="proof-item reveal">
+        <div class="proof-header">
+          <span class="proof-name">Public Data Scraper → SaaS Product</span>
+          <span class="proof-time">25 Hours</span>
+        </div>
+        <div class="proof-desc">Python scraper producing 500k records. Data fed into a fully interactive React-based database for top-of-funnel marketing. Then mutated into a white-label SaaS product for faith-based clients.</div>
+      </div>
+
+      <div class="proof-item reveal">
+        <div class="proof-header">
+          <span class="proof-name">Client Briefs &amp; Landing Pages</span>
+          <span class="proof-time">Hours</span>
+        </div>
+        <div class="proof-desc">6+ HTML project briefs synthesizing hours of client discovery. 12+ landing page and homepage concepts built from those briefs and client brand guides.</div>
+      </div>
+
+      <div class="proof-item reveal">
+        <div class="proof-header">
+          <span class="proof-name">Client Deliverables</span>
+          <span class="proof-time">Minutes</span>
+        </div>
+        <div class="proof-desc">Word docs, HTML docs, multiple client-ready deliverables produced at a fraction of the traditional timeline.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE ECONOMICS ============================== -->
+<section class="section section--cream">
+  <div class="container">
+    <span class="label reveal">The Economics</span>
+    <h2 class="reveal" style="color: var(--bg);">Why this <br>will <span class="red">print money</span></h2>
+
+    <div class="econ-addition-callout reveal">
+      <strong>In addition to existing work.</strong> This entire scenario is additive — on top of the web and digital work JDA already delivers each year, which is well over $2M annually.
+    </div>
+
+    <div class="econ-row">
+      <div class="econ-block reveal">
+        <h3>Revenue Scenario — Conservative</h3>
+        <div class="econ-line"><span>4 Build clients × $5,000/mo</span> <span class="val">$240,000/yr</span></div>
+        <div class="econ-line"><span>4 Scale clients × $10,000/mo</span> <span class="val">$480,000/yr</span></div>
+        <div class="econ-line"><span>3 Transform clients × $15,000/mo</span> <span class="val">$540,000/yr</span></div>
+        <div class="econ-line" style="border-bottom: 2px solid var(--red);"><span><strong>Recurring retainer revenue</strong></span> <span class="val" style="color: var(--red);"><strong>$1,260,000/yr</strong></span></div>
+        <div class="econ-line"><span>4 Rapid Website × $45k avg</span> <span class="val">$180,000</span></div>
+        <div class="econ-line"><span>2 Digital Brand in a Box × $20k avg</span> <span class="val">$40,000</span></div>
+        <div class="econ-line" style="border-bottom: 2px solid var(--bg);"><span><strong>Year 1 total</strong></span> <span class="val"><strong>$1,480,000</strong></span></div>
+
+        <div class="econ-client-fit reveal">
+          <div class="econ-client-fit-title">Current digital client fit</div>
+          <div class="econ-client-fit-row"><strong>Transform:</strong> 1792, MOTB, CHM, WIF, Nutramax, Endava, Securitas</div>
+          <div class="econ-client-fit-row"><strong>Scale:</strong> UNITUS, Prolific, Heartbeat</div>
+          <div class="econ-client-fit-row"><strong>Build:</strong> The Arc, SOIN, SOTX, Indy Chamber, Villages</div>
+        </div>
+      </div>
+
+      <div class="econ-block reveal">
+        <h3>Margin Profile</h3>
+        <div class="econ-line"><span>Pilot team (fully activated)</span> <span class="val">4 developers, 7 digital specialists, 4 creatives</span></div>
+        <div class="econ-line"><span>Developer tools (per seat)</span> <span class="val">$330–430/mo</span></div>
+        <div class="econ-line econ-sub"><span>Claude Max, Cursor Max, ChatGPT Plus</span></div>
+        <div class="econ-line"><span>Digital specialist tools (per seat)</span> <span class="val">$50–130/mo</span></div>
+        <div class="econ-line econ-sub"><span>Claude Pro or Max, ChatGPT</span></div>
+        <div class="econ-line"><span>Creative profile (per seat)</span> <span class="val">~$110–170/mo</span></div>
+        <div class="econ-line econ-sub"><span>Claude Pro, Midjourney Pro, ChatGPT</span></div>
+        <hr class="rule" style="margin: 24px 0 10px; border-color: rgba(26,16,24,0.15);">
+        <div class="econ-line"><span>Total tool cost (pilot), monthly</span> <span class="val">~$2,100–3,350/mo</span></div>
+        <div class="econ-line"><span>Total tool cost (pilot), annual</span> <span class="val">~$25,200–40,200/yr</span></div>
+        <div class="econ-line" style="border-bottom: 2px solid var(--red);"><span><strong>Margin vs. Year 1 revenue</strong></span> <span class="val" style="color: var(--red);"><strong>~97–98%</strong></span></div>
+        <div class="econ-line econ-sub" style="padding-bottom: 10px;"><span>Tool cost ≈ 1.5–2.5% of conservative model ($1.48M)</span></div>
+        <div style="margin-top: 20px; font-size: 14px; color: var(--muted); line-height: 1.6;">
+          Current agency operating income is ~12.5% on $10–12M revenue. This product line could contribute disproportionately to operating income relative to headcount — directly impacting the team's bonus target.
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THE TEAM / FILL THE SEAT ============================== -->
+<section class="section">
+  <div class="container">
+    <span class="label reveal">The Team</span>
+    <h2 class="reveal">Fill the seat. <br><span class="red">Fund</span> the strategy.</h2>
+    <p class="reveal" style="color: var(--muted); margin-bottom: 16px; max-width: 720px;">
+      This strategy doesn't require new headcount approval. It requires filling an already-open position with the right mandate.
+    </p>
+
+    <div class="team-grid">
+      <!-- CURRENT STATE -->
+      <div class="team-col reveal">
+        <div class="team-col-header current">Current State</div>
+
+        <div class="team-role">
+          <div class="team-role-title">Senior Developer</div>
+          <div class="team-role-detail">Legacy site support + new project builds. Splitting time between dozens of WordPress maintenance engagements and forward-looking production work. Managing workflows without a dedicated AI strategy role.</div>
+        </div>
+
+        <div class="team-role">
+          <div class="team-role-title">Lead Developer</div>
+          <div class="team-role-detail">Same dual mandate. Both developers are expected to maintain legacy, adopt AI workflows, and deliver retainer-grade output simultaneously.</div>
+        </div>
+
+        <div class="team-role dimmed">
+          <div class="team-role-title">Developer 3 — Vacant</div>
+          <div class="team-role-detail">Open position. Budget approved but uncommitted. Currently unfilled.</div>
+        </div>
+
+        <div class="team-role" style="opacity: 0.6;">
+          <div class="team-role-title">External Contractor</div>
+          <div class="team-role-detail">$70k+ annual spend. Cannot be retooled into AI-native workflows. Rate stays the same regardless of output method. Declining value-per-dollar as internal capabilities accelerate.</div>
+        </div>
+      </div>
+
+      <!-- ARROW -->
+      <div class="team-arrow">→</div>
+
+      <!-- PROPOSED STATE -->
+      <div class="team-col reveal">
+        <div class="team-col-header proposed">Proposed State</div>
+
+        <div class="team-role">
+          <div class="team-role-title">Director, Development + AI</div>
+          <div class="team-role-detail">Leads the AI-native production discipline. Sets workflows, owns retainer client relationships, trains the team, drives strategy. Functions as creative director + engineer + QA — the new shape of senior development leadership.</div>
+        </div>
+
+        <div class="team-role">
+          <div class="team-role-title">Lead Developer</div>
+          <div class="team-role-detail">AI-native production + legacy transition. Primary builder for Development Retainer clients. Manages existing client portfolio while migrating high-value sites off WordPress onto modern stack.</div>
+        </div>
+
+        <div class="team-role highlighted">
+          <div class="team-role-title">Senior AI Engineer</div>
+          <div class="team-role-detail">The digital transformation hire. Dedicated to activating AI workflows across the entire agency — not just development. Trains teams on AI-native tools and processes, builds internal templates and systems that scale output across disciplines, and backfills legacy support to free up the Director and Lead Developer for higher-value retainer work. Their primary mission is making everyone faster.</div>
+        </div>
+
+        <div class="team-role dimmed">
+          <div class="team-role-title">External Contractor</div>
+          <div class="team-role-detail">Phased down as internal capacity scales. $70k+ annual spend rapidly reallocated to higher-ROI internal tooling and talent.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CONTRACTOR CALLOUT -->
+    <div class="contractor-callout reveal">
+      <div class="contractor-callout-header">The Contractor Math</div>
+      <p>
+        We currently spend $70k+ annually on a single external contractor. That contractor cannot be retooled — we won't provide AI training or tools to an external resource whose rate stays fixed regardless. As our internal AI capabilities accelerate, every dollar spent on legacy-rate contracting becomes less efficient relative to what an AI-activated internal developer can produce.
+      </p>
+      <p style="margin-top: 12px;">
+        Filling the open Senior AI Engineer position is <strong>not</strong> a comparable or lower cost — it's roughly double. We're looking at $100–125k salary with full benefits (e.g. $110k + 17% benefits = ~$128.7k fully loaded). The delta vs. the contractor is the real add: $110k + 17% − $70k = <strong>~$59k incremental cost</strong>. The case isn't cost savings; it's strategic: a full-time, AI-native resource whose output scales with the tooling and who activates the entire agency — not a fixed-rate external whose value is declining. The contractor spend isn't eliminated overnight, but the trajectory is clear: internal AI-native talent replaces external legacy labor as the retainer pipeline grows.
+      </p>
+
+      <div class="contractor-margin-block">
+        <div class="contractor-margin-title">Adjusted margin (Year 1)</div>
+        <div class="econ-line" style="border-color: rgba(240,235,225,0.2);"><span>Total anticipated revenue</span> <span class="val">$1,480,000</span></div>
+        <div class="econ-line" style="border-color: rgba(240,235,225,0.2);"><span>Tool cost (pilot), annual</span> <span class="val">~$25,200–40,200</span></div>
+        <div class="econ-line" style="border-color: rgba(240,235,225,0.2);"><span>Delta (Senior AI Engineer vs. contractor)</span> <span class="val">~$59,000</span></div>
+        <div class="econ-line" style="border-color: rgba(240,235,225,0.2);"><span>Total hard costs (concept team + delta)</span> <span class="val">~$84,000–99,000</span></div>
+        <div class="econ-line" style="border-bottom: 2px solid var(--red); margin-top: 8px;"><span><strong>Adjusted gross margin</strong></span> <span class="val" style="color: var(--red);"><strong>~93–94%</strong></span></div>
+      </div>
+    </div>
+
+    <hr class="rule">
+
+    <p class="reveal" style="color: var(--muted); font-size: 14px; max-width: 720px;">
+      The technical debt of dozens of legacy client sites is real and it's not going away. Asking the Director and Lead Developer to simultaneously maintain that portfolio, adopt entirely new AI-native workflows, and deliver retainer-grade output at speed is a path to burnout and slow execution. The Senior AI Engineer separates the missions: legacy maintenance stays covered, and the agency gets an AI activation resource who makes everyone faster — not just a third developer.
+    </p>
+  </div>
+</section>
+
+<!-- ============================== STRATEGIC FIT ============================== -->
+<section class="section section--cream">
+  <div class="container">
+    <span class="label reveal">Strategic Fit</span>
+    <h2 class="reveal" style="color: var(--bg);">Why this is <span class="red">JDA</span></h2>
+
+    <div style="margin-top: 48px;">
+      <div class="reveal">
+        <p class="problem-quote editorial">
+          "We empower the extraordinary — the ones dedicated to making a positive impact on the world."
+        </p>
+        <p style="color: var(--muted); font-size: 13px; margin-top: 8px;">— jdaworldwide.com</p>
+      </div>
+
+      <hr class="rule">
+
+      <div class="reveal">
+        <p style="margin-bottom: 1.5em;">
+          This isn't a pivot. It's an extension of what JDA already does — but with a delivery mechanism that changes the unit economics of everything downstream. The strategic thinking, client relationships, and creative taste that define JDA are irreplaceable. What changes is the production layer.
+        </p>
+        <p style="margin-bottom: 1.5em;">
+          The 80% of agency work that is execution — the 47th email variant, the 12th website page, the 30th social post — now takes minutes, not weeks. The Development Retainer packages that speed into predictable recurring revenue.
+        </p>
+        <p style="margin-bottom: 1.5em;">
+          For our faith-based clients and values-driven organizations, this means they get more for their investment, allowing their mission and message to be amplified even louder. Faster launches, more iterations, more market presence — without increasing their spend. That's empowering the extraordinary.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== THREE GROWTH ENGINES ============================== -->
+<section class="section">
+  <div class="container">
+    <span class="label reveal">Growth</span>
+    <h2 class="reveal">Three <span class="red">growth engines</span></h2>
+
+    <div class="growth-engines-grid stagger">
+      <div class="growth-engine-card reveal">
+        <div class="growth-engine-num">01</div>
+        <div class="growth-engine-title">Grow Existing</div>
+        <div class="growth-engine-body">Turn every current retainer into a larger engagement. Layer development revenue on top of marketing spend. 40+ active clients, each a cross-sell opportunity — no new acquisition cost required.</div>
+      </div>
+      <div class="growth-engine-card reveal">
+        <div class="growth-engine-num">02</div>
+        <div class="growth-engine-title">Win New</div>
+        <div class="growth-engine-body">"Digital Brand in a Box plus a Development Retainer" is a productized entry point no other agency in our space can offer at this speed. A compelling pitch for prospects who need everything and need it fast.</div>
+      </div>
+      <div class="growth-engine-card reveal">
+        <div class="growth-engine-num">03</div>
+        <div class="growth-engine-title">Keep Forever</div>
+        <div class="growth-engine-body">When we're continuously building a client's digital presence — their site, their tools, their landing pages, their data products — we become embedded in their operations. That's not a vendor relationship. That's sticky, and that's infrastructure. Clients don't leave infrastructure.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== CROSS-SELL ============================== -->
+<section class="section section--cream">
+  <div class="container">
+    <span class="label reveal">Cross-Sell Opportunity</span>
+    <h2 class="reveal" style="color: var(--bg);">Layered on <span class="red"><br>existing</span> relationships</h2>
+    <p class="reveal" style="color: var(--muted); margin-bottom: 48px; font-size: 14px;">
+      The Development Retainer is designed to stack on top of existing marketing retainers, not replace them. For a client paying $10k/month in marketing, adding $7.5k in development means the relationship grows to $17.5k — a 75% increase in wallet share with marginal incremental cost.
+    </p>
+
+    <div class="stat-grid stagger">
+      <div class="stat-item reveal">
+        <div class="stat-number">40+</div>
+        <div class="stat-label">Active engagements — each a potential cross-sell</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number" style="color: var(--red);">$8–40k</div>
+        <div class="stat-label">Current retainer range — dev retainer adds to all of them</div>
+      </div>
+      <div class="stat-item reveal">
+        <div class="stat-number" style="color: var(--red);">90%+</div>
+        <div class="stat-label">Estimated gross margin on dev retainer work</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============================== CLOSE ============================== -->
+<section class="section cta-section">
+  <div class="container">
+    <span class="label reveal">The Ask</span>
+    <h2 class="reveal">
+      <span class="red">Green light</span><br>to pilot this
+    </h2>
+    <p class="reveal">
+      Two to three existing clients. Sixty days. Let the margins and client response speak for themselves. No new headcount. No new infrastructure. Just a new revenue line built on the capabilities we've already proven.
+    </p>
+
+    <div class="cta-steps reveal">
+      <div class="cta-step">
+        <div class="cta-step-num">1</div>
+        <div class="cta-step-text">Pick 2–3 pilot clients from existing book</div>
+      </div>
+      <div class="cta-step">
+        <div class="cta-step-num">2</div>
+        <div class="cta-step-text">Run 60-day pilot at introductory pricing</div>
+      </div>
+      <div class="cta-step">
+        <div class="cta-step-num">3</div>
+        <div class="cta-step-text">Measure margin, speed, and satisfaction</div>
+      </div>
+      <div class="cta-step">
+        <div class="cta-step-num">4</div>
+        <div class="cta-step-text">Scale across client base</div>
+      </div>
+    </div>
+
+    <p class="cta-section-footer reveal">In parallel: recruit and interview Senior AI Engineer candidates.</p>
+  </div>
+</section>
+
+<!-- ============================== FOOTER ============================== -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-logo">
+      <img src="jda-icon-short-white.svg" alt="JDA Worldwide" class="footer-logo-img">
+    </div>
+    <p class="footer-tagline editorial">Read Dreams. Slay Giants. <em>Now with AI.</em></p>
+    <p>Prepared by Brandon Travis &middot; VP of Development &middot; February 2026</p>
+    <p style="margin-top: 8px;">Confidential — Internal Strategy Document</p>
+  </div>
+</footer>
+
+<script>
+// ===== AUTH =====
+const PASSWORD_HASH = '174d2dfcd881e21ff340bbf5d59ee89d6f3c71bb69476cba44cf2405b6dc57b5';
+
+async function sha256(text) {
+  const data = new TextEncoder().encode(text);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function checkAuth() {
+  if (sessionStorage.getItem('jda_retainer_authed') === 'true') {
+    document.getElementById('loginOverlay').classList.add('hidden');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  checkAuth();
+
+  document.getElementById('loginForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const pw = document.getElementById('loginPassword').value;
+    const hash = await sha256(pw);
+    if (hash === PASSWORD_HASH) {
+      sessionStorage.setItem('jda_retainer_authed', 'true');
+      document.getElementById('loginOverlay').classList.add('hidden');
+    } else {
+      document.getElementById('loginError').textContent = 'Incorrect access code. Please try again.';
+      document.getElementById('loginPassword').value = '';
+      document.getElementById('loginPassword').focus();
+    }
+  });
+});
+
+// Intersection Observer for scroll reveals
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('visible');
+    }
+  });
+}, {
+  threshold: 0.15,
+  rootMargin: '0px 0px -40px 0px'
+});
+
+document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

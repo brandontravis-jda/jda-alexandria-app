@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex, nofollow">
+<title>Kanakuk Ministries — Leadership Primer</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Benton+Sans:wght@300;400;500&family=Roboto+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  /* ─── PROLIFIC BRAND SYSTEM ─────────────────────────────────── */
+  :root {
+    --black:   #000000;
+    --white:   #FFFFFF;
+    --azure:   #0071ce;
+    --grey:    #738B9D;
+    --rule:    #e5e5e5;
+    --text:    #111111;
+    --muted:   #555555;
+    --light-bg:#F7F7F7;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html {
+    scroll-behavior: smooth;
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+  }
+
+  body {
+    background: var(--white);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  /* ─── SLIDE ENGINE ──────────────────────────────────────────── */
+  .deck {
+    width: 100%;
+    height: 100vh;
+    position: relative;
+  }
+
+  .slide {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 80px 100px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+    transform: translateY(20px);
+    overflow: hidden;
+  }
+
+  .slide.active {
+    opacity: 1;
+    pointer-events: all;
+    transform: translateY(0);
+  }
+
+  .slide.exit-up {
+    opacity: 0;
+    transform: translateY(-20px);
+  }
+
+  /* ─── SLIDE NAV ─────────────────────────────────────────────── */
+  .slide-nav {
+    position: fixed;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    z-index: 100;
+    background: rgba(255,255,255,0.9);
+    backdrop-filter: blur(8px);
+    border: 1px solid var(--rule);
+    border-radius: 40px;
+    padding: 12px 24px;
+  }
+
+  .nav-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid var(--text);
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    color: var(--text);
+  }
+
+  .nav-btn:hover {
+    background: var(--text);
+    color: var(--white);
+  }
+
+  .nav-btn:disabled {
+    opacity: 0.25;
+    cursor: default;
+  }
+
+  .nav-btn:disabled:hover {
+    background: transparent;
+    color: var(--text);
+  }
+
+  .slide-counter {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    color: var(--muted);
+    min-width: 60px;
+    text-align: center;
+  }
+
+  .dot-nav {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: var(--rule);
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+
+  .dot.active {
+    background: var(--azure);
+    width: 18px;
+    border-radius: 3px;
+  }
+
+  /* ─── PROGRESS BAR ──────────────────────────────────────────── */
+  .progress-bar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    background: var(--azure);
+    transition: width 0.4s ease;
+    z-index: 200;
+  }
+
+  /* ─── SLIDE LABEL ───────────────────────────────────────────── */
+  .slide-label {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 300;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--azure);
+    margin-bottom: 24px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .slide-label::after {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 1px;
+    background: var(--azure);
+  }
+
+  /* ─── TYPOGRAPHY ────────────────────────────────────────────── */
+  .display-xl {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: clamp(48px, 6vw, 96px);
+    line-height: 1.0;
+    letter-spacing: -0.02em;
+    color: var(--black);
+  }
+
+  .display-xl .accent {
+    color: var(--azure);
+  }
+
+  .display-lg {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: clamp(36px, 4.5vw, 64px);
+    line-height: 1.05;
+    letter-spacing: -0.02em;
+    color: var(--black);
+  }
+
+  .display-md {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: clamp(28px, 3vw, 44px);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    color: var(--black);
+  }
+
+  .body-lg {
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--muted);
+    font-weight: 300;
+    max-width: 620px;
+  }
+
+  .body-sm {
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--muted);
+    font-weight: 300;
+  }
+
+  /* ─── RULE LINE ─────────────────────────────────────────────── */
+  .rule {
+    width: 48px;
+    height: 1px;
+    background: var(--azure);
+    margin-bottom: 32px;
+  }
+
+  /* ─── COVER SLIDE ───────────────────────────────────────────── */
+  #slide-0 {
+    background: var(--black);
+    color: var(--white);
+    padding: 80px 100px;
+  }
+
+  #slide-0 .display-xl { color: var(--white); }
+  #slide-0 .body-lg { color: rgba(255,255,255,0.55); }
+  #slide-0 .rule { background: var(--azure); }
+  #slide-0 .slide-label { color: var(--azure); }
+  #slide-0 .slide-label::after { background: var(--azure); }
+
+  .cover-meta {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 11px;
+    font-weight: 300;
+    letter-spacing: 0.15em;
+    color: rgba(255,255,255,0.35);
+    margin-top: 48px;
+    display: flex;
+    gap: 32px;
+  }
+
+  .cover-tag {
+    display: inline-block;
+    border: 1px solid rgba(255,255,255,0.2);
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    color: rgba(255,255,255,0.4);
+    text-transform: uppercase;
+    margin-bottom: 40px;
+  }
+
+  #slide-0 .slide-nav-cover {
+    display: none;
+  }
+
+  /* ─── STAT GRID ─────────────────────────────────────────────── */
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    width: 100%;
+    margin-top: 40px;
+  }
+
+  .stat-cell {
+    background: var(--white);
+    padding: 32px 28px;
+  }
+
+  .stat-number {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: 48px;
+    letter-spacing: -0.03em;
+    color: var(--black);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+
+  .stat-number .unit {
+    font-size: 24px;
+    color: var(--azure);
+  }
+
+  .stat-label {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 300;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* ─── PULL QUOTE ────────────────────────────────────────────── */
+  .pull-quote {
+    border-left: 2px solid var(--azure);
+    padding-left: 32px;
+    max-width: 720px;
+    margin: 32px 0;
+  }
+
+  .pull-quote p {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: clamp(18px, 2.2vw, 26px);
+    line-height: 1.5;
+    color: var(--black);
+    letter-spacing: -0.01em;
+  }
+
+  /* ─── TWO-COL LAYOUT ────────────────────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 60px;
+    width: 100%;
+    margin-top: 40px;
+  }
+
+  .two-col-wide {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 80px;
+    width: 100%;
+    margin-top: 40px;
+    align-items: start;
+  }
+
+  /* ─── LIST ITEMS ────────────────────────────────────────────── */
+  .finding-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-top: 24px;
+  }
+
+  .finding-list li {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .finding-num {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    font-weight: 300;
+    letter-spacing: 0.1em;
+    color: var(--azure);
+    min-width: 24px;
+    padding-top: 3px;
+  }
+
+  .finding-text {
+    font-size: 14px;
+    line-height: 1.55;
+    color: var(--text);
+    font-weight: 300;
+  }
+
+  .finding-text strong {
+    font-weight: 500;
+    color: var(--black);
+  }
+
+  /* ─── CASE STUDY GRID ───────────────────────────────────────── */
+  .case-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    width: 100%;
+    margin-top: 32px;
+  }
+
+  .case-cell {
+    background: var(--white);
+    padding: 24px 22px;
+  }
+
+  .case-org {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--azure);
+    margin-bottom: 10px;
+    font-weight: 300;
+  }
+
+  .case-outcome {
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text);
+    font-weight: 300;
+  }
+
+  .case-outcome .verdict {
+    display: inline-block;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    margin-bottom: 8px;
+  }
+
+  .verdict.recovered { background: #e8f4e8; color: #2a7a2a; }
+  .verdict.damaged   { background: #fff0e8; color: #b84a00; }
+  .verdict.ongoing   { background: #f0f0f0; color: var(--muted); }
+
+  /* ─── COMPARISON TABLE ──────────────────────────────────────── */
+  .compare-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 28px;
+    font-size: 13px;
+  }
+
+  .compare-table th {
+    text-align: left;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--rule);
+    font-weight: 300;
+  }
+
+  .compare-table td {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+    line-height: 1.5;
+    color: var(--text);
+    font-weight: 300;
+  }
+
+  .compare-table tr:last-child td { border-bottom: none; }
+
+  .compare-table .option-label {
+    font-weight: 500;
+    color: var(--black);
+    font-size: 13px;
+    display: block;
+    margin-bottom: 3px;
+  }
+
+  .tag-bad  { color: #c0392b; font-size: 11px; font-weight: 500; }
+  .tag-good { color: #1a7a40; font-size: 11px; font-weight: 500; }
+
+  /* ─── PHASE CARDS ───────────────────────────────────────────── */
+  .phase-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    width: 100%;
+    margin-top: 32px;
+  }
+
+  .phase-card {
+    background: var(--white);
+    padding: 28px 24px;
+  }
+
+  .phase-num {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 32px;
+    font-weight: 300;
+    color: var(--rule);
+    line-height: 1;
+    margin-bottom: 12px;
+  }
+
+  .phase-title {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: 18px;
+    letter-spacing: -0.01em;
+    color: var(--black);
+    margin-bottom: 6px;
+  }
+
+  .phase-timing {
+    font-family: 'Roboto Mono', monospace;
+    font-size: 9px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--azure);
+    margin-bottom: 16px;
+    font-weight: 300;
+  }
+
+  .phase-items {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .phase-items li {
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text);
+    font-weight: 300;
+    padding-left: 14px;
+    position: relative;
+  }
+
+  .phase-items li::before {
+    content: '—';
+    position: absolute;
+    left: 0;
+    color: var(--azure);
+    font-size: 10px;
+  }
+
+  /* ─── WARNING BANNER ────────────────────────────────────────── */
+  .warning-bar {
+    background: #fff8e1;
+    border: 1px solid #ffe082;
+    border-left: 3px solid #f59e0b;
+    padding: 14px 20px;
+    border-radius: 2px;
+    font-size: 13px;
+    color: #7a5a00;
+    font-weight: 300;
+    margin-top: 24px;
+    line-height: 1.5;
+    max-width: 800px;
+  }
+
+  .warning-bar strong { font-weight: 500; }
+
+  /* ─── FULL-WIDTH QUOTE SLIDE ────────────────────────────────── */
+  .verdict-statement {
+    max-width: 820px;
+  }
+
+  /* ─── LOGO AREA ─────────────────────────────────────────────── */
+  .logo-mark {
+    font-family: 'Trade Gothic Next', 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-weight: 300;
+    font-size: 13px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: rgba(255,255,255,0.4);
+    margin-bottom: 48px;
+  }
+
+  /* ─── SCROLL WITHIN SLIDE ───────────────────────────────────── */
+  .slide-content {
+    width: 100%;
+    max-height: calc(100vh - 200px);
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule) transparent;
+  }
+
+  .slide-content::-webkit-scrollbar { width: 4px; }
+  .slide-content::-webkit-scrollbar-track { background: transparent; }
+  .slide-content::-webkit-scrollbar-thumb { background: var(--rule); border-radius: 2px; }
+
+  /* ─── KEYBOARD HINT ─────────────────────────────────────────── */
+  .kbd-hint {
+    position: fixed;
+    top: 24px;
+    right: 32px;
+    font-family: 'Roboto Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    color: rgba(0,0,0,0.25);
+    z-index: 100;
+  }
+
+  /* ─── MOBILE ────────────────────────────────────────────────── */
+  @media (max-width: 800px) {
+    .slide { padding: 48px 32px; }
+    .two-col, .two-col-wide { grid-template-columns: 1fr; gap: 32px; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .case-grid, .phase-row { grid-template-columns: 1fr; }
+    .compare-table { font-size: 12px; }
+    .kbd-hint { display: none; }
+    #slide-0 { padding: 48px 32px; }
+    .cover-meta { flex-direction: column; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-bar" id="progressBar"></div>
+<div class="kbd-hint">← → or arrow keys to navigate</div>
+
+<!-- ══════════════════════════════════════════════════════════════
+     SLIDE DECK
+═══════════════════════════════════════════════════════════════ -->
+<div class="deck" id="deck">
+
+  <!-- ── SLIDE 0: COVER ──────────────────────────────────────── -->
+  <div class="slide active" id="slide-0">
+    <div class="logo-mark">Prolific · JDA Worldwide</div>
+    <div class="cover-tag">Leadership Primer · Internal</div>
+    <div class="rule"></div>
+    <h1 class="display-xl">Kanakuk Ministries<br><span class="accent">Crisis Briefing</span></h1>
+    <div class="body-lg" style="margin-top:28px; color:rgba(255,255,255,0.5);">
+      What the evidence shows, what it means, and what the board must decide.
+    </div>
+    <div class="cover-meta">
+      <span>March 2026</span>
+      <span>Pre-Call Leadership Review</span>
+      <span>JDA Worldwide</span>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 1: SITUATION ──────────────────────────────────── -->
+  <div class="slide" id="slide-1">
+    <div class="slide-label">Situation</div>
+    <h2 class="display-md">Where Kanakuk Stands Today</h2>
+    <div class="two-col-wide" style="margin-top:36px;">
+      <div>
+        <ul class="finding-list">
+          <li>
+            <span class="finding-num">01</span>
+            <span class="finding-text"><strong>Legal aggression underway.</strong> Two cease-and-desist letters sent to Shawn Ryan. Ryan's attorney rejected both, publicly invited discovery, and framed the action as intimidation of a victim's family member.</span>
+          </li>
+          <li>
+            <span class="finding-num">02</span>
+            <span class="finding-text"><strong>Leadership unchanged.</strong> Joe White, who led Kanakuk through the Pete Newman era, remains CEO. The White family controls multiple board seats. The organizational structure in place during the abuse period is functionally intact.</span>
+          </li>
+          <li>
+            <span class="finding-num">03</span>
+            <span class="finding-text"><strong>Contradictory public record.</strong> White's 2022 Open Letter stated opposition to any legal action meant to suppress victims' voices. The 2026 C&D letters threaten legal action against people telling those stories.</span>
+          </li>
+          <li>
+            <span class="finding-num">04</span>
+            <span class="finding-text"><strong>NDA ground is collapsing.</strong> Trey's Law (Texas, June 2025) voids NDAs in sexual abuse settlements retroactively — named after a Kanakuk victim. Missouri's equivalent took effect August 2025. Five additional states have pending legislation.</span>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <div class="pull-quote">
+          <p>"The legal and cultural presumption has shifted. The burden is now on Kanakuk to prove its confidentiality practices were not about hiding abuse patterns."</p>
+        </div>
+        <div class="warning-bar" style="margin-top:20px;">
+          <strong>Critical vulnerability:</strong> The cease-and-desist letters characterize critics as acting with "callous and malicious disregard of the truth" — the identical language used by the SBC when dismissing survivors as "opportunistic." That strategy failed catastrophically.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 2: LEGAL LANDSCAPE ────────────────────────────── -->
+  <div class="slide" id="slide-2">
+    <div class="slide-label">Legal Landscape</div>
+    <h2 class="display-md">The Decision Before the Board</h2>
+    <div class="slide-content">
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th style="width:18%">Option</th>
+            <th style="width:22%">Potential Upside</th>
+            <th style="width:30%">Risks &amp; Downsides</th>
+            <th style="width:30%">Public Framing</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>
+              <span class="option-label">Defamation Suit vs. Shawn Ryan</span>
+              <span class="tag-bad">High risk</span>
+            </td>
+            <td>Could correct demonstrably false specific statements. May satisfy defensive instincts on the board.</td>
+            <td>
+              Triggers discovery into internal emails, board minutes, complaint handling, NDAs, and reputation management.<br><br>
+              Ryan's attorney has publicly welcomed discovery. Tennessee's anti-SLAPP statute already invoked. High legal cost. Keeps story alive for years.
+            </td>
+            <td>"Powerful ministry suing a whistleblower instead of owning its history." Plays directly into cover-up and intimidation narratives. <strong>An unwinnable story regardless of legal merits.</strong></td>
+          </tr>
+          <tr>
+            <td>
+              <span class="option-label">Independent Investigation</span>
+              <span class="tag-good">Recommended</span>
+            </td>
+            <td>Demonstrates willingness to uncover truth. Maps failures, names responsible leaders, recommends reforms. Aligns with Penn State, Baylor, and SBC precedent. Can be survivor-centered.</td>
+            <td>Findings may be painful, may confirm systemic failures, and may force resignations. Short-term reputational hit and legal exposure.</td>
+            <td>"They're finally turning the lights on." Seen as accountability and a precondition for any restoration of trust.</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="warning-bar" style="max-width:100%;">
+        <strong>What a defamation suit actually requires:</strong> Kanakuk would need to prove Ryan made false statements of fact, that those statements caused reputational harm, and — because this involves a matter of public concern — that Ryan acted with "actual malice." Ryan's attorney says he has documents, court records, and survivor testimony. Truth is a complete defense to defamation.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 3: THE PATTERN ─────────────────────────────────── -->
+  <div class="slide" id="slide-3">
+    <div class="slide-label">Comparative Analysis</div>
+    <h2 class="display-md">Six Institutions, One Pattern</h2>
+    <div class="slide-content">
+      <div class="case-grid">
+        <div class="case-cell">
+          <div class="case-org">Penn State · 2011</div>
+          <span class="verdict recovered">Substantially Recovered</span>
+          <div class="case-outcome">Board acted in <em>four days</em> — fired coach and president, hired independent investigator (Freeh Report), embraced findings publicly. Speed and completeness of leadership change enabled recovery.</div>
+        </div>
+        <div class="case-cell">
+          <div class="case-org">Michigan State / USA Gymnastics · 2015–18</div>
+          <span class="verdict damaged">Permanently Damaged</span>
+          <div class="case-outcome">Delayed action. McKayla Maroney NDA argued as "requested by the victim" — identical to Kanakuk's current framing. Public rejected the distinction. Four CEOs in 23 months. ~$1B in total settlements.</div>
+        </div>
+        <div class="case-cell">
+          <div class="case-org">Baylor University · 2015–16</div>
+          <span class="verdict recovered">Rebuilt Under New Leadership</span>
+          <div class="case-outcome">Board fired coach and president even though Starr claimed personal ignorance. Standard was institutional accountability, not criminal culpability. Embraced 105 reforms. Rebuilt reputation under new leadership.</div>
+        </div>
+        <div class="case-cell">
+          <div class="case-org">Archdiocese of Los Angeles · 2002–2024</div>
+          <span class="verdict damaged">Trust Permanently Impaired</span>
+          <div class="case-outcome">Initial secrecy and NDAs deepened public outrage. $1.5B in total settlements — staggeringly higher than if transparency had come earlier. Demonstrates the compounding cost of delay.</div>
+        </div>
+        <div class="case-cell">
+          <div class="case-org">Southern Baptist Convention · 2019–22</div>
+          <span class="verdict damaged">Closest Kanakuk Analogue</span>
+          <div class="case-outcome">Faith institution that framed accountability as an attack on the ministry. Called survivors "opportunistic." Maintained secret list of 700+ abusers. DOJ investigation opened. 1.5M members lost.</div>
+        </div>
+        <div class="case-cell">
+          <div class="case-org">Boy Scouts of America · 2010–23</div>
+          <span class="verdict damaged">Near-Fatal</span>
+          <div class="case-outcome">Maintained internal "Perversion Files" for decades. Delayed action until forced by 82,000 claims. $2.46B settlement. Membership fell 60%. Demonstrates what waiting costs measured in decades.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 4: WHAT FAILED / WHAT WORKED ──────────────────── -->
+  <div class="slide" id="slide-4">
+    <div class="slide-label">Synthesis</div>
+    <h2 class="display-md">What the Evidence Tells Us</h2>
+    <div class="two-col" style="margin-top:28px; gap:48px; align-items:start;">
+      <div>
+        <div class="finding-num" style="font-size:11px; margin-bottom:16px; display:block;">Failed in every case</div>
+        <ul class="finding-list">
+          <li><span class="finding-num" style="color:#c0392b;">✕</span><span class="finding-text"><strong>Legal aggression against accusers.</strong> C&D letters, defamation threats, adversarial litigation universally backfired — amplified coverage, alienated sympathizers, opened devastating discovery.</span></li>
+          <li><span class="finding-num" style="color:#c0392b;">✕</span><span class="finding-text"><strong>Framing accountability as an attack on the mission.</strong> Every institution that characterized critics as enemies suffered the longest crises.</span></li>
+          <li><span class="finding-num" style="color:#c0392b;">✕</span><span class="finding-text"><strong>Retaining implicated leadership.</strong> Leaders in charge during the abuse period made genuine reform impossible in the eyes of every stakeholder group, regardless of personal culpability.</span></li>
+          <li><span class="finding-num" style="color:#c0392b;">✕</span><span class="finding-text"><strong>Using NDAs to manage the narrative.</strong> Every NDA became a symbol of silencing. The legal tools are now being voided retroactively by state legislatures.</span></li>
+          <li><span class="finding-num" style="color:#c0392b;">✕</span><span class="finding-text"><strong>Delay.</strong> Penn State acted in days. The BSA waited decades and paid $2.46B. Every month of inaction increased the eventual cost.</span></li>
+        </ul>
+      </div>
+      <div>
+        <div class="finding-num" style="font-size:11px; margin-bottom:16px; display:block;">Worked in every case</div>
+        <ul class="finding-list">
+          <li><span class="finding-num" style="color:#1a7a40;">✓</span><span class="finding-text"><strong>Leadership transition.</strong> New leaders, unconnected to the crisis, could acknowledge failures, commission genuine investigations, and center victims in ways incumbents could not.</span></li>
+          <li><span class="finding-num" style="color:#1a7a40;">✓</span><span class="finding-text"><strong>Truly independent investigation.</strong> Freeh Report, Pepper Hamilton, Guidepost — credible because they were independent and because leadership accepted findings publicly.</span></li>
+          <li><span class="finding-num" style="color:#1a7a40;">✓</span><span class="finding-text"><strong>Victim-centered communication.</strong> Specific apologies paired with concrete structural action. Empty statements without change were consistently rejected.</span></li>
+          <li><span class="finding-num" style="color:#1a7a40;">✓</span><span class="finding-text"><strong>Comprehensive institutional reform.</strong> New safety protocols, independent oversight boards, mandatory training, transparent reporting — demonstrated commitment beyond statements.</span></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 5: THE VERDICT STATEMENT ──────────────────────── -->
+  <div class="slide" id="slide-5">
+    <div class="slide-label">Unambiguous Finding</div>
+    <div class="verdict-statement">
+      <div class="rule"></div>
+      <h2 class="display-lg" style="margin-bottom:32px;">
+        There is no precedent in which an institution successfully navigated a crisis of this nature while retaining the leadership in place during the abuse.
+      </h2>
+      <div class="stat-grid" style="margin-top:0;">
+        <div class="stat-cell">
+          <div class="stat-number">0<span class="unit">/6</span></div>
+          <div class="stat-label">Cases where legal aggression<br>against accusers succeeded</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-number">0<span class="unit">/6</span></div>
+          <div class="stat-label">Cases where NDAs provided<br>lasting protection</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-number">0<span class="unit">/6</span></div>
+          <div class="stat-label">Cases where delay reduced<br>the eventual cost</div>
+        </div>
+        <div class="stat-cell">
+          <div class="stat-number">3<span class="unit">/3</span></div>
+          <div class="stat-label">Institutions that changed leadership<br>and recovered</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 6: RECOMMENDED PATH ───────────────────────────── -->
+  <div class="slide" id="slide-6">
+    <div class="slide-label">Recommended Path</div>
+    <h2 class="display-md">Three Phases, Clear Sequence</h2>
+    <div class="phase-row" style="margin-top:28px;">
+      <div class="phase-card">
+        <div class="phase-num">01</div>
+        <div class="phase-title">Leadership Transition</div>
+        <div class="phase-timing">Immediate</div>
+        <ul class="phase-items">
+          <li>Joe White announces transition from CEO, framed around his health and the ministry's centennial</li>
+          <li>White family members step down from the Board to enable independent governance</li>
+          <li>Interim leader with no connection to the Newman era appointed immediately</li>
+          <li>National search for permanent leadership announced using an external firm</li>
+        </ul>
+      </div>
+      <div class="phase-card">
+        <div class="phase-num">02</div>
+        <div class="phase-title">Independent Investigation</div>
+        <div class="phase-timing">Within 30 Days</div>
+        <ul class="phase-items">
+          <li>New leadership commissions a credible third-party investigation — former FBI director, judge, or prosecutor; no ties to existing leadership</li>
+          <li>Scope: abuse allegations, reporting channels, leadership decision-making, board oversight, NDA use, institutional culture</li>
+          <li>Findings committed to be made public in a written report, not a private memo — following the Penn State model</li>
+          <li>Survivor access with trauma-informed processes and clear guarantees participation won't limit legal rights</li>
+        </ul>
+      </div>
+      <div class="phase-card">
+        <div class="phase-num">03</div>
+        <div class="phase-title">Victim-Centered Reform</div>
+        <div class="phase-timing">Ongoing</div>
+        <ul class="phase-items">
+          <li>New leadership issues a comprehensive statement acknowledging institutional failures, not merely Pete Newman's personal crimes</li>
+          <li>Settlement NDAs voluntarily released where legally permissible, consistent with the spirit of Trey's Law</li>
+          <li>Victim advisory council established with genuine authority</li>
+          <li>Child Protection Plan submitted for independent external audit and certification</li>
+          <li>Defamation posture against Ryan abandoned; legal resources redirected to victim support</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 7: COST OF INACTION ───────────────────────────── -->
+  <div class="slide" id="slide-7">
+    <div class="slide-label">Cost of Inaction</div>
+    <h2 class="display-md">What Waiting Costs</h2>
+    <div class="two-col" style="margin-top:28px; align-items:start;">
+      <div>
+        <ul class="finding-list">
+          <li>
+            <span class="finding-num">→</span>
+            <span class="finding-text"><strong>The defamation threat will catalyze, not suppress, coverage.</strong> Ryan has 5.7 million YouTube subscribers. Filing suit would create a years-long news cycle with discovery surfacing information Kanakuk cannot control.</span>
+          </li>
+          <li>
+            <span class="finding-num">→</span>
+            <span class="finding-text"><strong>Discovery would be devastating.</strong> Ryan's attorney: "We welcome depositions of Kanakuk leadership about what they knew, when they knew it, and what they did or didn't do to protect children."</span>
+          </li>
+          <li>
+            <span class="finding-num">→</span>
+            <span class="finding-text"><strong>Enrollment and donor relationships will erode.</strong> The SBC lost 1.5 million members. The BSA lost 60% of its membership. Kanakuk's premium market positioning makes it uniquely vulnerable to reputational damage.</span>
+          </li>
+          <li>
+            <span class="finding-num">→</span>
+            <span class="finding-text"><strong>The NDA defense is collapsing in real time.</strong> Texas. Missouri. Five more states pending. The legal tools Kanakuk relied on to manage this crisis are being dismantled state by state.</span>
+          </li>
+        </ul>
+      </div>
+      <div>
+        <div class="pull-quote">
+          <p>"The question before the Board is not whether leadership transition will happen, but whether the Board will manage it proactively and with dignity — or whether external forces will impose it at far greater cost to the ministry, its staff, its families, and its mission."</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SLIDE 8: CLOSING / FRAMING ──────────────────────────── -->
+  <div class="slide" id="slide-8">
+    <div class="slide-label">Before the Call</div>
+    <div class="rule"></div>
+    <h2 class="display-lg" style="max-width:760px; margin-bottom:32px;">
+      If the investigation vindicates current leadership, the Board gains the strongest possible shield.<br>
+      If it does not, new leadership becomes the clearest path to integrity and mission credibility.
+    </h2>
+    <div class="body-lg">
+      Either way, the investigation is the right move.
+    </div>
+    <div class="stat-grid" style="margin-top:40px;">
+      <div class="stat-cell" style="grid-column: span 2;">
+        <div class="stat-label" style="margin-bottom:12px;">The ask on this call</div>
+        <div class="finding-text" style="font-size:14px; line-height:1.6;">
+          Kanakuk Ministries has nearly 100 years of positive impact. That legacy is worth protecting. Protecting it requires the courage to make difficult changes now, rather than allowing the crisis to deepen until those changes are forced by courts, regulators, or catastrophic enrollment declines.
+        </div>
+      </div>
+      <div class="stat-cell" style="grid-column: span 2;">
+        <div class="stat-label" style="margin-bottom:12px;">Source document</div>
+        <div class="finding-text" style="font-size:13px; color: var(--muted);">
+          Kanakuk Ministries — Board Internal Brief v2<br>
+          Crisis Response Case Study Analysis<br>
+          JDA Worldwide · March 2026
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /deck -->
+
+<!-- ══════════════════════════════════════════════════════════════
+     SLIDE NAV
+═══════════════════════════════════════════════════════════════ -->
+<div class="slide-nav" id="slideNav">
+  <button class="nav-btn" id="prevBtn" onclick="navigate(-1)" disabled aria-label="Previous slide">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M15 18l-6-6 6-6"/>
+    </svg>
+  </button>
+  <div class="dot-nav" id="dotNav"></div>
+  <div class="slide-counter" id="slideCounter">1 / 9</div>
+  <button class="nav-btn" id="nextBtn" onclick="navigate(1)" aria-label="Next slide">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M9 18l6-6-6-6"/>
+    </svg>
+  </button>
+</div>
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  let current = 0;
+  let transitioning = false;
+
+  // Build dot nav
+  const dotNav = document.getElementById('dotNav');
+  slides.forEach((_, i) => {
+    const dot = document.createElement('div');
+    dot.className = 'dot' + (i === 0 ? ' active' : '');
+    dot.onclick = () => goTo(i);
+    dotNav.appendChild(dot);
+  });
+
+  function updateUI() {
+    // Progress bar
+    document.getElementById('progressBar').style.width =
+      ((current + 1) / total * 100) + '%';
+
+    // Counter
+    document.getElementById('slideCounter').textContent =
+      (current + 1) + ' / ' + total;
+
+    // Dots
+    document.querySelectorAll('.dot').forEach((d, i) => {
+      d.classList.toggle('active', i === current);
+    });
+
+    // Buttons
+    document.getElementById('prevBtn').disabled = current === 0;
+    document.getElementById('nextBtn').disabled = current === total - 1;
+
+    // Nav visibility on cover
+    document.getElementById('slideNav').style.opacity =
+      current === 0 ? '0.6' : '1';
+  }
+
+  function goTo(index) {
+    if (transitioning || index === current) return;
+    transitioning = true;
+
+    const prev = slides[current];
+    const next = slides[index];
+    const dir = index > current ? 'up' : 'down';
+
+    prev.classList.add(dir === 'up' ? 'exit-up' : '');
+    prev.classList.remove('active');
+
+    setTimeout(() => {
+      prev.classList.remove('exit-up');
+      next.style.transform = dir === 'up' ? 'translateY(20px)' : 'translateY(-20px)';
+      next.classList.add('active');
+      setTimeout(() => {
+        next.style.transform = '';
+        transitioning = false;
+      }, 50);
+    }, 300);
+
+    current = index;
+    updateUI();
+  }
+
+  function navigate(dir) {
+    const next = current + dir;
+    if (next >= 0 && next < total) goTo(next);
+  }
+
+  // Keyboard navigation
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') navigate(1);
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') navigate(-1);
+  });
+
+  // Touch/swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) navigate(dx < 0 ? 1 : -1);
+  });
+
+  updateUI();
+</script>
+</body>
+</html>

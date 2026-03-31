@@ -1,23 +1,16 @@
 import { defineField, defineType } from "sanity";
 
 const PRACTICE_AREAS = [
-  { title: "Brand Strategy", value: "Brand Strategy" },
-  { title: "Brand Identity", value: "Brand Identity" },
-  { title: "Creative Campaign", value: "Creative Campaign" },
-  { title: "Creative Digital", value: "Creative Digital" },
-  { title: "Strategic Communications", value: "Strategic Communications" },
-  { title: "Digital Experience", value: "Digital Experience" },
+  { title: "Brand Creative", value: "Brand Creative" },
+  { title: "Campaign and Production Creative", value: "Campaign and Production Creative" },
+  { title: "Digital Marketing, Social, Email and Data", value: "Digital Marketing, Social, Email and Data" },
   { title: "Development", value: "Development" },
+  { title: "Strategic Communications, PR and Crisis Comms", value: "Strategic Communications, PR and Crisis Comms" },
+  { title: "Paid Media and Search", value: "Paid Media and Search" },
   { title: "Business Development", value: "Business Development" },
   { title: "Account Services", value: "Account Services" },
   { title: "Operations", value: "Operations" },
-  { title: "Copy and Content", value: "Copy and Content" },
-  { title: "Email", value: "Email" },
-  { title: "PR", value: "PR" },
-  { title: "Paid Media", value: "Paid Media" },
-  { title: "Social and Community", value: "Social and Community" },
-  { title: "Video and Animation", value: "Video and Animation" },
-  { title: "Photography and Imagery", value: "Photography and Imagery" },
+  { title: "Logistics", value: "Logistics" },
 ];
 
 export default defineType({

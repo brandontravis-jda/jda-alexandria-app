@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 
 interface CapabilityRecord {
   _id: string;
@@ -14,8 +14,6 @@ interface CapabilityRecord {
   linkedMethodology?: { name: string; slug: string };
   source?: string;
   notes?: string;
-  ceilingLastReviewed?: string;
-  liveSearchEnabled?: boolean;
 }
 
 interface Stats {
@@ -29,35 +27,79 @@ interface Stats {
   human_led: number;
 }
 
-const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; icon: string }> = {
-  not_evaluated: { label: "Not Evaluated", color: "var(--color-jda-text-muted)", bg: "rgba(255,255,255,0.04)", icon: "○" },
-  classified:    { label: "Classified",    color: "#f59e0b",                     bg: "rgba(245,158,11,0.12)", icon: "◐" },
-  methodology_built: { label: "Methodology Built", color: "#60a5fa", bg: "rgba(59,130,246,0.12)", icon: "●" },
-  proven_status: { label: "Proven",        color: "#34d399",                     bg: "rgba(52,211,153,0.12)", icon: "✓" },
+const PRACTICE_AREAS = [
+  "Brand Creative",
+  "Campaign and Production Creative",
+  "Digital Marketing, Social, Email and Data",
+  "Development",
+  "Strategic Communications, PR and Crisis Comms",
+  "Paid Media and Search",
+  "Business Development",
+  "Account Services",
+  "Operations",
+  "Logistics",
+];
+
+const PRACTICE_SHORT: Record<string, string> = {
+  "Brand Creative": "Brand Creative",
+  "Campaign and Production Creative": "Campaign",
+  "Digital Marketing, Social, Email and Data": "Digital / Social / Email",
+  "Development": "Development",
+  "Strategic Communications, PR and Crisis Comms": "Comms / PR",
+  "Paid Media and Search": "Paid Media",
+  "Business Development": "Business Dev",
+  "Account Services": "Account Services",
+  "Operations": "Operations",
+  "Logistics": "Logistics",
+};
+
+const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  not_evaluated:    { label: "Not Evaluated",     color: "var(--color-jda-text-muted)", bg: "rgba(255,255,255,0.04)", dot: "#555" },
+  classified:       { label: "Classified",         color: "#f59e0b",                    bg: "rgba(245,158,11,0.15)",  dot: "#f59e0b" },
+  methodology_built:{ label: "Methodology Built",  color: "#60a5fa",                    bg: "rgba(59,130,246,0.15)",  dot: "#60a5fa" },
+  proven_status:    { label: "Proven",             color: "#34d399",                    bg: "rgba(52,211,153,0.15)",  dot: "#34d399" },
 };
 
 const CLASS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  ai_led:      { label: "AI-Led",      color: "#34d399", bg: "rgba(52,211,153,0.12)" },
-  ai_assisted: { label: "AI-Assisted", color: "#f59e0b", bg: "rgba(245,158,11,0.12)" },
-  human_led:   { label: "Human-Led",   color: "var(--color-jda-text-muted)", bg: "rgba(255,255,255,0.06)" },
+  ai_led:      { label: "AI-Led",      color: "#34d399", bg: "rgba(52,211,153,0.15)" },
+  ai_assisted: { label: "AI-Assisted", color: "#f59e0b", bg: "rgba(245,158,11,0.15)" },
+  human_led:   { label: "Human-Led",   color: "#94a3b8", bg: "rgba(148,163,184,0.12)" },
 };
 
-const PRACTICE_AREAS = [
-  "Brand Strategy", "Brand Identity", "Creative Campaign", "Creative Digital",
-  "Strategic Communications", "Digital Experience", "Development",
-  "Business Development", "Account Services", "Operations",
-  "Copy and Content", "Email", "PR", "Paid Media",
-  "Social and Community", "Video and Animation", "Photography and Imagery",
-];
+type SortKey = "deliverableName" | "practiceArea" | "aiClassification" | "status";
+type SortDir = "asc" | "desc";
+
+function Pill({
+  label, active, onClick, color,
+}: { label: string; active: boolean; onClick: () => void; color?: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className="text-xs px-3 py-1 rounded-full font-semibold transition-all"
+      style={{
+        fontFamily: "var(--font-display)",
+        letterSpacing: "0.04em",
+        cursor: "pointer",
+        border: active ? "none" : "1px solid var(--color-jda-border)",
+        background: active ? (color ?? "var(--color-jda-red)") : "transparent",
+        color: active ? "#fff" : "var(--color-jda-text-muted)",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {label}
+    </button>
+  );
+}
 
 function StatusBadge({ status }: { status: string }) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG.not_evaluated;
   return (
     <span
-      className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap"
-      style={{ color: cfg.color, background: cfg.bg, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
+      className="inline-flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap"
+      style={{ color: cfg.color, background: cfg.bg, fontFamily: "var(--font-display)", letterSpacing: "0.03em" }}
     >
-      {cfg.icon} {cfg.label}
+      <span className="w-1.5 h-1.5 rounded-full inline-block flex-shrink-0" style={{ background: cfg.dot }} />
+      {cfg.label}
     </span>
   );
 }
@@ -68,59 +110,80 @@ function ClassBadge({ classification }: { classification?: string }) {
   return (
     <span
       className="inline-flex items-center text-xs px-2 py-0.5 rounded-full font-semibold whitespace-nowrap"
-      style={{ color: cfg.color, background: cfg.bg, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
+      style={{ color: cfg.color, background: cfg.bg, fontFamily: "var(--font-display)", letterSpacing: "0.03em" }}
     >
       {cfg.label}
     </span>
   );
 }
 
-function StatCard({ label, value, sub, color }: { label: string; value: number; sub?: string; color?: string }) {
+function SortHeader({
+  label, sortKey, current, dir, onSort,
+}: { label: string; sortKey: SortKey; current: SortKey; dir: SortDir; onSort: (k: SortKey) => void }) {
+  const active = current === sortKey;
   return (
-    <div
-      className="rounded-[10px] border p-4"
-      style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
+    <button
+      onClick={() => onSort(sortKey)}
+      className="flex items-center gap-1 text-left"
+      style={{
+        background: "transparent",
+        border: "none",
+        cursor: "pointer",
+        color: active ? "var(--color-jda-cream)" : "var(--color-jda-text-muted)",
+        fontFamily: "var(--font-display)",
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        padding: 0,
+      }}
     >
-      <p className="text-3xl font-black leading-none" style={{ color: color ?? "var(--color-jda-cream)", fontFamily: "var(--font-display)" }}>
-        {value}
-      </p>
-      <p className="text-xs mt-1 font-semibold uppercase tracking-wider" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)" }}>
-        {label}
-      </p>
-      {sub && <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>{sub}</p>}
-    </div>
+      {label}
+      <span style={{ opacity: active ? 1 : 0.3, fontSize: 9 }}>{active ? (dir === "asc" ? " ▲" : " ▼") : " ▲"}</span>
+    </button>
   );
 }
 
-function ProgressBar({ value, total, color }: { value: number; total: number; color: string }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
-  return (
-    <div className="flex items-center gap-2">
-      <div className="flex-1 rounded-full h-1.5 overflow-hidden" style={{ background: "rgba(255,255,255,0.08)" }}>
-        <div className="h-full rounded-full transition-all duration-500" style={{ width: `${pct}%`, background: color }} />
-      </div>
-      <span className="text-xs tabular-nums w-8 text-right" style={{ color: "var(--color-jda-text-muted)" }}>{pct}%</span>
-    </div>
-  );
+function exportCSV(records: CapabilityRecord[]) {
+  const cols = ["Deliverable", "Practice Area", "AI Classification", "Status", "Linked Methodology", "Baseline Time", "AI-Native Time", "Notes"];
+  const rows = records.map((r) => [
+    `"${r.deliverableName}"`,
+    `"${r.practiceArea}"`,
+    r.aiClassification ? CLASS_CONFIG[r.aiClassification]?.label ?? "" : "",
+    STATUS_CONFIG[r.status]?.label ?? r.status,
+    r.linkedMethodology?.name ?? "",
+    r.baselineProductionTime ?? "",
+    r.aiNativeProductionTime ?? "",
+    `"${(r.notes ?? "").replace(/"/g, "'")}"`,
+  ]);
+  const csv = [cols.join(","), ...rows.map((r) => r.join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `jda-capabilities-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export default function CapabilitiesPage() {
   const [records, setRecords] = useState<CapabilityRecord[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filterPractice, setFilterPractice] = useState("");
-  const [filterClass, setFilterClass] = useState("");
-  const [filterStatus, setFilterStatus] = useState("");
+
+  // Pill filter state
+  const [activePractices, setActivePractices] = useState<Set<string>>(new Set());
+  const [activeClasses, setActiveClasses] = useState<Set<string>>(new Set());
+  const [activeStatuses, setActiveStatuses] = useState<Set<string>>(new Set());
+
+  // Search + sort
   const [search, setSearch] = useState("");
-  const [expandedPractice, setExpandedPractice] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("practiceArea");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   async function load() {
     setLoading(true);
-    const params = new URLSearchParams();
-    if (filterPractice) params.set("practice_area", filterPractice);
-    if (filterClass) params.set("classification", filterClass);
-    if (filterStatus) params.set("status", filterStatus);
-    const res = await fetch(`/api/capabilities?${params}`);
+    const res = await fetch("/api/capabilities");
     if (res.ok) {
       const data = await res.json();
       setRecords(data.records ?? []);
@@ -129,18 +192,52 @@ export default function CapabilitiesPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [filterPractice, filterClass, filterStatus]);
+  useEffect(() => { load(); }, []);
 
-  const filtered = search.trim()
-    ? records.filter((r) => r.deliverableName.toLowerCase().includes(search.toLowerCase()) || r.practiceArea.toLowerCase().includes(search.toLowerCase()))
-    : records;
-
-  // Group by practice area
-  const byPractice: Record<string, CapabilityRecord[]> = {};
-  for (const r of filtered) {
-    if (!byPractice[r.practiceArea]) byPractice[r.practiceArea] = [];
-    byPractice[r.practiceArea].push(r);
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir("asc"); }
   }
+
+  function togglePractice(p: string) {
+    setActivePractices((prev) => {
+      const n = new Set(prev);
+      n.has(p) ? n.delete(p) : n.add(p);
+      return n;
+    });
+  }
+  function toggleClass(c: string) {
+    setActiveClasses((prev) => {
+      const n = new Set(prev);
+      n.has(c) ? n.delete(c) : n.add(c);
+      return n;
+    });
+  }
+  function toggleStatus(s: string) {
+    setActiveStatuses((prev) => {
+      const n = new Set(prev);
+      n.has(s) ? n.delete(s) : n.add(s);
+      return n;
+    });
+  }
+
+  const filtered = useMemo(() => {
+    let rows = records;
+    if (activePractices.size > 0) rows = rows.filter((r) => activePractices.has(r.practiceArea));
+    if (activeClasses.size > 0) rows = rows.filter((r) => r.aiClassification && activeClasses.has(r.aiClassification));
+    if (activeStatuses.size > 0) rows = rows.filter((r) => activeStatuses.has(r.status));
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      rows = rows.filter((r) => r.deliverableName.toLowerCase().includes(q) || r.practiceArea.toLowerCase().includes(q));
+    }
+    return [...rows].sort((a, b) => {
+      const av = (a[sortKey] ?? "") as string;
+      const bv = (b[sortKey] ?? "") as string;
+      return sortDir === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+    });
+  }, [records, activePractices, activeClasses, activeStatuses, search, sortKey, sortDir]);
+
+  const hasFilters = activePractices.size > 0 || activeClasses.size > 0 || activeStatuses.size > 0 || search.trim();
 
   const selectStyle: React.CSSProperties = {
     background: "var(--color-jda-bg)",
@@ -148,244 +245,213 @@ export default function CapabilitiesPage() {
     color: "var(--color-jda-text)",
     borderRadius: 6,
     padding: "5px 10px",
-    fontSize: 12,
-    fontFamily: "var(--font-display)",
-    letterSpacing: "0.04em",
+    fontSize: 13,
+    fontFamily: "var(--font-body)",
     outline: "none",
     cursor: "pointer",
+    height: 32,
   };
 
   return (
     <div>
       {/* Header */}
-      <div className="mb-6">
-        <h1
-          className="text-3xl font-black leading-none"
-          style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
+      <div className="flex items-start justify-between mb-5">
+        <div>
+          <h1
+            className="text-3xl font-black leading-none"
+            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
+          >
+            Capabilities Matrix
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "var(--color-jda-warm-gray)", fontFamily: "var(--font-body)" }}>
+            Every deliverable type JDA produces, scored by AI role and tracked through the transformation lifecycle.
+          </p>
+        </div>
+        <button
+          onClick={() => exportCSV(filtered)}
+          className="flex items-center gap-2 text-xs px-4 py-2 rounded-lg font-semibold"
+          style={{
+            background: "var(--color-jda-bg-card)",
+            border: "1px solid var(--color-jda-border)",
+            color: "var(--color-jda-text-muted)",
+            fontFamily: "var(--font-display)",
+            letterSpacing: "0.06em",
+            cursor: "pointer",
+            flexShrink: 0,
+          }}
         >
-          Capabilities Matrix
-        </h1>
-        <p className="text-sm mt-1" style={{ color: "var(--color-jda-warm-gray)", fontFamily: "var(--font-body)" }}>
-          Every deliverable type JDA produces, scored by AI role and tracked through the transformation lifecycle.
-        </p>
+          ↓ Export CSV
+        </button>
       </div>
 
-      {/* Stats row */}
+      {/* Stats strip */}
       {stats && (
-        <div className="mb-6 space-y-4">
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <StatCard label="Total Identified" value={stats.total} />
-            <StatCard label="Methodology Built" value={stats.methodology_built} color="#60a5fa" />
-            <StatCard label="Proven Status" value={stats.proven_status} color="#34d399" />
-            <StatCard label="Not Evaluated" value={stats.not_evaluated} color="var(--color-jda-text-muted)" />
+        <div
+          className="flex items-center gap-6 px-5 py-3 rounded-[10px] border mb-5 flex-wrap"
+          style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
+        >
+          <div className="text-center">
+            <p className="text-2xl font-black leading-none" style={{ fontFamily: "var(--font-display)", color: "var(--color-jda-cream)" }}>{stats.total}</p>
+            <p className="text-xs mt-0.5 uppercase tracking-wider" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)" }}>Total</p>
           </div>
-
-          {/* Transformation progress */}
-          <div
-            className="rounded-[10px] border p-4"
-            style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
-          >
-            <p className="text-xs font-semibold uppercase tracking-wider mb-3" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)" }}>
-              Transformation Progress
-            </p>
-            <div className="space-y-2.5">
-              <div className="flex items-center gap-3">
-                <span className="text-xs w-36" style={{ color: "var(--color-jda-text-muted)" }}>Classified</span>
-                <ProgressBar value={stats.classified + stats.methodology_built + stats.proven_status} total={stats.total} color="#f59e0b" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs w-36" style={{ color: "var(--color-jda-text-muted)" }}>Methodology Built</span>
-                <ProgressBar value={stats.methodology_built + stats.proven_status} total={stats.total} color="#60a5fa" />
-              </div>
-              <div className="flex items-center gap-3">
-                <span className="text-xs w-36" style={{ color: "var(--color-jda-text-muted)" }}>Proven Status</span>
-                <ProgressBar value={stats.proven_status} total={stats.total} color="#34d399" />
+          <div style={{ width: 1, height: 32, background: "var(--color-jda-border)" }} />
+          {[
+            { label: "Not Evaluated", val: stats.not_evaluated, color: "#555" },
+            { label: "Classified", val: stats.classified, color: "#f59e0b" },
+            { label: "Methodology Built", val: stats.methodology_built, color: "#60a5fa" },
+            { label: "Proven", val: stats.proven_status, color: "#34d399" },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+              <div>
+                <span className="text-sm font-bold" style={{ color: "var(--color-jda-cream)", fontFamily: "var(--font-display)" }}>{val}</span>
+                <span className="text-xs ml-1.5" style={{ color: "var(--color-jda-text-muted)" }}>{label}</span>
               </div>
             </div>
-
-            {/* Classification breakdown */}
-            <div className="flex gap-4 mt-4 pt-3" style={{ borderTop: "1px solid var(--color-jda-border)" }}>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: "#34d399" }} />
-                <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{stats.ai_led} AI-Led</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: "#f59e0b" }} />
-                <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{stats.ai_assisted} AI-Assisted</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: "rgba(255,255,255,0.2)" }} />
-                <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{stats.human_led} Human-Led</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full inline-block" style={{ background: "rgba(255,255,255,0.08)" }} />
-                <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{stats.not_evaluated} Not Classified</span>
+          ))}
+          <div style={{ width: 1, height: 32, background: "var(--color-jda-border)" }} />
+          {[
+            { label: "AI-Led", val: stats.ai_led, color: "#34d399" },
+            { label: "AI-Assisted", val: stats.ai_assisted, color: "#f59e0b" },
+            { label: "Human-Led", val: stats.human_led, color: "#94a3b8" },
+          ].map(({ label, val, color }) => (
+            <div key={label} className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: color }} />
+              <div>
+                <span className="text-sm font-bold" style={{ color: "var(--color-jda-cream)", fontFamily: "var(--font-display)" }}>{val}</span>
+                <span className="text-xs ml-1.5" style={{ color: "var(--color-jda-text-muted)" }}>{label}</span>
               </div>
             </div>
+          ))}
+          {/* Progress bar */}
+          <div className="ml-auto flex items-center gap-3 min-w-[160px]">
+            <div className="flex-1">
+              <div className="flex rounded-full overflow-hidden h-2" style={{ background: "rgba(255,255,255,0.06)" }}>
+                {[
+                  { val: stats.proven_status, color: "#34d399" },
+                  { val: stats.methodology_built, color: "#60a5fa" },
+                  { val: stats.classified, color: "#f59e0b" },
+                ].map(({ val, color }) => (
+                  <div key={color} style={{ width: `${(val / Math.max(stats.total, 1)) * 100}%`, background: color, transition: "width 0.4s" }} />
+                ))}
+              </div>
+            </div>
+            <span className="text-xs tabular-nums" style={{ color: "var(--color-jda-text-muted)", whiteSpace: "nowrap" }}>
+              {stats.total > 0 ? Math.round(((stats.classified + stats.methodology_built + stats.proven_status) / stats.total) * 100) : 0}% classified
+            </span>
           </div>
         </div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-4 items-center">
+      {/* Pill filters */}
+      <div className="space-y-2.5 mb-4">
+        {/* Practice area pills */}
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-xs uppercase tracking-wider mr-1 flex-shrink-0" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 10 }}>Practice</span>
+          {PRACTICE_AREAS.map((p) => (
+            <Pill key={p} label={PRACTICE_SHORT[p] ?? p} active={activePractices.has(p)} onClick={() => togglePractice(p)} />
+          ))}
+        </div>
+        {/* Classification + status pills */}
+        <div className="flex flex-wrap gap-1.5 items-center">
+          <span className="text-xs uppercase tracking-wider mr-1 flex-shrink-0" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 10 }}>Class</span>
+          <Pill label="AI-Led" active={activeClasses.has("ai_led")} onClick={() => toggleClass("ai_led")} color="#059669" />
+          <Pill label="AI-Assisted" active={activeClasses.has("ai_assisted")} onClick={() => toggleClass("ai_assisted")} color="#b45309" />
+          <Pill label="Human-Led" active={activeClasses.has("human_led")} onClick={() => toggleClass("human_led")} color="#475569" />
+          <span className="text-xs uppercase tracking-wider mx-1 flex-shrink-0" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 10 }}>Status</span>
+          <Pill label="Not Evaluated" active={activeStatuses.has("not_evaluated")} onClick={() => toggleStatus("not_evaluated")} color="#374151" />
+          <Pill label="Classified" active={activeStatuses.has("classified")} onClick={() => toggleStatus("classified")} color="#b45309" />
+          <Pill label="Methodology Built" active={activeStatuses.has("methodology_built")} onClick={() => toggleStatus("methodology_built")} color="#1d4ed8" />
+          <Pill label="Proven" active={activeStatuses.has("proven_status")} onClick={() => toggleStatus("proven_status")} color="#047857" />
+        </div>
+      </div>
+
+      {/* Search + count row */}
+      <div className="flex items-center gap-3 mb-3">
         <input
           type="text"
           placeholder="Search deliverables…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="text-sm px-3 py-1.5 rounded"
-          style={{
-            ...selectStyle,
-            width: 200,
-            fontSize: 13,
-          }}
+          style={{ ...selectStyle, width: 240 }}
         />
-        <select value={filterPractice} onChange={(e) => setFilterPractice(e.target.value)} style={selectStyle}>
-          <option value="">All Practice Areas</option>
-          {PRACTICE_AREAS.map((p) => <option key={p} value={p}>{p}</option>)}
-        </select>
-        <select value={filterClass} onChange={(e) => setFilterClass(e.target.value)} style={selectStyle}>
-          <option value="">All Classifications</option>
-          <option value="ai_led">AI-Led</option>
-          <option value="ai_assisted">AI-Assisted</option>
-          <option value="human_led">Human-Led</option>
-        </select>
-        <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} style={selectStyle}>
-          <option value="">All Statuses</option>
-          <option value="not_evaluated">Not Evaluated</option>
-          <option value="classified">Classified</option>
-          <option value="methodology_built">Methodology Built</option>
-          <option value="proven_status">Proven Status</option>
-        </select>
-        {(filterPractice || filterClass || filterStatus || search) && (
+        {hasFilters && (
           <button
-            onClick={() => { setFilterPractice(""); setFilterClass(""); setFilterStatus(""); setSearch(""); }}
-            className="text-xs px-2 py-1.5 rounded"
-            style={{ color: "var(--color-jda-text-muted)", background: "transparent", border: "none", cursor: "pointer" }}
+            onClick={() => { setActivePractices(new Set()); setActiveClasses(new Set()); setActiveStatuses(new Set()); setSearch(""); }}
+            className="text-xs px-3 py-1"
+            style={{ background: "transparent", border: "none", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
           >
-            Clear filters
+            Clear all
           </button>
         )}
         <span className="ml-auto text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-          {filtered.length} record{filtered.length !== 1 ? "s" : ""}
+          {filtered.length} of {records.length} records
         </span>
       </div>
 
-      {/* Records grouped by practice area */}
-      {loading ? (
-        <p className="text-sm py-8 text-center" style={{ color: "var(--color-jda-text-muted)" }}>Loading…</p>
-      ) : filtered.length === 0 ? (
-        <p className="text-sm py-8 text-center" style={{ color: "var(--color-jda-text-muted)" }}>No records match your filters.</p>
-      ) : (
-        <div className="space-y-2">
-          {Object.entries(byPractice).map(([area, items]) => {
-            const isExpanded = expandedPractice === area || !!filterPractice || !!search;
-            const areaProven = items.filter((r) => r.status === "proven_status").length;
-            const areaBuilt = items.filter((r) => r.status === "methodology_built").length;
+      {/* Table */}
+      <div
+        className="rounded-[10px] border overflow-hidden"
+        style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
+      >
+        {/* Column headers */}
+        <div
+          className="grid px-5 py-3 border-b"
+          style={{
+            gridTemplateColumns: "2.5fr 1.6fr 140px 160px 160px",
+            borderColor: "var(--color-jda-border)",
+            background: "rgba(255,255,255,0.02)",
+          }}
+        >
+          <SortHeader label="Deliverable" sortKey="deliverableName" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Practice Area" sortKey="practiceArea" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Classification" sortKey="aiClassification" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 11 }}>Methodology</span>
+        </div>
 
-            return (
-              <div
-                key={area}
-                className="rounded-[10px] border overflow-hidden"
-                style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
-              >
-                {/* Practice area header — clickable to expand/collapse */}
-                <button
-                  onClick={() => setExpandedPractice(isExpanded && expandedPractice === area ? null : area)}
-                  className="w-full flex items-center justify-between px-5 py-3.5 text-left"
-                  style={{ background: "transparent", border: "none", cursor: "pointer" }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className="text-sm font-bold" style={{ color: "var(--color-jda-cream)", fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}>
-                      {area}
-                    </span>
-                    <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                      {items.length} deliverable{items.length !== 1 ? "s" : ""}
-                    </span>
-                    {areaProven > 0 && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ color: "#34d399", background: "rgba(52,211,153,0.12)", fontFamily: "var(--font-display)" }}>
-                        {areaProven} proven
-                      </span>
-                    )}
-                    {areaBuilt > 0 && (
-                      <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ color: "#60a5fa", background: "rgba(59,130,246,0.12)", fontFamily: "var(--font-display)" }}>
-                        {areaBuilt} methodology built
-                      </span>
-                    )}
-                  </div>
-                  <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                    {isExpanded && expandedPractice === area ? "▲" : "▼"}
-                  </span>
-                </button>
-
-                {/* Deliverable rows */}
-                {(isExpanded) && (
-                  <div style={{ borderTop: "1px solid var(--color-jda-border)" }}>
-                    {/* Column headers */}
-                    <div
-                      className="grid px-5 py-2 text-xs font-semibold uppercase tracking-wider"
-                      style={{
-                        gridTemplateColumns: "1fr 140px 160px 160px",
-                        color: "var(--color-jda-text-muted)",
-                        fontFamily: "var(--font-display)",
-                        borderBottom: "1px solid var(--color-jda-border)",
-                      }}
-                    >
-                      <span>Deliverable</span>
-                      <span>Classification</span>
-                      <span>Status</span>
-                      <span>Methodology</span>
-                    </div>
-
-                    {items.map((r, i) => (
-                      <div
-                        key={r._id}
-                        className="grid items-center px-5 py-3"
-                        style={{
-                          gridTemplateColumns: "1fr 140px 160px 160px",
-                          borderTop: i === 0 ? "none" : "1px solid var(--color-jda-border)",
-                        }}
-                      >
-                        <div>
-                          <p className="text-sm" style={{ color: "var(--color-jda-cream)" }}>
-                            {r.deliverableName}
-                          </p>
-                          {(r.baselineProductionTime || r.aiNativeProductionTime) && (
-                            <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>
-                              {r.baselineProductionTime && `Legacy: ${r.baselineProductionTime}`}
-                              {r.baselineProductionTime && r.aiNativeProductionTime && " → "}
-                              {r.aiNativeProductionTime && `AI-native: ${r.aiNativeProductionTime}`}
-                            </p>
-                          )}
-                        </div>
-                        <div>
-                          <ClassBadge classification={r.aiClassification} />
-                        </div>
-                        <div>
-                          <StatusBadge status={r.status} />
-                        </div>
-                        <div>
-                          {r.linkedMethodology ? (
-                            <span className="text-xs" style={{ color: "#60a5fa" }}>
-                              {r.linkedMethodology.name}
-                            </span>
-                          ) : (
-                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>—</span>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+        {loading ? (
+          <p className="px-5 py-8 text-sm text-center" style={{ color: "var(--color-jda-text-muted)" }}>Loading…</p>
+        ) : filtered.length === 0 ? (
+          <p className="px-5 py-8 text-sm text-center" style={{ color: "var(--color-jda-text-muted)" }}>No records match.</p>
+        ) : (
+          filtered.map((r, i) => (
+            <div
+              key={r._id}
+              className="grid items-center px-5 py-3"
+              style={{
+                gridTemplateColumns: "2.5fr 1.6fr 140px 160px 160px",
+                borderTop: i === 0 ? "none" : "1px solid var(--color-jda-border)",
+              }}
+            >
+              <p className="text-sm pr-4" style={{ color: "var(--color-jda-cream)" }}>
+                {r.deliverableName}
+              </p>
+              <p className="text-xs pr-4" style={{ color: "var(--color-jda-text-muted)" }}>
+                {PRACTICE_SHORT[r.practiceArea] ?? r.practiceArea}
+              </p>
+              <div>
+                <ClassBadge classification={r.aiClassification} />
+              </div>
+              <div>
+                <StatusBadge status={r.status} />
+              </div>
+              <div>
+                {r.linkedMethodology ? (
+                  <span className="text-xs" style={{ color: "#60a5fa" }}>{r.linkedMethodology.name}</span>
+                ) : (
+                  <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>—</span>
                 )}
               </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          ))
+        )}
+      </div>
 
-      <p className="text-xs mt-4" style={{ color: "var(--color-jda-text-muted)" }}>
-        Records seed from Discovery Intensives and the initial KIRU deliverable inventory. To classify a record or link a methodology, open it in{" "}
-        <a href="/studio" style={{ color: "#60a5fa" }}>Sanity Studio</a>.
+      <p className="text-xs mt-3" style={{ color: "var(--color-jda-text-muted)" }}>
+        Records seed from Discovery Intensives. To classify a record or link a methodology, open it in{" "}
+        <a href="/studio" style={{ color: "#60a5fa" }}>Sanity Studio</a>.{" "}
+        Export CSV to share with leadership.
       </p>
     </div>
   );

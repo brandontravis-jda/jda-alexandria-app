@@ -1101,21 +1101,28 @@ function buildServer(auth: AuthResult): McpServer {
     async ({ intent }) => {
       logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_help", requestSummary: intent ?? "general help query", matchedCapability: null as unknown as boolean });
 
-      // Fetch platform guide, all templates, methodologies, and brand packages in parallel
-      const [guide, templates, methodologies, brandPackages] = await Promise.all([
+      // Fetch all live data in parallel
+      const [guide, templates, methodologies, brandPackages, capStats] = await Promise.all([
         sanity.fetch<{
           platformIntro?: string;
           canonicalEntryPrompts?: Array<{ label: string; prompt: string }>;
           examplePrompts?: Array<{ useCase: string; prompt: string }>;
         }>(`*[_id == "platformGuide"][0]{platformIntro, canonicalEntryPrompts, examplePrompts}`),
-        sanity.fetch<Array<{ title: string; slug: { current: string }; formatType?: string; useCases?: string; status?: string }>>(
-          `*[_type == "template" && status != "archived"] | order(title asc) { title, slug, formatType, useCases, status }`
+        sanity.fetch<Array<{ title: string; slug: { current: string }; formatType?: string; useCases?: string }>>(
+          `*[_type == "template" && status != "archived"] | order(title asc) { title, slug, formatType, useCases }`
         ),
         sanity.fetch<Array<{ name: string; slug: { current: string }; description?: string; practice?: { name: string }; aiClassification?: string }>>(
           `*[_type == "productionMethodology" && provenStatus != "archived"] | order(name asc) { name, slug, description, practice->{name}, aiClassification }`
         ),
         sanity.fetch<Array<{ clientName: string; slug: { current: string } }>>(
           `*[_type == "clientBrandPackage" && status != "archived"] | order(clientName asc) { clientName, slug }`
+        ),
+        sanity.fetch<{ total: number; methodology_built: number; proven_status: number }>(
+          `{
+            "total": count(*[_type == "capabilityRecord"]),
+            "methodology_built": count(*[_type == "capabilityRecord" && status == "methodology_built"]),
+            "proven_status": count(*[_type == "capabilityRecord" && status == "proven_status"])
+          }`
         ),
       ]);
 
@@ -1125,10 +1132,9 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`# Alexandria — Platform Inventory`);
       lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
 
-      // ── Permission-tier addendum (practice_leader + admin) — shown FIRST ──
-      // Must appear prominently so it is not dropped during Claude's reformat.
+      // ── Tier callout — shown prominently at top ───────────────────────────
       if (auth.tier === "practice_leader" || auth.tier === "admin") {
-        lines.push(`> **Your access tier: ${auth.tier}** — You have write access to brand packages and elevated methodology visibility. Tools available to you: \`alexandria_save_brand_package\`, \`alexandria_save_template\` (when available).\n`);
+        lines.push(`> **Your access tier: ${auth.tier}** — You have write access to brand packages and capability records, plus elevated methodology visibility.\n`);
       }
 
       // ── Methodologies ────────────────────────────────────────────────────
@@ -1177,6 +1183,41 @@ function buildServer(auth: AuthResult): McpServer {
         lines.push(brandPackages.map((b) => b.clientName).join(", "));
       }
 
+      // ── Capabilities Matrix ───────────────────────────────────────────────
+      lines.push(`\n---\n## Capabilities Matrix`);
+      lines.push(`${capStats?.total ?? 0} deliverable types tracked across all JDA practice areas — ${capStats?.methodology_built ?? 0} with methodologies built, ${capStats?.proven_status ?? 0} at Proven Status.`);
+      lines.push(`\nUse \`alexandria_list_capabilities\` to browse the full matrix by practice area, AI classification, or status.`);
+      lines.push(`Use \`alexandria_get_capability\` to get the AI assessment for a specific deliverable type.`);
+      lines.push(`If a practitioner asks about AI capability for a deliverable type and you can't find it, use \`alexandria_log_capability_gap\` to flag it for the next Discovery Intensive.`);
+
+      // ── Full tool inventory ───────────────────────────────────────────────
+      lines.push(`\n---\n## Available Tools`);
+      lines.push(`\n**Production — Templates**`);
+      lines.push(`- \`alexandria_list_templates\` — list active deliverable templates`);
+      lines.push(`- \`alexandria_get_template\` — start intake for a specific template (returns session_id + questions)`);
+      lines.push(`- \`alexandria_submit_intake\` — submit practitioner answers to complete intake`);
+      lines.push(`- \`alexandria_build_template\` — get production instructions after intake is complete`);
+      lines.push(`\n**Production — Methodologies**`);
+      lines.push(`- \`alexandria_list_methodologies\` — list active production methodologies`);
+      lines.push(`- \`alexandria_get_methodology\` — get full methodology instructions`);
+      lines.push(`\n**Brand Packages**`);
+      lines.push(`- \`alexandria_list_brand_packages\` — list all loaded client brand packages`);
+      lines.push(`- \`alexandria_get_brand_package\` — load colors, fonts, logos, voice for a specific client`);
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`- \`alexandria_save_brand_package\` *(${auth.tier})* — save or update a brand package`);
+      }
+      lines.push(`\n**Capabilities Matrix**`);
+      lines.push(`- \`alexandria_list_capabilities\` — browse deliverable types by practice area, classification, or status`);
+      lines.push(`- \`alexandria_get_capability\` — get the AI assessment for a specific deliverable type`);
+      lines.push(`- \`alexandria_log_capability_gap\` — flag an unrecognized deliverable type for the backlog`);
+      if (auth.tier === "practice_leader" || auth.tier === "admin") {
+        lines.push(`- \`alexandria_update_capability\` *(${auth.tier})* — update classification and capability assessment`);
+      }
+      lines.push(`\n**Discovery**`);
+      lines.push(`- \`alexandria_list_practice_areas\` — list JDA practice areas`);
+      lines.push(`- \`alexandria_list_deliverables\` — list deliverable classifications`);
+      lines.push(`- \`alexandria_whoami\` — check your connected identity and permission tier`);
+
       // ── How to start ──────────────────────────────────────────────────────
       lines.push(`\n---\n## How to Start a Job`);
       lines.push(`Use a short entry prompt — no client, no content in the opening line. Examples:\n`);
@@ -1195,6 +1236,7 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`- **Build a deliverable** — HTML, slideshow, or Word doc`);
       lines.push(`- **Run a methodology** — post-discovery brief, pre-discovery brief, brand extraction`);
       lines.push(`- **Load a brand package** — pull colors, fonts, logos for a specific client`);
+      lines.push(`- **Check AI capability** — ask what AI can do for a specific deliverable type`);
       lines.push(`- **Something else** — describe it and Alexandria will tell you if it has it`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };

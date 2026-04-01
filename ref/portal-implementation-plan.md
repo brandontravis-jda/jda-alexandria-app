@@ -273,17 +273,45 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 
 ---
 
-### Step 5: Workflow Guides + Practice Areas + Roles
+### Step 5: Permissions Infrastructure + Content Scoping — ✅ COMPLETE (shipped March 31, 2026)
 
-Add the remaining content types that complete the knowledge model. Needs practice leader alignment meetings before content can be authored.
+**Discovery:** `ref/step-5-discovery-and-plan-updates.md` — March 30, 2026. Original Step 5 placeholder (Workflow Guides + Practice Areas + Roles) was superseded. Workflow Guides deferred to Step 10.
 
-**Questions to resolve in discovery:**
-- What does a workflow guide look like for each practice?
-- How are practice areas and roles structured?
-- What does the MCP server return?
-- Is this content more useful in Claude Project system prompts than in MCP lookups?
+**What was built:** Decoupled auth from capabilities. Azure AD group membership now gates authentication only. Capabilities are managed by a platform permissions matrix independent of Azure.
 
-**Depends on:** Steps 2–4. Practice leader alignment meetings and discovery interviews.
+**Database:**
+- ✅ `roles` table — 6 system roles seeded: `practice_leader`, `practitioner`, `content_admin`, `developer` (empty), `project_manager` (empty), `account_exec` (empty)
+- ✅ `permissions` table — 49 permissions across 3 active roles, `resource:operation` format with scope (`all` / `own_practice` / `none`)
+- ✅ `user_roles` table — users assigned roles; additive, multiple roles per user supported
+- ✅ `portal_access`, `mcp_access` columns added to `users`
+- ✅ Existing users backfilled — `admin` tier → `content_admin` role, `practitioner` tier → `practitioner` role
+
+**MCP:**
+- ✅ `checkPermission()` resolver — request-scoped, queries `user_roles` + `permissions` tables, no cross-request caching
+- ✅ All hardcoded tier checks replaced — `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt`, write tools all gated via `checkPermission()`
+- ✅ Azure groups now gate auth only — `GROUP_OWNERS` + `GROUP_ADMINS` → `admin` auth tier, `GROUP_USERS` → `practitioner` auth tier. Tier no longer overwritten on subsequent logins.
+- ✅ Practice scoping on `alexandria_list_methodologies` and `alexandria_list_capabilities` — filters by `users.practice` when role scope is `own_practice`
+- ✅ `GroupMember.Read.All` confirmed in both `/authorize` redirect scope and token exchange
+
+**Portal:**
+- ✅ `/users` — role assignment UI replaces tier dropdown; `portal_access` toggle
+- ✅ `/roles` — list all roles, view/add/remove permissions per role, create/delete non-system roles
+- ✅ Roles API routes: `GET/POST /api/roles`, `PATCH/DELETE /api/roles/[id]`
+
+**Auth model (three Azure AD groups):**
+
+| Group | UUID | Auth tier granted |
+|---|---|---|
+| Alexandria-Owners | `cba99ef2-...` | `admin` — full platform control |
+| Alexandria-Admins | `c85b685b-...` | `admin` — portal admin, manage users/roles |
+| Alexandria-Users | `6864b47f-...` | `practitioner` — capabilities from matrix |
+
+**Validated:** OAuth popup working in Claude Desktop. `alexandria_whoami` returns correct tier. `checkPermission()` resolving correctly from DB. 2 users connected and authenticated.
+
+**Workflow Guides:** Deferred to Step 10. Requires Discovery Intensive input from practice leaders.
+**Practice Areas as content type:** Deferred to Step 10. Enum field on existing records is sufficient for now.
+
+**Depends on:** Steps 1–4 complete.
 
 ---
 

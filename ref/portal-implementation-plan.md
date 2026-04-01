@@ -342,11 +342,13 @@ This step was written before MCP was proven and before the platform had real con
 
 **Questions to resolve in discovery:**
 - What is the right Project structure — per-practice, per-client, or both?
-- What content belongs in a Project system prompt vs. MCP on-demand?
+- What content belongs in a Project system prompt vs. a Skill vs. MCP on-demand? (Three buckets now, not two — see Step 8.5)
 - What does a practitioner's day-one experience look like?
 - How do Projects get updated when platform content changes?
 - Who manages Projects — Brandon, practice leaders, or self-serve?
 - Does a "Setup Wizard" still make sense, or is Project setup simple enough to do manually?
+
+**Note:** Step 8.5 (Claude Skills Strategy) is a direct input to this discovery. The three-layer model (built-in / org-provisioned / personal) changes what needs to live in a Project system prompt. Content that can be delivered as an org skill doesn't need to be in the Project at all. Resolve Skills strategy before finalizing Project architecture.
 
 **Depends on:** Having enough content in Alexandria to actually test with. Steps 1–3 are sufficient to start this discovery.
 
@@ -369,6 +371,85 @@ Build the first standalone tool modules in the portal.
 - What's the file routing story — is n8n to Dropbox still the right path?
 
 **Depends on:** Specific tool requirements from practice activations. n8n setup for file routing tools.
+
+---
+
+### Step 8.5: Claude Skills Strategy
+
+**What this is:** A deliberate strategy for how JDA uses Claude's Skills feature across three layers — org-provisioned skills pushed to all practitioners, session-seeded skills practitioners can copy as personal skills, and personal skills practitioners build themselves. Alexandria is the most sophisticated expression of the Skills concept, but Skills and Alexandria are complementary, not redundant.
+
+**The three layers (from claude.com/skills):**
+
+| Layer | Who controls it | How it works |
+|---|---|---|
+| Built-in skills | Anthropic | Already active — Excel, PPTX, DOCX, PDF creation. This is what file generation runs on. No action needed. |
+| Org-provisioned skills | Brandon (admin) | Pushed to every practitioner at the org level. They are active automatically. No practitioner setup required. |
+| Personal skills | Individual practitioner | Built or copied by the practitioner. Only active in their own sessions. |
+
+**The practitioner framing for training:** A skill is a standing brief. Instead of re-explaining your formatting preferences, brand voice rules, or meeting note structure every conversation, you write it once and Claude applies it automatically whenever it's relevant. The same skill runs across Claude.ai, Claude Code, and the API without modification.
+
+---
+
+**Workstream 1: Org-provisioned skills (admin-managed)**
+
+These are skills Brandon pushes to all practitioners at the org level. Every practitioner gets them automatically.
+
+**Candidate org skills to develop:**
+- **JDA brand voice** — JDA's own tone, terminology, formatting preferences. Applied to all internal comms, proposals, and materials. Reduces the need to specify "write in JDA voice" every session.
+- **Meeting note structure** — JDA's preferred format for meeting summaries, action items, and follow-ups. Practitioners using Fireflies or manual notes get consistent output without prompting.
+- **Client brief format** — the standing structure for how JDA summarizes client context before a production run. Reduces the intake question burden.
+- **Quality gate reminders** — reminds Claude to surface Alexandria quality checklist items at handoff, even outside a formal methodology run.
+
+**How this fits Alexandria:** Org skills carry persistent behavioral instructions. Alexandria carries live content (brand packages, methodology instructions, templates). A practitioner running a post-discovery brief uses both: the org skill shapes how Claude writes and structures output; Alexandria provides the methodology, the client brand package, and the quality checklist. They don't overlap.
+
+**Portal surface (future):** A skills management page where Brandon can author, version, and publish org skills. For now, org skills are authored directly in Claude admin settings.
+
+---
+
+**Workstream 2: Session-seeded skills (Alexandria → practitioner)**
+
+This is the mechanism for Alexandria to surface a skill definition into a chat session so the practitioner can copy it to their personal skills library with one click. It does not require org-level provisioning — it works at the individual session level.
+
+**How it works:**
+1. Practitioner asks Alexandria for a skill — e.g. "Give me a skill for running client discovery sessions"
+2. Alexandria returns a formatted skill definition (name, description, instruction block) designed to be copied directly into Claude's personal skills
+3. Claude surfaces the "Add to my skills" option in the chat UI
+4. Practitioner clicks it — skill is saved to their personal library and active in all future sessions
+
+**MCP tool: `alexandria_get_skill`**
+
+Inputs:
+- `skill_type` — what kind of skill the practitioner wants (e.g. `brand_voice`, `meeting_notes`, `client_brief`, `discovery_session`)
+- `practice` — optional practice area scoping (returns a practice-specific variant if one exists)
+
+Returns:
+- `skill_name` — what to name the skill
+- `skill_description` — one-line description shown in the skills list
+- `skill_instructions` — the full instruction block Claude will apply automatically
+- `copy_prompt` — a formatted block the practitioner can paste directly into the "Add skill" flow
+
+**Sanity content type: `alexandriaSkill`**
+Skills are authored in Sanity and retrieved live, same pattern as methodologies and templates. Fields: `name`, `slug`, `description`, `practiceArea`, `instructionBlock`, `isOrgCandidate` (flag for skills Brandon may want to promote to org-provisioned).
+
+**Practitioner experience:** No configuration required. They ask Alexandria for a skill, get a ready-to-copy definition, and add it in one click. The skill is then active in all their future sessions without them ever opening a settings page.
+
+---
+
+**Workstream 3: Personal skills (practitioner-built)**
+
+Not managed by Alexandria — practitioners build these themselves. The training message: you can build skills for anything that doesn't exist in Alexandria yet. A practitioner who runs a specific type of client workshop can skill-ify their own prep process. Personal skills are private and not logged.
+
+**Training material to develop (not a code task):** A short guide on what makes a good personal skill, with 3–4 JDA-specific examples. Include in the practitioner onboarding materials developed in Step 7.
+
+---
+
+**Open questions for discovery:**
+- Which org skills have the highest immediate value — JDA brand voice or meeting notes structure?
+- Should Alexandria surface skill definitions proactively (e.g. after a methodology run: "Want a skill for this?") or only on explicit request?
+- Is there a meaningful difference between a "practice skill" (scoped to a practice area) and an "org skill" pushed to everyone? Who decides which is which?
+- How do org skills stay current when JDA's brand or processes evolve? Does the portal need a versioning/republish flow?
+
+**Depends on:** Step 7 (Claude Project Architecture discovery — understanding what belongs in a Project vs. a Skill vs. MCP). Can begin Workstream 1 (org skill authoring) immediately without code. Workstream 2 (`alexandria_get_skill` tool) can be built in parallel with or after Step 7.
 
 ---
 

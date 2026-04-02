@@ -137,6 +137,12 @@ export async function migrate() {
     SELECT 1, r.id FROM roles r WHERE r.slug = 'practitioner'
     ON CONFLICT (id) DO NOTHING
   `;
+
+  // Owners and admins always have portal_access — backfill existing rows
+  await db`
+    UPDATE users SET portal_access = TRUE
+    WHERE account_type IN ('owner', 'admin') AND portal_access = FALSE
+  `;
 }
 
 export async function upsertUser({
@@ -153,18 +159,24 @@ export async function upsertUser({
   const isFirstUser = !ownerCheck;
 
   const [user] = await db`
-    INSERT INTO users (object_id, email, name, account_type, last_seen_at)
+    INSERT INTO users (object_id, email, name, account_type, portal_access, last_seen_at)
     VALUES (
       ${objectId},
       ${email ?? null},
       ${name ?? null},
       ${isFirstUser ? "owner" : "user"},
+      ${isFirstUser},
       NOW()
     )
     ON CONFLICT (object_id) DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
-      last_seen_at = NOW()
+      last_seen_at = NOW(),
+      -- Owners and admins always get portal access reinstated on login
+      portal_access = CASE
+        WHEN users.account_type IN ('owner', 'admin') THEN TRUE
+        ELSE users.portal_access
+      END
     RETURNING *
   `;
 

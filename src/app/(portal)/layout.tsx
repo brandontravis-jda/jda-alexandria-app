@@ -1,5 +1,6 @@
 import { auth } from "@/lib/auth";
 import { Topbar } from "@/components/portal/Topbar";
+import DebugBanner from "@/components/ui/DebugBanner";
 
 function getInitials(name?: string | null): string {
   if (!name) return "?";
@@ -22,6 +23,7 @@ export default async function PortalLayout({
 
   return (
     <div className="min-h-screen" style={{ background: "var(--color-jda-bg)" }}>
+      <DebugBanner />
       <Topbar userName={userName} userInitials={userInitials} />
       <main id="main-content" className="p-7">
         {children}

@@ -1,6 +1,16 @@
 import { signInWithMicrosoft } from "./actions";
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string }>;
+}) {
+  const { error } = await searchParams;
+  const errorMessage = error
+    ? error === "AccessDenied"
+      ? "Your Microsoft account is not authorized to access Alexandria. Contact your administrator."
+      : "Sign-in failed. Please try again."
+    : null;
   return (
     <div style={{
       minHeight: "100vh",
@@ -75,13 +85,29 @@ export default function SignInPage() {
         <p style={{
           fontSize: "14px",
           color: "var(--color-jda-warm-gray)",
-          marginBottom: "32px",
+          marginBottom: errorMessage ? "16px" : "32px",
           fontFamily: "var(--font-body)",
           textTransform: "none",
           letterSpacing: 0,
         }}>
           Access is restricted to JDA staff.
         </p>
+
+        {errorMessage && (
+          <div style={{
+            background: "rgba(239,68,68,0.1)",
+            border: "1px solid rgba(239,68,68,0.3)",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            marginBottom: "24px",
+            fontSize: "13px",
+            color: "#f87171",
+            fontFamily: "var(--font-body)",
+            lineHeight: 1.5,
+          }}>
+            {errorMessage}
+          </div>
+        )}
 
         <form action={signInWithMicrosoft}>
           <button type="submit" style={{

@@ -48,15 +48,20 @@ const sql = postgres(DATABASE_URL, { ssl: isLocal ? false : "require" });
 async function migrate() {
   await sql`
     CREATE TABLE IF NOT EXISTS oauth_sessions (
-      id          SERIAL PRIMARY KEY,
-      token       TEXT NOT NULL UNIQUE,
-      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      expires_at  TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days',
-      last_used_at TIMESTAMPTZ
+      id            SERIAL PRIMARY KEY,
+      token         TEXT NOT NULL UNIQUE,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at    TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '90 days',
+      last_used_at  TIMESTAMPTZ,
+      debug_role_id UUID REFERENCES roles(id) ON DELETE SET NULL
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS oauth_sessions_token_idx ON oauth_sessions(token)`;
+  // Add debug_role_id to existing installations
+  await sql`
+    ALTER TABLE oauth_sessions ADD COLUMN IF NOT EXISTS debug_role_id UUID REFERENCES roles(id) ON DELETE SET NULL
+  `;
 
   await sql`
     CREATE TABLE IF NOT EXISTS intake_sessions (
@@ -295,51 +300,72 @@ interface ResolvedPermission {
   scope: PermissionScope;
 }
 
-function makePermissionResolver(userId: number) {
+function makePermissionResolver(auth: AuthResult) {
+  const { userId, accountType, debugRoleId } = auth;
   const cache = new Map<string, ResolvedPermission>();
 
   return async function checkPermission(action: string): Promise<ResolvedPermission> {
     if (cache.has(action)) return cache.get(action)!;
 
-    // Step 1: collect role-granted permissions (best scope wins across multiple roles)
-    const roleRows = await sql<{ scope: string }[]>`
-      SELECT rp.scope
-      FROM user_roles ur
-      JOIN role_permissions rp ON rp.role_id = ur.role_id
-      WHERE ur.user_id = ${userId}
-        AND rp.action = ${action}
-    `;
-
-    // Step 2: get user-level override (grant or deny)
-    const [override] = await sql<{ type: string; scope: string }[]>`
-      SELECT type, scope
-      FROM user_permissions
-      WHERE user_id = ${userId}
-        AND action = ${action}
-      LIMIT 1
-    `;
+    // Owners get all permissions unconditionally — unless they are in debug mode
+    // (debug mode lets them impersonate a role to test its permission set).
+    if (accountType === "owner" && !debugRoleId) {
+      const result: ResolvedPermission = { allowed: true, scope: "all" };
+      cache.set(action, result);
+      return result;
+    }
 
     let result: ResolvedPermission;
 
-    if (override) {
-      if (override.type === "deny") {
-        result = { allowed: false, scope: "none" };
-      } else {
-        // grant — use the override scope
-        result = { allowed: true, scope: override.scope as PermissionScope };
-      }
-    } else if (roleRows.length > 0) {
-      // Pick the most permissive scope across all roles: all > own_practice > none
-      const scopeRank: Record<string, number> = { all: 2, own_practice: 1, none: 0 };
-      const best = roleRows.reduce((a, b) =>
-        (scopeRank[b.scope] ?? 0) > (scopeRank[a.scope] ?? 0) ? b : a
-      );
-      result = {
-        allowed: best.scope !== "none",
-        scope: best.scope as PermissionScope,
-      };
+    if (debugRoleId) {
+      // Debug mode: resolve permissions for the chosen debug role only, ignoring the user's
+      // own roles and any user-level overrides. This gives a clean impersonation.
+      const [row] = await sql<{ scope: string }[]>`
+        SELECT scope FROM role_permissions
+        WHERE role_id = ${debugRoleId} AND action = ${action}
+        LIMIT 1
+      `;
+      result = row
+        ? { allowed: row.scope !== "none", scope: row.scope as PermissionScope }
+        : { allowed: false, scope: "none" };
     } else {
-      result = { allowed: false, scope: "none" };
+      // Normal resolution:
+      // Step 1: collect role-granted permissions (best scope wins across multiple roles)
+      const roleRows = await sql<{ scope: string }[]>`
+        SELECT rp.scope
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        WHERE ur.user_id = ${userId}
+          AND rp.action = ${action}
+      `;
+
+      // Step 2: get user-level override (grant or deny)
+      const [override] = await sql<{ type: string; scope: string }[]>`
+        SELECT type, scope
+        FROM user_permissions
+        WHERE user_id = ${userId}
+          AND action = ${action}
+        LIMIT 1
+      `;
+
+      if (override) {
+        if (override.type === "deny") {
+          result = { allowed: false, scope: "none" };
+        } else {
+          result = { allowed: true, scope: override.scope as PermissionScope };
+        }
+      } else if (roleRows.length > 0) {
+        const scopeRank: Record<string, number> = { all: 2, own_practice: 1, none: 0 };
+        const best = roleRows.reduce((a, b) =>
+          (scopeRank[b.scope] ?? 0) > (scopeRank[a.scope] ?? 0) ? b : a
+        );
+        result = {
+          allowed: best.scope !== "none",
+          scope: best.scope as PermissionScope,
+        };
+      } else {
+        result = { allowed: false, scope: "none" };
+      }
     }
 
     cache.set(action, result);
@@ -363,6 +389,8 @@ interface AuthResult {
   userId: number;
   accountType: "owner" | "admin" | "user";
   practice: string | null;
+  sessionId: number | null;
+  debugRoleId: string | null;
 }
 
 async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
@@ -381,12 +409,14 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
     practice: row.practice as string | null,
+    sessionId: null,
+    debugRoleId: null,
   };
 }
 
 async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   const [row] = await sql`
-    SELECT s.id AS session_id, u.id AS user_id, u.account_type, u.practice
+    SELECT s.id AS session_id, s.debug_role_id, u.id AS user_id, u.account_type, u.practice
     FROM oauth_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ${token}
@@ -400,6 +430,8 @@ async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
     practice: row.practice as string | null,
+    sessionId: row.session_id as number,
+    debugRoleId: (row.debug_role_id as string | null) ?? null,
   };
 }
 
@@ -560,7 +592,7 @@ function buildServer(auth: AuthResult): McpServer {
     version: "0.2.0",
   });
 
-  const checkPermission = makePermissionResolver(auth.userId);
+  const checkPermission = makePermissionResolver(auth);
 
   // ── alexandria_list_methodologies ─────────────────────────────────────────
   server.tool(
@@ -1875,62 +1907,149 @@ function buildServer(auth: AuthResult): McpServer {
       const [user] = await sql`SELECT name, email, account_type, practice FROM users WHERE id = ${auth.userId}`;
       if (!user) return { content: [{ type: "text", text: "User not found." }], isError: true };
 
-      const roles = await sql`
-        SELECT r.display_name, r.slug
-        FROM user_roles ur
-        JOIN roles r ON r.id = ur.role_id
-        WHERE ur.user_id = ${auth.userId}
-        ORDER BY r.display_name
-      `;
-
-      const rolePermissions = await sql`
-        SELECT rp.action, rp.scope, r.display_name AS role_name
-        FROM user_roles ur
-        JOIN role_permissions rp ON rp.role_id = ur.role_id
-        JOIN roles r ON r.id = ur.role_id
-        WHERE ur.user_id = ${auth.userId}
-        ORDER BY rp.action
-      `;
-
-      const userPerms = await sql`
-        SELECT action, type, scope
-        FROM user_permissions
-        WHERE user_id = ${auth.userId}
-        ORDER BY action
-      `;
-
       const lines: string[] = [];
       lines.push(`Name: ${user.name ?? "—"}`);
       lines.push(`Email: ${user.email ?? "—"}`);
       lines.push(`Account type: ${user.account_type}`);
       lines.push(`Practice: ${user.practice ?? "All"}`);
 
-      if (roles.length > 0) {
-        lines.push(`\nRoles: ${roles.map((r: Record<string, unknown>) => r.display_name).join(", ")}`);
-      } else {
-        lines.push("\nRoles: None assigned");
-      }
+      if (auth.debugRoleId) {
+        const [debugRole] = await sql`SELECT display_name FROM roles WHERE id = ${auth.debugRoleId}`;
+        lines.push(`\n⚠️  DEBUG MODE ACTIVE — impersonating role: ${debugRole?.display_name ?? auth.debugRoleId}`);
+        lines.push(`   Owner bypass is suspended. Permissions reflect the debug role only.`);
+        lines.push(`   Use \`alexandria_debug_exit\` to return to full owner access.`);
 
-      if (rolePermissions.length > 0) {
-        lines.push("\nRole permissions:");
-        for (const p of rolePermissions as unknown as Array<{ action: string; scope: string; role_name: string }>) {
-          lines.push(`  ${p.action} [${p.scope}] — via ${p.role_name}`);
+        const debugPerms = await sql`
+          SELECT action, scope FROM role_permissions WHERE role_id = ${auth.debugRoleId} ORDER BY action
+        `;
+        if (debugPerms.length > 0) {
+          lines.push("\nDebug role permissions:");
+          for (const p of debugPerms as unknown as Array<{ action: string; scope: string }>) {
+            lines.push(`  ${p.action} [${p.scope}]`);
+          }
+        } else {
+          lines.push("\nDebug role has no permissions.");
+        }
+      } else {
+        const roles = await sql`
+          SELECT r.display_name, r.slug
+          FROM user_roles ur
+          JOIN roles r ON r.id = ur.role_id
+          WHERE ur.user_id = ${auth.userId}
+          ORDER BY r.display_name
+        `;
+
+        const rolePermissions = await sql`
+          SELECT rp.action, rp.scope, r.display_name AS role_name
+          FROM user_roles ur
+          JOIN role_permissions rp ON rp.role_id = ur.role_id
+          JOIN roles r ON r.id = ur.role_id
+          WHERE ur.user_id = ${auth.userId}
+          ORDER BY rp.action
+        `;
+
+        const userPerms = await sql`
+          SELECT action, type, scope
+          FROM user_permissions
+          WHERE user_id = ${auth.userId}
+          ORDER BY action
+        `;
+
+        if (auth.accountType === "owner") {
+          lines.push("\nOwner — all permissions granted automatically (no debug mode active).");
+        }
+
+        if (roles.length > 0) {
+          lines.push(`\nRoles: ${roles.map((r: Record<string, unknown>) => r.display_name).join(", ")}`);
+        } else {
+          lines.push("\nRoles: None assigned");
+        }
+
+        if (rolePermissions.length > 0) {
+          lines.push("\nRole permissions:");
+          for (const p of rolePermissions as unknown as Array<{ action: string; scope: string; role_name: string }>) {
+            lines.push(`  ${p.action} [${p.scope}] — via ${p.role_name}`);
+          }
+        }
+
+        const grants = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "grant");
+        const denials = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "deny");
+
+        if (grants.length > 0) {
+          lines.push("\nCustom grants:");
+          for (const g of grants) lines.push(`  + ${g.action} [${g.scope}]`);
+        }
+        if (denials.length > 0) {
+          lines.push("\nDenials:");
+          for (const d of denials) lines.push(`  - ${d.action}`);
         }
       }
 
-      const grants = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "grant");
-      const denials = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "deny");
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
 
-      if (grants.length > 0) {
-        lines.push("\nCustom grants:");
-        for (const g of grants) lines.push(`  + ${g.action} [${g.scope}]`);
+  // ── alexandria_debug_as_role ───────────────────────────────────────────────
+  // Owner-only. Sets a debug role on the current OAuth session. While active,
+  // checkPermission resolves as if the owner were a member of only that role.
+  // Cleared automatically on next login. Use alexandria_debug_exit to clear now.
+  server.tool(
+    "alexandria_debug_as_role",
+    "Owner only. Enter debug mode by impersonating a specific role. While active, your permissions in Alexandria will be evaluated as if you only had the permissions of that role — your owner bypass is suspended. This resets automatically when you log in again. Use alexandria_debug_exit to exit immediately.",
+    {
+      role_id: z.string().uuid().describe("UUID of the role to impersonate"),
+    },
+    async ({ role_id }) => {
+      if (auth.accountType !== "owner") {
+        return { content: [{ type: "text", text: "Access denied. Debug mode is only available to owners." }], isError: true };
       }
-      if (denials.length > 0) {
-        lines.push("\nDenials:");
-        for (const d of denials) lines.push(`  - ${d.action}`);
+      if (!auth.sessionId) {
+        return { content: [{ type: "text", text: "Debug mode requires an OAuth session (not an API key). Sign in via the Claude connector." }], isError: true };
       }
+
+      const [role] = await sql`SELECT id, display_name FROM roles WHERE id = ${role_id}`;
+      if (!role) {
+        return { content: [{ type: "text", text: `Role not found: ${role_id}` }], isError: true };
+      }
+
+      await sql`UPDATE oauth_sessions SET debug_role_id = ${role_id} WHERE id = ${auth.sessionId}`;
+
+      const perms = await sql`SELECT action, scope FROM role_permissions WHERE role_id = ${role_id} ORDER BY action`;
+      const permLines = (perms as unknown as Array<{ action: string; scope: string }>)
+        .map(p => `  ${p.action} [${p.scope}]`);
+
+      const lines = [
+        `✓ Debug mode active — now impersonating: ${role.display_name as string}`,
+        ``,
+        `Your owner bypass is suspended for this session. Permissions are now:`,
+        ...(permLines.length > 0 ? permLines : ["  (no permissions — this role has none)"]),
+        ``,
+        `Run \`alexandria_whoami\` to confirm. Use \`alexandria_debug_exit\` to return to full owner access.`,
+      ];
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_debug_exit ──────────────────────────────────────────────────
+  server.tool(
+    "alexandria_debug_exit",
+    "Owner only. Exit debug mode and restore full owner permissions immediately.",
+    {},
+    async () => {
+      if (auth.accountType !== "owner") {
+        return { content: [{ type: "text", text: "Access denied." }], isError: true };
+      }
+      if (!auth.sessionId) {
+        return { content: [{ type: "text", text: "No active OAuth session to clear." }], isError: true };
+      }
+      if (!auth.debugRoleId) {
+        return { content: [{ type: "text", text: "Debug mode is not currently active." }] };
+      }
+
+      await sql`UPDATE oauth_sessions SET debug_role_id = NULL WHERE id = ${auth.sessionId}`;
+
+      return { content: [{ type: "text", text: "✓ Debug mode cleared. You now have full owner permissions." }] };
     }
   );
 

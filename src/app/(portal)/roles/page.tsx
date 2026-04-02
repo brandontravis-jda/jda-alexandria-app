@@ -34,6 +34,7 @@ const SCOPE_COLORS: Record<string, { bg: string; text: string }> = {
 export default function RolesPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
+  const [allActions, setAllActions] = useState<string[]>([]);
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
 
@@ -57,10 +58,17 @@ export default function RolesPage() {
   const [creating, setCreating] = useState(false);
 
   async function loadRoles() {
-    const res = await fetch("/api/roles");
-    if (res.ok) {
-      const data = await res.json();
+    const [rolesRes, usersRes] = await Promise.all([
+      fetch("/api/roles"),
+      fetch("/api/users"),
+    ]);
+    if (rolesRes.ok) {
+      const data = await rolesRes.json();
       setRoles(data.roles ?? []);
+    }
+    if (usersRes.ok) {
+      const data = await usersRes.json();
+      setAllActions(data.allActions ?? []);
     }
     setLoading(false);
   }
@@ -353,12 +361,18 @@ export default function RolesPage() {
                     {/* Add permission */}
                     {isAddingPerms ? (
                       <div className="flex gap-2 flex-wrap items-center mt-2">
+                        <datalist id={`actions-list-${role.id}`}>
+                          {allActions
+                            .filter(a => !role.permissions.some(p => p.action === a))
+                            .map(a => <option key={a} value={a} />)}
+                        </datalist>
                         <input
                           autoFocus
+                          list={`actions-list-${role.id}`}
                           value={addAction}
                           onChange={(e) => setAddAction(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") addPermission(role.id); if (e.key === "Escape") { setAddingFor(null); setAddAction(""); } }}
-                          placeholder="action (e.g. methodology:read)"
+                          placeholder="Pick or type an action…"
                           className="text-xs px-2 py-1.5 rounded font-mono flex-1"
                           style={{ background: "var(--color-jda-bg)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text)", outline: "none", minWidth: 220 }}
                         />

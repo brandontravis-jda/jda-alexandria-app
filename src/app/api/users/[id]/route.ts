@@ -59,9 +59,21 @@ export async function PATCH(
   // Build SET clause for user fields
   const updates: Record<string, unknown> = {};
   if (practice !== undefined) updates.practice = practice ?? null;
-  if (portal_access !== undefined) updates.portal_access = portal_access;
   if (mcp_access !== undefined) updates.mcp_access = mcp_access;
   if (account_type !== undefined) updates.account_type = account_type;
+
+  // Admins always have portal access — silently ignore attempts to revoke it.
+  // If this PATCH promotes someone to admin, grant portal access automatically.
+  const effectiveAccountType = account_type ?? (target.account_type as string);
+  if (portal_access !== undefined) {
+    if (!portal_access && ["admin"].includes(effectiveAccountType)) {
+      // Silently ignore — admins must keep portal access
+    } else {
+      updates.portal_access = portal_access;
+    }
+  }
+  // When promoting to admin, always grant portal access
+  if (account_type === "admin") updates.portal_access = true;
 
   let updated: Record<string, unknown> | null = null;
 

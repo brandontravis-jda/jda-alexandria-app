@@ -308,14 +308,40 @@ export default function UsersPage() {
                     </button>
                   </div>
 
-                  {/* Account type badge */}
+                  {/* Account type badge — clickable to promote/demote if current user is owner/admin and target is not owner */}
                   <div>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                      style={{ background: acctBadge.bg, color: acctBadge.text, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
-                    >
-                      {acctBadge.label}
-                    </span>
+                    {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" ? (
+                      <select
+                        value={user.account_type}
+                        disabled={isSaving}
+                        onChange={(e) => patch(user.id, { account_type: e.target.value })}
+                        style={{
+                          background: acctBadge.bg,
+                          color: acctBadge.text,
+                          border: "none",
+                          borderRadius: 99,
+                          padding: "2px 8px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          fontFamily: "var(--font-display)",
+                          letterSpacing: "0.04em",
+                          cursor: "pointer",
+                          outline: "none",
+                          appearance: "none",
+                          WebkitAppearance: "none",
+                        }}
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
+                    ) : (
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ background: acctBadge.bg, color: acctBadge.text, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
+                      >
+                        {acctBadge.label}
+                      </span>
+                    )}
                   </div>
 
                   {/* Roles */}

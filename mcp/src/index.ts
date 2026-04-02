@@ -2003,16 +2003,18 @@ function buildServer(auth: AuthResult): McpServer {
       if (auth.accountType !== "owner") {
         return { content: [{ type: "text", text: "Access denied. Debug mode is only available to owners." }], isError: true };
       }
-      if (!auth.sessionId) {
-        return { content: [{ type: "text", text: "Debug mode requires an OAuth session (not an API key). Sign in via the Claude connector." }], isError: true };
-      }
 
       const [role] = await sql`SELECT id, display_name FROM roles WHERE id = ${role_id}`;
       if (!role) {
         return { content: [{ type: "text", text: `Role not found: ${role_id}` }], isError: true };
       }
 
-      await sql`UPDATE oauth_sessions SET debug_role_id = ${role_id} WHERE id = ${auth.sessionId}`;
+      // Update ALL active sessions for this user so portal and Claude stay in sync
+      // regardless of whether this request came in via OAuth session or API key.
+      await sql`
+        UPDATE oauth_sessions SET debug_role_id = ${role_id}
+        WHERE user_id = ${auth.userId} AND expires_at > NOW()
+      `;
 
       const perms = await sql`SELECT action, scope FROM role_permissions WHERE role_id = ${role_id} ORDER BY action`;
       const permLines = (perms as unknown as Array<{ action: string; scope: string }>)
@@ -2040,14 +2042,18 @@ function buildServer(auth: AuthResult): McpServer {
       if (auth.accountType !== "owner") {
         return { content: [{ type: "text", text: "Access denied." }], isError: true };
       }
-      if (!auth.sessionId) {
-        return { content: [{ type: "text", text: "No active OAuth session to clear." }], isError: true };
-      }
-      if (!auth.debugRoleId) {
+
+      // Clear debug_role_id on ALL active sessions for this user — not just the
+      // current request's session. This handles the case where debug was activated
+      // via OAuth but the current request is coming in via API key (or vice versa).
+      const result = await sql`
+        UPDATE oauth_sessions SET debug_role_id = NULL
+        WHERE user_id = ${auth.userId} AND expires_at > NOW() AND debug_role_id IS NOT NULL
+      `;
+
+      if (result.count === 0) {
         return { content: [{ type: "text", text: "Debug mode is not currently active." }] };
       }
-
-      await sql`UPDATE oauth_sessions SET debug_role_id = NULL WHERE id = ${auth.sessionId}`;
 
       return { content: [{ type: "text", text: "✓ Debug mode cleared. You now have full owner permissions." }] };
     }

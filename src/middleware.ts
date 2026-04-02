@@ -1,27 +1,23 @@
 import { auth } from "@/lib/auth";
 import { NextResponse } from "next/server";
-import type { NextRequest } from "next/server";
 
-// Paths that are always public (no auth required)
-const PUBLIC_PATHS = ["/sign-in", "/api/auth"];
-
-export default auth(function middleware(req: NextRequest & { auth: unknown }) {
+export default auth((req) => {
   const { pathname } = req.nextUrl;
 
-  // Allow public paths and Next.js internals through
-  if (
-    PUBLIC_PATHS.some((p) => pathname.startsWith(p)) ||
+  // Always allow: auth routes, sign-in page, static assets, Sanity Studio
+  const isPublic =
+    pathname.startsWith("/sign-in") ||
+    pathname.startsWith("/api/auth") ||
+    pathname.startsWith("/studio") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon")
-  ) {
-    return NextResponse.next();
-  }
+    pathname.startsWith("/favicon");
 
-  // If no session, redirect to sign-in
+  if (isPublic) return NextResponse.next();
+
+  // Redirect unauthenticated users to sign-in
   if (!req.auth) {
-    const signInUrl = req.nextUrl.clone();
-    signInUrl.pathname = "/sign-in";
-    signInUrl.search = "";
+    const signInUrl = new URL("/sign-in", req.url);
+    signInUrl.searchParams.set("callbackUrl", pathname);
     return NextResponse.redirect(signInUrl);
   }
 
@@ -29,6 +25,7 @@ export default auth(function middleware(req: NextRequest & { auth: unknown }) {
 });
 
 export const config = {
-  // Run on all routes except static files
-  matcher: ["/((?!_next/static|_next/image|favicon.ico).*)"],
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
 };

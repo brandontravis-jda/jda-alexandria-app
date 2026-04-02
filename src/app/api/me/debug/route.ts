@@ -37,6 +37,31 @@ export async function GET() {
   });
 }
 
+// POST /api/me/debug — activate debug mode with a specific role on all active sessions
+export async function POST(request: Request) {
+  const session = await auth();
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const user = await getUserByObjectId(session.user.id);
+  if (!user || user.account_type !== "owner") {
+    return NextResponse.json({ error: "Forbidden — only owners can use debug mode" }, { status: 403 });
+  }
+
+  const body = await request.json().catch(() => ({}));
+  const { role_id } = body as { role_id?: string };
+  if (!role_id) return NextResponse.json({ error: "role_id is required" }, { status: 400 });
+
+  const [role] = await db`SELECT id, display_name FROM roles WHERE id = ${role_id}`;
+  if (!role) return NextResponse.json({ error: "Role not found" }, { status: 404 });
+
+  await db`
+    UPDATE oauth_sessions SET debug_role_id = ${role_id}
+    WHERE user_id = ${user.id as number} AND expires_at > NOW()
+  `;
+
+  return NextResponse.json({ debug_role: { id: role.id, name: role.display_name, slug: null } });
+}
+
 // DELETE /api/me/debug — clear debug mode on all active sessions for this user
 export async function DELETE() {
   const session = await auth();

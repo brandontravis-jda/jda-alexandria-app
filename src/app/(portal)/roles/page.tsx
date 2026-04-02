@@ -19,29 +19,12 @@ interface Role {
   permissions: Permission[];
 }
 
-const SCOPE_LABELS: Record<string, string> = {
-  all: "All",
-  own_practice: "Own Practice",
-  none: "None",
-};
-
-const SCOPE_COLORS: Record<string, { bg: string; text: string }> = {
-  all: { bg: "rgba(34,197,94,0.12)", text: "#4ade80" },
-  own_practice: { bg: "rgba(59,130,246,0.12)", text: "#60a5fa" },
-  none: { bg: "rgba(255,255,255,0.06)", text: "var(--color-jda-text-muted)" },
-};
-
 export default function RolesPage() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [loading, setLoading] = useState(true);
   const [allActions, setAllActions] = useState<string[]>([]);
   const [expandedRole, setExpandedRole] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
-
-  // Add permission form state
-  const [addAction, setAddAction] = useState("");
-  const [addScope, setAddScope] = useState<"own_practice" | "all" | "none">("own_practice");
-  const [addingFor, setAddingFor] = useState<string | null>(null);
 
   // Rename state
   const [renamingRole, setRenamingRole] = useState<string | null>(null);
@@ -75,33 +58,35 @@ export default function RolesPage() {
 
   useEffect(() => { loadRoles(); }, []);
 
-  async function addPermission(roleId: string) {
-    if (!addAction.trim()) return;
+  async function setPermission(roleId: string, action: string, scope: "all" | "own_practice" | null) {
     setSaving(roleId);
-    const res = await fetch(`/api/roles/${roleId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ add_permission: { action: addAction.trim(), scope: addScope } }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setRoles((prev) => prev.map((r) => r.id === roleId ? { ...r, permissions: data.permissions } : r));
-      setAddAction("");
-      setAddingFor(null);
-    }
-    setSaving(null);
-  }
+    const role = roles.find((r) => r.id === roleId);
+    const existing = role?.permissions.find((p) => p.action === action);
 
-  async function removePermission(roleId: string, permId: string) {
-    setSaving(roleId);
-    const res = await fetch(`/api/roles/${roleId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ remove_permission_id: permId }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      setRoles((prev) => prev.map((r) => r.id === roleId ? { ...r, permissions: data.permissions } : r));
+    if (scope === null) {
+      // Remove — but only if it exists
+      if (existing) {
+        const res = await fetch(`/api/roles/${roleId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remove_permission_id: existing.id }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setRoles((prev) => prev.map((r) => r.id === roleId ? { ...r, permissions: data.permissions } : r));
+        }
+      }
+    } else {
+      // Add or update scope
+      const res = await fetch(`/api/roles/${roleId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ add_permission: { action, scope } }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setRoles((prev) => prev.map((r) => r.id === roleId ? { ...r, permissions: data.permissions } : r));
+      }
     }
     setSaving(null);
   }
@@ -226,7 +211,10 @@ export default function RolesPage() {
           {roles.map((role) => {
             const isExpanded = expandedRole === role.id;
             const isSaving = saving === role.id;
-            const isAddingPerms = addingFor === role.id;
+            // All known actions — for the grid
+            const gridActions = allActions.length > 0
+              ? allActions
+              : [...new Set(roles.flatMap((r) => r.permissions.map((p) => p.action)))].sort();
 
             return (
               <div
@@ -275,25 +263,23 @@ export default function RolesPage() {
                     className="flex items-center justify-between px-5 py-4 cursor-pointer"
                     onClick={() => setExpandedRole(isExpanded ? null : role.id)}
                   >
-                    <div className="flex items-center gap-3">
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold" style={{ color: "var(--color-jda-cream)" }}>
-                            {role.display_name}
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-semibold" style={{ color: "var(--color-jda-cream)" }}>
+                          {role.display_name}
+                        </span>
+                        {role.is_system && (
+                          <span
+                            className="text-xs px-1.5 py-0.5 rounded"
+                            style={{ background: "rgba(255,255,255,0.06)", color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
+                          >
+                            SYSTEM
                           </span>
-                          {role.is_system && (
-                            <span
-                              className="text-xs px-1.5 py-0.5 rounded"
-                              style={{ background: "rgba(255,255,255,0.06)", color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
-                            >
-                              SYSTEM
-                            </span>
-                          )}
-                        </div>
-                        {role.description && (
-                          <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>{role.description}</p>
                         )}
                       </div>
+                      {role.description && (
+                        <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>{role.description}</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-4">
                       <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
@@ -318,39 +304,63 @@ export default function RolesPage() {
                   </div>
                 )}
 
-                {/* Expanded permission list */}
+                {/* Expanded: permission grid */}
                 {isExpanded && (
                   <div
                     className="border-t px-5 pb-5"
                     style={{ borderColor: "var(--color-jda-border)" }}
                   >
-                    <p className="text-xs font-semibold mt-4 mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                    <p className="text-xs font-semibold mt-4 mb-3" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
                       Permissions
                     </p>
 
-                    {role.permissions.length === 0 ? (
-                      <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>No permissions assigned yet.</p>
+                    {gridActions.length === 0 ? (
+                      <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+                        No permissions defined in the system yet. Create a permission on any role to populate this list.
+                      </p>
                     ) : (
-                      <div className="flex flex-col gap-1 mb-4">
-                        {role.permissions.map((p) => {
-                          const scopeStyle = SCOPE_COLORS[p.scope] ?? SCOPE_COLORS.none;
+                      <div className="flex flex-col gap-1">
+                        {gridActions.map((action) => {
+                          const existing = role.permissions.find((p) => p.action === action);
+                          const currentScope = existing?.scope ?? null;
+
                           return (
-                            <div key={p.id} className="flex items-center justify-between py-1">
-                              <span className="text-xs font-mono" style={{ color: "var(--color-jda-text)" }}>{p.action}</span>
-                              <div className="flex items-center gap-2">
-                                <span
-                                  className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                                  style={{ background: scopeStyle.bg, color: scopeStyle.text }}
-                                >
-                                  {SCOPE_LABELS[p.scope] ?? p.scope}
-                                </span>
-                                <button
-                                  onClick={() => removePermission(role.id, p.id)}
-                                  style={{ background: "none", border: "none", color: "var(--color-jda-text-muted)", cursor: "pointer", fontSize: 14, lineHeight: 1, opacity: 0.6 }}
-                                  title="Remove permission"
-                                >
-                                  ×
-                                </button>
+                            <div
+                              key={action}
+                              className="flex items-center gap-3 py-1 px-2 rounded"
+                              style={{ background: "rgba(255,255,255,0.02)" }}
+                            >
+                              <span className="text-xs font-mono flex-1" style={{ color: "var(--color-jda-text)" }}>{action}</span>
+                              <div className="flex rounded overflow-hidden" style={{ border: "1px solid var(--color-jda-border)", flexShrink: 0 }}>
+                                {(["all", "own_practice", null] as (string | null)[]).map((scope) => {
+                                  const label = scope === "all" ? "All" : scope === "own_practice" ? "Own Practice" : "Off";
+                                  const isActive = currentScope === scope;
+                                  return (
+                                    <button
+                                      key={String(scope)}
+                                      onClick={() => setPermission(role.id, action, scope as "all" | "own_practice" | null)}
+                                      disabled={isSaving}
+                                      className="text-xs px-2 py-0.5 font-semibold"
+                                      style={{
+                                        background: isActive
+                                          ? scope === "all" ? "rgba(34,197,94,0.2)"
+                                            : scope === "own_practice" ? "rgba(59,130,246,0.2)"
+                                            : "rgba(255,255,255,0.1)"
+                                          : "transparent",
+                                        color: isActive
+                                          ? scope === "all" ? "#4ade80"
+                                            : scope === "own_practice" ? "#60a5fa"
+                                            : "var(--color-jda-text-muted)"
+                                          : "var(--color-jda-text-muted)",
+                                        border: "none",
+                                        cursor: isSaving ? "not-allowed" : "pointer",
+                                        transition: "all 0.1s",
+                                      }}
+                                    >
+                                      {label}
+                                    </button>
+                                  );
+                                })}
                               </div>
                             </div>
                           );
@@ -358,68 +368,15 @@ export default function RolesPage() {
                       </div>
                     )}
 
-                    {/* Add permission */}
-                    {isAddingPerms ? (
-                      <div className="flex gap-2 flex-wrap items-center mt-2">
-                        <datalist id={`actions-list-${role.id}`}>
-                          {allActions
-                            .filter(a => !role.permissions.some(p => p.action === a))
-                            .map(a => <option key={a} value={a} />)}
-                        </datalist>
-                        <input
-                          autoFocus
-                          list={`actions-list-${role.id}`}
-                          value={addAction}
-                          onChange={(e) => setAddAction(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter") addPermission(role.id); if (e.key === "Escape") { setAddingFor(null); setAddAction(""); } }}
-                          placeholder="Pick or type an action…"
-                          className="text-xs px-2 py-1.5 rounded font-mono flex-1"
-                          style={{ background: "var(--color-jda-bg)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text)", outline: "none", minWidth: 220 }}
-                        />
-                        <select
-                          value={addScope}
-                          onChange={(e) => setAddScope(e.target.value as "own_practice" | "all" | "none")}
-                          className="text-xs px-2 py-1.5 rounded"
-                          style={{ background: "var(--color-jda-bg)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text)", outline: "none" }}
-                        >
-                          <option value="own_practice">Own Practice</option>
-                          <option value="all">All</option>
-                          <option value="none">None</option>
-                        </select>
+                    {!role.is_system && (
+                      <div className="mt-4">
                         <button
-                          onClick={() => addPermission(role.id)}
-                          disabled={!addAction.trim()}
-                          className="text-xs px-3 py-1.5 rounded font-semibold"
-                          style={{ background: "var(--color-jda-red)", color: "#fff", border: "none", cursor: "pointer", opacity: !addAction.trim() ? 0.5 : 1 }}
-                        >
-                          Add
-                        </button>
-                        <button
-                          onClick={() => { setAddingFor(null); setAddAction(""); }}
-                          className="text-xs px-2 py-1.5 rounded"
-                          style={{ background: "transparent", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3 mt-1">
-                        <button
-                          onClick={() => { setAddingFor(role.id); setAddAction(""); setAddScope("own_practice"); }}
+                          onClick={() => setConfirmModal({ roleId: role.id, name: role.display_name })}
                           className="text-xs px-3 py-1.5 rounded"
-                          style={{ background: "rgba(255,255,255,0.05)", border: "1px dashed var(--color-jda-border)", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
+                          style={{ background: "transparent", border: "1px solid rgba(239,68,68,0.3)", color: "var(--color-jda-red)", cursor: "pointer" }}
                         >
-                          + Add permission
+                          Delete role
                         </button>
-                        {!role.is_system && (
-                          <button
-                            onClick={() => setConfirmModal({ roleId: role.id, name: role.display_name })}
-                            className="text-xs px-3 py-1.5 rounded"
-                            style={{ background: "transparent", border: "1px solid rgba(239,68,68,0.3)", color: "var(--color-jda-red)", cursor: "pointer" }}
-                          >
-                            Delete role
-                          </button>
-                        )}
                       </div>
                     )}
                   </div>
@@ -431,11 +388,7 @@ export default function RolesPage() {
       )}
 
       <p className="text-xs mt-5" style={{ color: "var(--color-jda-text-muted)" }}>
-        System roles cannot be deleted. Permissions use the format{" "}
-        <span style={{ fontFamily: "monospace" }}>resource:operation</span>{" "}
-        with scope <span style={{ fontFamily: "monospace" }}>own_practice</span>,{" "}
-        <span style={{ fontFamily: "monospace" }}>all</span>, or{" "}
-        <span style={{ fontFamily: "monospace" }}>none</span>.
+        System roles cannot be deleted. Each permission can be granted for <strong>All</strong> data, <strong>Own Practice</strong> only, or turned <strong>Off</strong>.
       </p>
 
       <ConfirmModal

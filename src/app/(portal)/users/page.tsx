@@ -308,31 +308,28 @@ export default function UsersPage() {
                   {/* Account type — dropdown for owner/admin acting on non-owner users */}
                   <div className="flex items-center gap-1.5">
                     {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" ? (
-                      <>
-                        <select
-                          value={user.account_type}
-                          disabled={isSaving}
-                          onChange={(e) => patch(user.id, { account_type: e.target.value })}
-                          title="Change account type"
-                          style={{
-                            background: acctBadge.bg,
-                            color: acctBadge.text,
-                            border: `1px solid ${acctBadge.text}40`,
-                            borderRadius: 99,
-                            padding: "2px 8px",
-                            fontSize: 12,
-                            fontWeight: 600,
-                            fontFamily: "var(--font-display)",
-                            letterSpacing: "0.04em",
-                            cursor: "pointer",
-                            outline: "none",
-                          }}
-                        >
-                          <option value="user">User</option>
-                          <option value="admin">Admin</option>
-                        </select>
-                        <span style={{ fontSize: 10, color: "var(--color-jda-text-muted)", lineHeight: 1 }} title="Click badge to change">✎</span>
-                      </>
+                      <select
+                        value={user.account_type}
+                        disabled={isSaving}
+                        onChange={(e) => patch(user.id, { account_type: e.target.value })}
+                        title="Change account type"
+                        style={{
+                          background: acctBadge.bg,
+                          color: acctBadge.text,
+                          border: `1px solid ${acctBadge.text}40`,
+                          borderRadius: 99,
+                          padding: "2px 8px",
+                          fontSize: 12,
+                          fontWeight: 600,
+                          fontFamily: "var(--font-display)",
+                          letterSpacing: "0.04em",
+                          cursor: "pointer",
+                          outline: "none",
+                        }}
+                      >
+                        <option value="user">User</option>
+                        <option value="admin">Admin</option>
+                      </select>
                     ) : (
                       <span
                         className="text-xs px-2 py-0.5 rounded-full font-semibold"

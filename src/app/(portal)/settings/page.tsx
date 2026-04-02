@@ -38,6 +38,13 @@ export default function SettingsPage() {
   const [savingOrgConfig, setSavingOrgConfig] = useState(false);
   const [revokeModal, setRevokeModal] = useState<ApiKey | null>(null);
 
+  // Debug mode state
+  interface DebugRole { id: string; name: string; slug: string | null }
+  const [isOwner, setIsOwner] = useState(false);
+  const [debugRole, setDebugRole] = useState<DebugRole | null>(null);
+  const [debugRoleSelect, setDebugRoleSelect] = useState("");
+  const [savingDebug, setSavingDebug] = useState(false);
+
   async function copyToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
     setCopied(true);
@@ -66,7 +73,45 @@ export default function SettingsPage() {
     }
   }
 
-  useEffect(() => { loadKeys(); loadOrgConfig(); }, []);
+  async function loadDebugState() {
+    const [meRes, debugRes] = await Promise.all([
+      fetch("/api/me"),
+      fetch("/api/me/debug"),
+    ]);
+    if (meRes.ok) {
+      const me = await meRes.json();
+      setIsOwner(me.account_type === "owner");
+    }
+    if (debugRes.ok) {
+      const data = await debugRes.json();
+      setDebugRole(data.debug_role ?? null);
+    }
+  }
+
+  async function activateDebug() {
+    if (!debugRoleSelect) return;
+    setSavingDebug(true);
+    const res = await fetch("/api/me/debug", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role_id: debugRoleSelect }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setDebugRole(data.debug_role ?? null);
+    }
+    setSavingDebug(false);
+  }
+
+  async function exitDebug() {
+    setSavingDebug(true);
+    await fetch("/api/me/debug", { method: "DELETE" });
+    setDebugRole(null);
+    setDebugRoleSelect("");
+    setSavingDebug(false);
+  }
+
+  useEffect(() => { loadKeys(); loadOrgConfig(); loadDebugState(); }, []);
 
   async function saveDefaultRole(roleId: string) {
     setSavingOrgConfig(true);
@@ -124,6 +169,102 @@ export default function SettingsPage() {
       <p style={{ color: "var(--color-jda-text-muted)", marginBottom: 32, fontSize: 14 }}>
         Manage API keys for connecting Claude to Alexandria via MCP.
       </p>
+
+      {/* Debug Mode — owner only */}
+      {isOwner && (
+        <section style={{ marginBottom: 40 }}>
+          <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+            Debug Mode
+          </h2>
+          <div style={{
+            background: debugRole ? "rgba(180,83,9,0.08)" : "var(--color-jda-surface)",
+            border: `1px solid ${debugRole ? "rgba(251,191,36,0.3)" : "var(--color-jda-border)"}`,
+            borderRadius: 8,
+            padding: "16px 20px",
+          }}>
+            <p style={{ color: "var(--color-jda-text)", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+              Impersonate a Role
+            </p>
+            <p style={{ color: "var(--color-jda-text-muted)", fontSize: 13, marginBottom: 16, lineHeight: 1.5 }}>
+              Temporarily assume a role&apos;s permissions for testing. Your owner bypass is suspended — Claude will see exactly the permissions that role has. Resets automatically on next login. Changes affect your active MCP sessions immediately.
+            </p>
+
+            {debugRole ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+                <div style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  background: "rgba(251,191,36,0.1)",
+                  border: "1px solid rgba(251,191,36,0.3)",
+                  borderRadius: 8,
+                  padding: "8px 14px",
+                }}>
+                  <span style={{ fontSize: 13, color: "#fbbf24" }}>⚠ Active:</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "#fbbf24" }}>{debugRole.name}</span>
+                </div>
+                <button
+                  onClick={exitDebug}
+                  disabled={savingDebug}
+                  style={{
+                    background: "rgba(255,255,255,0.08)",
+                    border: "1px solid var(--color-jda-border)",
+                    borderRadius: 6,
+                    color: "var(--color-jda-text)",
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    cursor: savingDebug ? "not-allowed" : "pointer",
+                    opacity: savingDebug ? 0.5 : 1,
+                  }}
+                >
+                  {savingDebug ? "Clearing…" : "Exit Debug Mode"}
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <select
+                  value={debugRoleSelect}
+                  onChange={(e) => setDebugRoleSelect(e.target.value)}
+                  disabled={savingDebug}
+                  style={{
+                    background: "var(--color-jda-bg)",
+                    border: "1px solid var(--color-jda-border)",
+                    borderRadius: 6,
+                    color: "var(--color-jda-text)",
+                    padding: "8px 12px",
+                    fontSize: 14,
+                    outline: "none",
+                    minWidth: 200,
+                    cursor: "pointer",
+                  }}
+                >
+                  <option value="">Select a role to impersonate…</option>
+                  {allRoles.map((r) => (
+                    <option key={r.id} value={r.id}>{r.display_name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={activateDebug}
+                  disabled={!debugRoleSelect || savingDebug}
+                  style={{
+                    background: "#b45309",
+                    border: "none",
+                    borderRadius: 6,
+                    color: "#fef3c7",
+                    padding: "8px 16px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: !debugRoleSelect || savingDebug ? "not-allowed" : "pointer",
+                    opacity: !debugRoleSelect || savingDebug ? 0.5 : 1,
+                  }}
+                >
+                  {savingDebug ? "Activating…" : "Activate Debug Mode"}
+                </button>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
 
       {/* Organization */}
       <section style={{ marginBottom: 40 }}>

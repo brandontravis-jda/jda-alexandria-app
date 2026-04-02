@@ -94,6 +94,23 @@ async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS request_log_tool_idx ON alexandria_request_log(tool_name)`;
   await sql`CREATE INDEX IF NOT EXISTS request_log_matched_idx ON alexandria_request_log(matched_capability)`;
 
+  await sql`
+    CREATE TABLE IF NOT EXISTS production_feedback (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      content_type     TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
+      content_slug     TEXT NOT NULL,
+      quality_score    INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
+      content_accurate BOOLEAN,
+      brand_applied    BOOLEAN,
+      needed_rework    BOOLEAN,
+      observation      TEXT,
+      created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS production_feedback_content_idx ON production_feedback(content_type, content_slug)`;
+  await sql`CREATE INDEX IF NOT EXISTS production_feedback_user_idx ON production_feedback(user_id)`;
+
   // ── Step 5: Permissions matrix ──────────────────────────────────────────────
   await sql`
     ALTER TABLE users
@@ -781,6 +798,8 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
+      lines.push(`\n---\n**Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call \`alexandria_log_feedback\` when you're ready, or say "log feedback for this output."`);
+
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
@@ -1370,6 +1389,8 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
+
+      lines.push(`\n---\n**Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call \`alexandria_log_feedback\` when you're ready, or say "log feedback for this output."`);
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1988,6 +2009,47 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
+      return { content: [{ type: "text", text: lines.join("\n") }] };
+    }
+  );
+
+  // ── alexandria_log_feedback ───────────────────────────────────────────────
+  server.tool(
+    "alexandria_log_feedback",
+    "Log structured feedback on a methodology or template output. Call this after delivering a production output. Once called, ask the practitioner the structured questions below — verbatim, in order — then call this tool again with their answers. Do NOT skip any question. Questions to ask after calling this tool: (1) \"How would you rate this output overall? 1 = significant problems, 5 = production-ready as-is.\" (2) \"Was the content and structure accurate for this deliverable type? Yes or no.\" (3) \"Was the brand applied correctly — colors, fonts, voice, logos? Yes or no.\" (4) \"Did the output need significant rework before you could share it? Yes or no.\" (5) \"Anything specific to note — what worked, what didn't, what should change? (Optional — press Enter to skip.)\" Then call alexandria_log_feedback with all collected answers.",
+    {
+      content_type: z.enum(["methodology", "template"]).describe("Whether this feedback is for a methodology or a template run"),
+      content_slug: z.string().describe("The slug of the methodology or template that was used"),
+      quality_score: z.number().int().min(1).max(5).describe("Overall quality rating 1–5"),
+      content_accurate: z.boolean().describe("Whether the content and structure were accurate for this deliverable type"),
+      brand_applied: z.boolean().describe("Whether the brand was applied correctly — colors, fonts, voice, logos"),
+      needed_rework: z.boolean().describe("Whether the output needed significant rework before it could be shared"),
+      observation: z.string().optional().describe("Open-ended practitioner observations — what worked, what didn't, what should change"),
+    },
+    async ({ content_type, content_slug, quality_score, content_accurate, brand_applied, needed_rework, observation }) => {
+      const [user] = await sql`SELECT id FROM users WHERE id = ${auth.userId}`;
+      if (!user) return { content: [{ type: "text", text: "Could not identify user — feedback not logged." }], isError: true };
+
+      await sql`
+        INSERT INTO production_feedback
+          (user_id, content_type, content_slug, quality_score, content_accurate, brand_applied, needed_rework, observation)
+        VALUES
+          (${auth.userId as number}, ${content_type}, ${content_slug}, ${quality_score}, ${content_accurate}, ${brand_applied}, ${needed_rework}, ${observation ?? null})
+      `;
+
+      const scoreLabel = ["", "significant problems", "below expectations", "acceptable", "good", "production-ready"][quality_score];
+      const lines = [
+        `✓ Feedback logged for **${content_slug}** (${content_type}).`,
+        ``,
+        `**Score:** ${quality_score}/5 — ${scoreLabel}`,
+        `**Content accurate:** ${content_accurate ? "Yes" : "No"}`,
+        `**Brand applied correctly:** ${brand_applied ? "Yes" : "No"}`,
+        `**Needed rework:** ${needed_rework ? "Yes" : "No"}`,
+      ];
+      if (observation) lines.push(`**Notes:** ${observation}`);
+      lines.push(``, `This feedback is now visible to practice leaders and admins in the Alexandria portal.`);
+
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_feedback", requestSummary: `Feedback for ${content_type} ${content_slug}: ${quality_score}/5`, matchedCapability: true });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );

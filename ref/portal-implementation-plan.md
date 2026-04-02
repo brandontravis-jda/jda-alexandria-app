@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated March 30, 2026 to reflect Steps 2–3 completion.
+> Updated April 2, 2026 to reflect Steps 2–5 completion and auth model overhaul.
 
 ---
 
@@ -77,17 +77,27 @@ LOB tools (RFP scraper, proposal generator, meeting intelligence) are the except
 | Portal sign-in | Small admin group (Brandon, practice leaders, NewCo team) | Auth.js v5 + Entra ID, direct browser session | Full portal access — content management, dashboards, settings |
 | MCP via Claude | All JDA practitioners (~33 people) | OAuth via Claude Teams custom connector, Azure AD | Access platform content through Claude, scoped by permission tier |
 
-### Permission Tiers
+### Account Types (as of April 2026 auth model overhaul)
 
-| Tier | Portal Access | MCP Read | MCP Write | Examples |
-|---|---|---|---|---|
-| Practitioner | None (no portal sign-in) | Practice-scoped content | None | Hannah, Derek, Zeke |
-| Practice Leader | Content management for their practice + dashboards | Full practice content | Push deliverable classifications, workflow updates | Christina, Kristi |
-| Admin (NewCo) | Everything | Full platform content | All content types | Brandon |
+| Account Type | Portal Access | Description |
+|---|---|---|
+| `owner` | Always (non-toggleable) | One per system. Full permissions everywhere. Can transfer ownership. |
+| `admin` | Always (non-toggleable) | Portal admin access. Manage users, roles, permissions. |
+| `user` | Toggleable per-user | Standard practitioner. Capabilities determined by assigned roles. |
+
+### Role-Based Permissions
+
+Roles define capability groups with granular `resource:operation` permissions and scope (`all` / `own_practice` / `none`). Multiple roles per user, additive. System roles: `editor`, `practitioner`. User-level overrides (grant/deny) layer on top of role permissions.
+
+**Effective permission resolution:** union of all role permissions + user grants − user denials. Owner bypasses all permission checks. Admin always has portal access regardless of toggles.
+
+### Debug Mode (owner only)
+
+Owner can temporarily impersonate a role's permission set for testing via the Settings page or `alexandria_debug_as_role` / `alexandria_debug_exit` in Claude. Session-based — clears on next login or explicit exit. Amber banner in portal, near-realtime sync (3s poll) between portal and Claude.
 
 ### API Keys (Secondary Auth)
 
-Retained for programmatic access (n8n automations), Claude Code integration, and fallback. Not the practitioner path.
+Active — used for programmatic access. Claude connector uses OAuth (primary path); API key is a fallback. **TODO: Decide whether to keep, restrict, or remove API keys.** Currently live and functional but not the intended practitioner flow.
 
 ---
 
@@ -273,43 +283,63 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 
 ---
 
-### Step 5: Permissions Infrastructure + Content Scoping — ✅ COMPLETE (shipped March 31, 2026)
+### Step 5: Auth Model + Permissions Infrastructure — ✅ COMPLETE (shipped April 2, 2026)
 
-**Discovery:** `ref/step-5-discovery-and-plan-updates.md` — March 30, 2026. Original Step 5 placeholder (Workflow Guides + Practice Areas + Roles) was superseded. Workflow Guides deferred to Step 10.
+**Discovery:** `ref/step-5-discovery-and-plan-updates.md` and `ref/step-05b-auth-model-decisions.md`. Original Step 5 placeholder superseded by a full auth model overhaul.
 
-**What was built:** Decoupled auth from capabilities. Azure AD group membership now gates authentication only. Capabilities are managed by a platform permissions matrix independent of Azure.
+**What was built:** Migrated from a tier-based system to account types + role-based access control (RBAC) with granular permissions. Azure AD group membership now gates authentication only (`Alexandria-Users` is the single gate). All authorization managed inside the app.
 
-**Database:**
-- ✅ `roles` table — 6 system roles seeded: `practice_leader`, `practitioner`, `content_admin`, `developer` (empty), `project_manager` (empty), `account_exec` (empty)
-- ✅ `permissions` table — 49 permissions across 3 active roles, `resource:operation` format with scope (`all` / `own_practice` / `none`)
-- ✅ `user_roles` table — users assigned roles; additive, multiple roles per user supported
-- ✅ `portal_access`, `mcp_access` columns added to `users`
-- ✅ Existing users backfilled — `admin` tier → `content_admin` role, `practitioner` tier → `practitioner` role
+**Database schema changes:**
+- ✅ `users.tier` → `users.account_type` (`owner` / `admin` / `user`), data backfilled
+- ✅ `permissions` table renamed → `role_permissions` with `resource:operation` format and scope
+- ✅ `user_permissions` table — per-user grant/deny overrides layered on top of roles
+- ✅ `org_config` table — singleton for org-level settings (default role for new users)
+- ✅ `oauth_sessions.debug_role_id` column — session-based debug mode state
+- ✅ Owner bootstrap — first user to log in becomes owner automatically
+- ✅ System roles: `editor`, `practitioner` (practitioner is default for new users)
 
 **MCP:**
-- ✅ `checkPermission()` resolver — request-scoped, queries `user_roles` + `permissions` tables, no cross-request caching
-- ✅ All hardcoded tier checks replaced — `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt`, write tools all gated via `checkPermission()`
-- ✅ Azure groups now gate auth only — `GROUP_OWNERS` + `GROUP_ADMINS` → `admin` auth tier, `GROUP_USERS` → `practitioner` auth tier. Tier no longer overwritten on subsequent logins.
-- ✅ Practice scoping on `alexandria_list_methodologies` and `alexandria_list_capabilities` — filters by `users.practice` when role scope is `own_practice`
-- ✅ `GroupMember.Read.All` confirmed in both `/authorize` redirect scope and token exchange
+- ✅ `checkPermission()` — owner bypasses all checks; debug mode resolves as debug role only; standard users: union of role permissions + user overrides
+- ✅ `AuthResult` carries `accountType`, `sessionId`, `debugRoleId`
+- ✅ `alexandria_debug_as_role(role_id)` — owner only, sets debug role on all active sessions
+- ✅ `alexandria_debug_exit` — clears debug on all active sessions by `user_id` (works via OAuth or API key)
+- ✅ `alexandria_whoami` — shows account type, roles, permissions, debug mode status
+- ✅ Single Azure AD group (`Alexandria-Users`) as auth gate — simplified from three-group model
 
 **Portal:**
-- ✅ `/users` — role assignment UI replaces tier dropdown; `portal_access` toggle
-- ✅ `/roles` — list all roles, view/add/remove permissions per role, create/delete non-system roles
-- ✅ Roles API routes: `GET/POST /api/roles`, `PATCH/DELETE /api/roles/[id]`
+- ✅ `/users` — account type badge with editable dropdown (owner/admin), role assignment, permission override editor (Grant/Inherit/Deny per action), transfer ownership flow
+- ✅ `/roles` — All/Own Practice/Off segmented toggle grid per permission (replaces scrollable add-form); clicking active state toggles off; role rename inline
+- ✅ `/settings` — Debug Mode section (owner only): pick role, activate/exit; Organization section: default role for new users
+- ✅ Debug banner — in-flow (not fixed), amber, shows active debug role, Exit button; shared `DebugContext` keeps banner and Settings in sync; 3-second poll for near-realtime Claude ↔ portal sync
+- ✅ `ConfirmModal` component — replaces browser `confirm()` on all destructive actions
+- ✅ `DebugProvider` context — single source of truth for debug state, consumed by banner and Settings page
 
-**Auth model (three Azure AD groups):**
+**Auth hardening:**
+- ✅ `src/middleware.ts` — route protection, all unauthenticated requests → `/sign-in`
+- ✅ Portal layout auth guard (`redirect('/sign-in')` if no session)
+- ✅ Sign-out via server action (`signOut()`) — fixes `MissingCSRF` error from raw POST
+- ✅ Sign-in error display — `signIn()` callback returning `false` → `AccessDenied` redirect → red error message on `/sign-in`
+- ✅ Admin `portal_access` always `TRUE` — enforced in `upsertUser`, migration backfill, and PATCH route
+- ✅ Sign-out clears `debug_role_id` on all active MCP sessions
+- ✅ `/api/me/debug` and `/api/me` marked `force-dynamic` — prevents Next.js 15 caching stale debug state
 
-| Group | UUID | Auth tier granted |
-|---|---|---|
-| Alexandria-Owners | `cba99ef2-...` | `admin` — full platform control |
-| Alexandria-Admins | `c85b685b-...` | `admin` — portal admin, manage users/roles |
-| Alexandria-Users | `6864b47f-...` | `practitioner` — capabilities from matrix |
+**Workflow Guides:** Deferred to Step 10.
+**Practice Areas as content type:** Deferred to Step 10.
 
-**Validated:** OAuth popup working in Claude Desktop. `alexandria_whoami` returns correct tier. `checkPermission()` resolving correctly from DB. 2 users connected and authenticated.
+**Additional items shipped April 2, 2026:**
+- ✅ `alexandria_debug_as_role` accepts role slug or UUID — frictionless from Claude (no UUID lookup needed)
+- ✅ `alexandria_whoami` includes role UUID in output
+- ✅ User deletion — `DELETE /api/users/[id]` with cascade; delete button + confirm modal in users page; blocked on owner and self
+- ✅ `prompt: "select_account"` on portal sign-in — always shows Microsoft account picker
+- ✅ Debug mode permission enforcement validated end-to-end (tool calls actually blocked, not just reported)
+- ✅ `alexandria_debug_exit` from Claude clears portal banner within ~3s (confirmed post caching fix)
+- ✅ Transfer ownership tested end-to-end
+- ✅ Sign-in error message confirmed working for unauthorized accounts
 
-**Workflow Guides:** Deferred to Step 10. Requires Discovery Intensive input from practice leaders.
-**Practice Areas as content type:** Deferred to Step 10. Enum field on existing records is sufficient for now.
+**Open items:**
+- ✅ Default role change in Settings → new user logs in and receives updated role
+- ⬜ Role permission grid (77 permissions on Editor) is functional but unwieldy at scale — UX revisit flagged
+- ⬜ API keys: keep/restrict/remove decision pending
 
 **Depends on:** Steps 1–4 complete.
 
@@ -489,60 +519,76 @@ Originally designed to generate everything needed to stand up a new Claude Proje
 
 ---
 
-### Step 9.5: Production Feedback Loop
+### Step 9.5: Production Feedback Loop — ✅ COMPLETE (shipped April 2, 2026)
 
-**What this is:** A lightweight structured feedback mechanism triggered immediately after every production output — templates and methodology runs alike. The practitioner rates the output and logs qualitative observations directly through Claude. Feedback is stored in Alexandria and surfaced in the portal. This is the primary data source for advancing capability records to Proven Status.
+**What this is:** A lightweight structured feedback mechanism that runs after every methodology or template output. The practitioner explicitly calls the feedback tool when they're ready — Alexandria doesn't auto-trigger anything. Feedback is stored in the DB and surfaced in the portal. This is the primary data source for advancing capability records to Proven Status.
 
 **Why this matters:** The platform has no signal on output quality today. Request logs tell us what tools were called. The capabilities matrix tells us what we believe is possible. Neither tells us whether the actual output was good. Without practitioner feedback, "Proven Status" is a label we assign ourselves. With it, Proven Status means something — it's backed by logged, attributed practitioner validation.
 
-**What feedback is NOT:** It is not an edit request. It is not a revision workflow. It is not a rating that gates anything. It is structured qualitative observation — "the navigation was broken in slide mode," "the brand colors weren't applied correctly," "the order of questions felt backwards" — logged to Alexandria for the practice leader and Brandon to act on through content updates.
+**What feedback is NOT:** Not an edit request. Not a revision workflow. Not a gate. It is structured qualitative observation logged to Alexandria for practice leaders and Brandon to act on.
 
-**Trigger:** Immediately after a production output is delivered. Claude prompts for feedback as the final step of any template or methodology run. The prompt is brief — one sentence framing, a 1–5 quality signal, and an optional freetext observation field. The entire feedback exchange should take under 30 seconds.
+**Flow (as built):**
+1. Practitioner asks Alexandria to help build a thing
+2. Alexandria presents the output
+3. Alexandria appends an encouragement block at the end of every methodology/template response: a brief, consistent nudge to call `alexandria_log_feedback` when done
+4. Practitioner calls the tool explicitly when ready
+5. Claude runs `alexandria_log_feedback` and then asks a structured set of questions **verbatim, every time** — fixed 1–5 score question, then fixed structured dimension questions (output quality, content accuracy, brand application, usability), then open feedback invitation. The questions are baked into the tool's response, not authored in Sanity, so they are always consistent.
+
+**Encouragement block (appended to methodology and template outputs):**
+> ---
+> **Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call `alexandria_log_feedback` when you're ready, or say "log feedback for this output."
+
+**Structured questions Claude asks after calling the tool (verbatim, every time):**
+1. "How would you rate this output overall? (1 = significant problems, 5 = production-ready as-is)"
+2. "Were the content and structure accurate for this deliverable type?"
+3. "Was the brand applied correctly — colors, fonts, voice, logos?"
+4. "Was the output usable as-is, or did it need significant rework before sharing?"
+5. "Anything specific to note — what worked, what didn't, what should change?"
+
+Claude collects answers, calls `alexandria_log_feedback` with the structured data, confirms it was logged.
 
 **MCP tool: `alexandria_log_feedback`**
 
 Inputs:
-- `capability_id` — the capabilityRecord slug this output relates to (required)
-- `methodology_slug` or `template_slug` — which content was used (required, one or the other)
+- `content_type` — `"methodology"` or `"template"`
+- `content_slug` — slug of the methodology or template used (required)
 - `quality_score` — integer 1–5 (required)
-- `observation` — freetext, practitioner's own words (optional but encouraged)
-- `output_type` — e.g. "html-deliverable", "post-discovery-brief" (optional, for dashboard filtering)
+- `content_accurate` — boolean (required)
+- `brand_applied` — boolean (required)
+- `needed_rework` — boolean (required)
+- `observation` — freetext, practitioner's own words (optional)
 
-Logged automatically by the tool:
-- `user_id` — who gave the feedback
-- `permission_tier` — their role
-- `created_at`
+Logged automatically:
+- `user_id`, `created_at`
 
 **Database table: `production_feedback`**
 ```sql
 CREATE TABLE production_feedback (
-  id              SERIAL PRIMARY KEY,
-  user_id         INTEGER NOT NULL REFERENCES users(id),
-  capability_id   TEXT,
-  methodology_slug TEXT,
-  template_slug   TEXT,
-  quality_score   INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
-  observation     TEXT,
-  output_type     TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             SERIAL PRIMARY KEY,
+  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_type   TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
+  content_slug   TEXT NOT NULL,
+  quality_score  INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
+  content_accurate BOOLEAN,
+  brand_applied   BOOLEAN,
+  needed_rework   BOOLEAN,
+  observation    TEXT,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE INDEX production_feedback_content_idx ON production_feedback(content_type, content_slug);
+CREATE INDEX production_feedback_user_idx ON production_feedback(user_id);
 ```
 
-**Portal surface:**
-- Feedback log visible on the portal Capabilities page per capability record — count of feedback entries, average score, most recent observations
-- Feed into Step 6 dashboard as a quality signal alongside request volume
-- Observations visible to practice leaders for their practice's records; all observations visible to admin
+**Portal surface (Step 6):**
+- Feedback count and average score per capability record on the Capabilities page
+- Most recent observations visible to practice leaders (their practice) and admins (all)
+- Feed into Step 6 dashboard as quality signal alongside request volume
 
-**Connection to Proven Status:** A capability record cannot reach Proven Status without at least N feedback entries (exact threshold TBD — suggested: 3 successful outputs, average score ≥ 4). The portal capabilities page shows feedback count and score alongside status. Practice leaders can see at a glance how close a record is to Proven Status based on accumulated feedback.
+**Connection to Proven Status:** Suggested threshold: ≥3 feedback entries, average score ≥4, `needed_rework` false on majority. Exact threshold TBD — defined when Step 6 dashboard is built.
 
-**Claude prompt template (appended to every template/methodology output):**
-> Before we close this out — take 30 seconds to log feedback on this output. It goes directly into Alexandria and helps improve the methodology. How would you rate this output? (1 = significant problems, 5 = production-ready as-is). Anything specific to note?
+**Access:** All roles. Practitioners and practice leaders both log feedback. Admins see all feedback in the portal.
 
-Claude collects the score and optional observation, calls `alexandria_log_feedback`, confirms it was logged.
-
-**Access:** All tiers. Practitioners and practice leaders both log feedback. Admins see all feedback in the portal.
-
-**Depends on:** Step 3 (request logging infrastructure established), Step 4 (capability records exist to attach feedback to). Can be built independently of Step 5. Should ship before team rollout (May 11) so feedback accumulates from day one.
+**Depends on:** Steps 1–5 complete.
 
 ---
 
@@ -569,28 +615,35 @@ The platform is live with real content across all content types. MCP bridge work
 | Layer | What it does | Status |
 |---|---|---|
 | Azure AD tenant restriction | Only accounts in the JDA tenant can authenticate at all | Live |
-| Portal auth middleware | Every portal route and API endpoint requires an active Azure AD session | Live |
-| Portal admin-only API routes | `/api/users` requires `tier = admin` in the database | Live |
-| Self-tier-change blocked | An admin cannot demote their own tier via the Users API | Live |
+| `Alexandria-Users` group gate | Non-members get `AccessDenied` and see error message on `/sign-in` | Live |
+| Portal auth middleware (`src/middleware.ts`) | All routes require active session — unauthenticated → `/sign-in` | Live |
+| Portal layout guard | Defense-in-depth redirect if session missing past middleware | Live |
+| Portal admin-only API routes | `/api/users` and `/api/roles` require `account_type IN ('owner', 'admin')` | Live |
+| Owner guard on user mutations | Cannot modify or demote an `owner` account via `/api/users/[id]` | Live |
 | MCP OAuth session tokens | Every MCP request requires a valid bearer token | Live |
-| MCP permission gating | `systemInstructions`, `visionOfGood`, `tips`, `checkPrompt` blocked for `practitioner` tier | Live |
-| MCP API key fallback | Secondary auth for programmatic access | Live |
+| MCP permission gating | All tool access resolved via `checkPermission()` — role-based, with user overrides | Live |
+| MCP API key fallback | Secondary auth for programmatic access (debug mode does not apply to API key sessions) | Live |
+| Debug mode scoped to owner | `alexandria_debug_as_role` / `alexandria_debug_exit` reject non-owner accounts | Live |
 
 ### Known Gaps
 
 1. **MCP pending flow state is in-memory** — a server restart during OAuth drops the flow. Low risk on single-replica Railway. Long-term: move to PostgreSQL.
 2. **No MCP request rate limiting** — should be added before public rollout.
+3. **API keys: unresolved decision** — keys exist and work. Original intent was n8n/programmatic use. No current users of API key path. Needs keep/restrict/remove decision before team rollout.
 
 ### Security Testing Checklist (Before Team Rollout)
 
-- [ ] Confirm a JDA account not in any security group cannot sign into the portal (rejected at Azure AD)
-- [ ] Confirm a JDA account not in any security group cannot complete MCP OAuth
-- [ ] Demote a test user to `practitioner`, confirm system instructions are blocked in Claude
+- ✅ Confirm a JDA account NOT in `Alexandria-Users` gets `AccessDenied` → red error on `/sign-in`
+- [ ] Confirm that unauthorized account cannot complete MCP OAuth either
+- [ ] Assign a user `user` account type with only the `practitioner` role — confirm system instructions are blocked in Claude
 - [ ] Confirm unauthenticated requests to `/api/users` return 401
-- [ ] Confirm a `practitioner`-tier portal session cannot access `/api/users`
+- [ ] Confirm a `user` account type cannot access `/api/users` (admin-only)
 - [ ] Confirm MCP requests with an expired/invalid token return 401
-- [ ] Confirm MCP requests with a valid practitioner token cannot read gated methodology fields
-- [ ] Confirm an admin cannot change their own tier via the Users API
+- [ ] Confirm MCP requests with a practitioner-role token cannot read gated methodology fields
+- [ ] Confirm an admin cannot modify an owner account via the Users API
+- ✅ Transfer ownership to a second account — confirm original drops to `admin`, new account is `owner`
+- ✅ While in debug mode as Practitioner, attempt a tool Practitioner doesn't have — confirm it is blocked, not just reported as blocked in `whoami`
+- [ ] Confirm `alexandria_whoami` via API key shows real owner permissions, ignores any active debug session
 
 ---
 
@@ -648,4 +701,4 @@ Resolved in discovery. Deliverable classifications are a field on `capabilityRec
 
 ---
 
-*Updated March 31, 2026. Steps 1–4 complete. Steps 5–11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives) before the matrix is production-ready.*
+*Updated April 2, 2026. Steps 1–5 complete and fully tested. Steps 6–11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives) before the matrix is production-ready. Step 5 has one open item: API key keep/restrict/remove decision.*

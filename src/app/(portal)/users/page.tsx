@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 
 interface Role {
   id: string;
@@ -78,6 +79,7 @@ export default function UsersPage() {
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [currentUserAccountType, setCurrentUserAccountType] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
 
   async function loadUsers() {
     const [usersRes, meRes] = await Promise.all([
@@ -157,6 +159,18 @@ export default function UsersPage() {
       await patch(userId, { remove_permission_action: action });
     } else {
       await patch(userId, { add_permission: { action, type: state, scope: "all" } });
+    }
+  }
+
+  async function deleteUser(userId: number) {
+    const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
+    setDeleteTarget(null);
+    if (res.ok) {
+      setUsers((prev) => prev.filter((u) => u.id !== userId));
+      if (expandedUser === userId) setExpandedUser(null);
+    } else {
+      const data = await res.json();
+      alert(data.error ?? "Delete failed");
     }
   }
 
@@ -609,9 +623,22 @@ export default function UsersPage() {
                       </div>
                     </div>
 
-                    {/* Transfer Ownership — owner only, shown at the bottom */}
+                    {/* Bottom actions — delete + transfer ownership */}
+                    {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" && (
+                      <div className="mt-4 pt-4 border-t flex items-start justify-between" style={{ borderColor: "var(--color-jda-border)" }}>
+
+                        {/* Delete user */}
+                        <button
+                          onClick={() => setDeleteTarget(user)}
+                          className="text-xs font-semibold"
+                          style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
+                        >
+                          Delete user…
+                        </button>
+
+                    {/* Transfer Ownership — owner only */}
                     {currentUserAccountType === "owner" && user.account_type !== "owner" && (
-                      <div className="mt-4 pt-4 border-t" style={{ borderColor: "var(--color-jda-border)" }}>
+                      <div>
                         {transferTarget !== user.id ? (
                           <button
                             onClick={() => setTransferTarget(user.id)}
@@ -651,6 +678,8 @@ export default function UsersPage() {
                         )}
                       </div>
                     )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -662,6 +691,16 @@ export default function UsersPage() {
       <p className="text-xs mt-4" style={{ color: "var(--color-jda-text-muted)" }}>
         Role and permission changes take effect immediately on the next MCP request. Users are created when they first authenticate via Claude.
       </p>
+
+      <ConfirmModal
+        open={deleteTarget !== null}
+        title="Delete user"
+        message={`Remove ${deleteTarget?.name ?? deleteTarget?.email ?? "this user"} from Alexandria? Their roles, permissions, and MCP sessions will be deleted. They can re-authenticate via Claude to create a new account.`}
+        confirmLabel="Delete"
+        confirmDanger
+        onConfirm={() => deleteTarget && deleteUser(deleteTarget.id)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </div>
   );
 }

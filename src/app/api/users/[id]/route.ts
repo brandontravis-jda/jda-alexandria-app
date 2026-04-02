@@ -149,3 +149,33 @@ export async function PATCH(
 
   return NextResponse.json({ user: { ...updated, roles, user_permissions: userPermissions } });
 }
+
+// DELETE /api/users/[id] — remove a user and all their associated data
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const admin = await requireAdmin();
+  if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { id } = await params;
+  const userId = parseInt(id, 10);
+  if (isNaN(userId)) return NextResponse.json({ error: "Invalid id" }, { status: 400 });
+
+  // Cannot delete yourself
+  if ((admin.id as number) === userId) {
+    return NextResponse.json({ error: "You cannot delete your own account" }, { status: 403 });
+  }
+
+  // Cannot delete the owner
+  const [target] = await db`SELECT id, account_type FROM users WHERE id = ${userId}`;
+  if (!target) return NextResponse.json({ error: "User not found" }, { status: 404 });
+  if (target.account_type === "owner") {
+    return NextResponse.json({ error: "Owner account cannot be deleted" }, { status: 403 });
+  }
+
+  // Cascade: user_roles, user_permissions, oauth_sessions deleted via ON DELETE CASCADE
+  await db`DELETE FROM users WHERE id = ${userId}`;
+
+  return NextResponse.json({ ok: true });
+}

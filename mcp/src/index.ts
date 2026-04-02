@@ -1932,7 +1932,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       } else {
         const roles = await sql`
-          SELECT r.display_name, r.slug
+          SELECT r.id, r.display_name, r.slug
           FROM user_roles ur
           JOIN roles r ON r.id = ur.role_id
           WHERE ur.user_id = ${auth.userId}
@@ -1960,7 +1960,10 @@ function buildServer(auth: AuthResult): McpServer {
         }
 
         if (roles.length > 0) {
-          lines.push(`\nRoles: ${roles.map((r: Record<string, unknown>) => r.display_name).join(", ")}`);
+          lines.push(`\nRoles:`);
+          for (const r of roles as unknown as Array<{ id: string; display_name: string; slug: string }>) {
+            lines.push(`  ${r.display_name} (slug: ${r.slug}, id: ${r.id})`);
+          }
         } else {
           lines.push("\nRoles: None assigned");
         }
@@ -1997,17 +2000,27 @@ function buildServer(auth: AuthResult): McpServer {
     "alexandria_debug_as_role",
     "Owner only. Enter debug mode by impersonating a specific role. While active, your permissions in Alexandria will be evaluated as if you only had the permissions of that role — your owner bypass is suspended. This resets automatically when you log in again. Use alexandria_debug_exit to exit immediately.",
     {
-      role_id: z.string().uuid().describe("UUID of the role to impersonate"),
+      role: z.string().describe("Role to impersonate — accepts the role slug (e.g. 'editor', 'practitioner') or UUID"),
     },
-    async ({ role_id }) => {
+    async ({ role: roleInput }) => {
       if (auth.accountType !== "owner") {
         return { content: [{ type: "text", text: "Access denied. Debug mode is only available to owners." }], isError: true };
       }
 
-      const [role] = await sql`SELECT id, display_name FROM roles WHERE id = ${role_id}`;
+      // Accept slug or UUID — try UUID match first, fall back to slug
+      const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const [role] = uuidPattern.test(roleInput)
+        ? await sql`SELECT id, display_name FROM roles WHERE id = ${roleInput}`
+        : await sql`SELECT id, display_name FROM roles WHERE slug = ${roleInput}`;
+
       if (!role) {
-        return { content: [{ type: "text", text: `Role not found: ${role_id}` }], isError: true };
+        const available = await sql`SELECT slug, display_name FROM roles ORDER BY display_name`;
+        const list = (available as unknown as Array<{ slug: string; display_name: string }>)
+          .map(r => `  ${r.slug} — ${r.display_name}`).join("\n");
+        return { content: [{ type: "text", text: `Role not found: "${roleInput}"\n\nAvailable roles:\n${list}` }], isError: true };
       }
+
+      const role_id = role.id as string;
 
       // Update ALL active sessions for this user so portal and Claude stay in sync
       // regardless of whether this request came in via OAuth session or API key.

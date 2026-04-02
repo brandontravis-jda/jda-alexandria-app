@@ -10,6 +10,17 @@ interface ApiKey {
   last_used_at: string | null;
 }
 
+interface Role {
+  id: string;
+  slug: string;
+  display_name: string;
+}
+
+interface OrgConfig {
+  default_role_id: string | null;
+  default_role_name: string | null;
+}
+
 const RAW_MCP_URL = process.env.NEXT_PUBLIC_MCP_URL ?? "your-mcp-service.up.railway.app/mcp";
 const MCP_URL = RAW_MCP_URL.startsWith("http") ? RAW_MCP_URL : `https://${RAW_MCP_URL}`;
 
@@ -21,6 +32,9 @@ export default function SettingsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [orgConfig, setOrgConfig] = useState<OrgConfig>({ default_role_id: null, default_role_name: null });
+  const [savingOrgConfig, setSavingOrgConfig] = useState(false);
 
   async function copyToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
@@ -35,7 +49,36 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
-  useEffect(() => { loadKeys(); }, []);
+  async function loadOrgConfig() {
+    const [configRes, rolesRes] = await Promise.all([
+      fetch("/api/org-config"),
+      fetch("/api/roles"),
+    ]);
+    if (configRes.ok) {
+      const data = await configRes.json();
+      setOrgConfig(data.config ?? { default_role_id: null, default_role_name: null });
+    }
+    if (rolesRes.ok) {
+      const data = await rolesRes.json();
+      setAllRoles(data.roles ?? []);
+    }
+  }
+
+  useEffect(() => { loadKeys(); loadOrgConfig(); }, []);
+
+  async function saveDefaultRole(roleId: string) {
+    setSavingOrgConfig(true);
+    const res = await fetch("/api/org-config", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ default_role_id: roleId }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setOrgConfig(data.config);
+    }
+    setSavingOrgConfig(false);
+  }
 
   async function createKey() {
     if (!newKeyName.trim()) return;
@@ -79,6 +122,50 @@ export default function SettingsPage() {
       <p style={{ color: "var(--color-jda-text-muted)", marginBottom: 32, fontSize: 14 }}>
         Manage API keys for connecting Claude to Alexandria via MCP.
       </p>
+
+      {/* Organization */}
+      <section style={{ marginBottom: 40 }}>
+        <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 12 }}>
+          Organization
+        </h2>
+        <div style={{ background: "var(--color-jda-surface)", border: "1px solid var(--color-jda-border)", borderRadius: 8, padding: "16px 20px" }}>
+          <div style={{ marginBottom: 16 }}>
+            <p style={{ color: "var(--color-jda-text)", fontSize: 14, fontWeight: 500, marginBottom: 4 }}>
+              Default Role for New Users
+            </p>
+            <p style={{ color: "var(--color-jda-text-muted)", fontSize: 13, marginBottom: 12 }}>
+              New users receive this role when they first authenticate. Changing this setting only affects future sign-ins — existing assignments are not touched.
+            </p>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <select
+                value={orgConfig.default_role_id ?? ""}
+                onChange={(e) => saveDefaultRole(e.target.value)}
+                disabled={savingOrgConfig || allRoles.length === 0}
+                style={{
+                  background: "var(--color-jda-bg)",
+                  border: "1px solid var(--color-jda-border)",
+                  borderRadius: 6,
+                  color: "var(--color-jda-text)",
+                  padding: "8px 12px",
+                  fontSize: 14,
+                  outline: "none",
+                  minWidth: 200,
+                  cursor: "pointer",
+                  opacity: savingOrgConfig ? 0.5 : 1,
+                }}
+              >
+                <option value="" disabled>Select a role…</option>
+                {allRoles.map((r) => (
+                  <option key={r.id} value={r.id}>{r.display_name}</option>
+                ))}
+              </select>
+              {savingOrgConfig && (
+                <span style={{ color: "var(--color-jda-text-muted)", fontSize: 13 }}>Saving…</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </section>
 
       {/* MCP Connection Info */}
       <section style={{ marginBottom: 40 }}>

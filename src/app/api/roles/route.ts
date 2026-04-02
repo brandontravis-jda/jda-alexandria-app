@@ -7,7 +7,7 @@ async function requireAdmin() {
   const session = await auth();
   if (!session?.user?.id) return null;
   const user = await getUserByObjectId(session.user.id);
-  if (!user || user.tier !== "admin") return null;
+  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
   return user;
 }
 
@@ -27,7 +27,7 @@ export async function GET() {
 
   const permissions = await db`
     SELECT id, role_id, action, scope, created_at
-    FROM permissions
+    FROM role_permissions
     ORDER BY action
   `;
 
@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
   const [role] = await db`
     INSERT INTO roles (slug, display_name, description, is_system, created_by)
-    VALUES (${slug}, ${display_name.trim()}, ${description ?? null}, FALSE, ${admin.id})
+    VALUES (${slug}, ${display_name.trim()}, ${description ?? null}, FALSE, ${admin.id as number})
     ON CONFLICT (slug) DO NOTHING
     RETURNING id, slug, display_name, description, is_system, created_at
   `;

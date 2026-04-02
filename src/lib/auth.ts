@@ -4,24 +4,9 @@ import { migrate, upsertUser } from "./schema";
 
 let migrated = false;
 
-// Azure AD groups gate authentication only — not capabilities.
-// Capabilities are determined by the permissions matrix (user_roles / permissions tables).
-//
-// Alexandria-Owners (cba99ef2) → "admin"       — Brandon only; full platform control
-// Alexandria-Admins (c85b685b) → "admin"       — Portal admin; manage users and roles
-// Alexandria-Users  (6864b47f) → "practitioner" — All practitioners; capabilities from matrix
-const GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Alexandria-Owners
-const GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Alexandria-Admins
-const GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
-
-// Returns auth tier for gating portal admin screens only (users/roles management).
-// Do NOT use this for capability decisions — use the permissions matrix.
-function authTierFromGroups(groups: string[]): "admin" | "practitioner" | null {
-  if (groups.includes(GROUP_OWNERS)) return "admin";
-  if (groups.includes(GROUP_ADMINS)) return "admin";
-  if (groups.includes(GROUP_USERS))  return "practitioner";
-  return null;
-}
+// Alexandria-Users is the single gate for authentication.
+// All authorization (account_type, roles, permissions) is managed inside the app.
+const GROUP_USERS = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   providers: [
@@ -40,8 +25,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const objectId = (profile as Record<string, unknown>).oid as string;
         token.objectId = objectId;
 
-        // Fetch group membership from Microsoft Graph — used only for auth gating
-        let authTier: "admin" | "practice_leader" | "practitioner" | null = null;
+        let inAlexandriaGroup = false;
         if (account.access_token) {
           try {
             const groupsRes = await fetch(
@@ -51,29 +35,24 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
             if (groupsRes.ok) {
               const groupsData = await groupsRes.json() as { value: { id: string }[] };
               const groups = groupsData.value.map((g) => g.id);
-              authTier = authTierFromGroups(groups);
+              inAlexandriaGroup = groups.includes(GROUP_USERS);
             }
           } catch (e) {
             console.error("Failed to fetch groups for portal sign-in:", e);
           }
         }
 
-        // Reject sign-in if not in any authorized group
-        if (authTier === null) return null;
-
-        token.tier = authTier;
+        if (!inAlexandriaGroup) return null;
 
         if (!migrated) {
           await migrate();
           migrated = true;
         }
 
-        // upsertUser only sets tier on first creation — subsequent logins do not overwrite
         await upsertUser({
           objectId,
           email: token.email,
           name: token.name,
-          tier: authTier,
         });
       }
       return token;

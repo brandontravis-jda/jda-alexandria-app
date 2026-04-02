@@ -1,7 +1,5 @@
 import { db } from "./db";
 
-export type PermissionTier = "practitioner" | "practice_leader" | "admin";
-
 export async function migrate() {
   await db`
     CREATE TABLE IF NOT EXISTS users (
@@ -9,7 +7,8 @@ export async function migrate() {
       object_id     TEXT NOT NULL UNIQUE,
       email         TEXT,
       name          TEXT,
-      tier          TEXT NOT NULL DEFAULT 'practitioner',
+      account_type  TEXT NOT NULL DEFAULT 'user'
+                      CHECK (account_type IN ('owner', 'admin', 'user')),
       practice      TEXT,
       portal_access BOOLEAN NOT NULL DEFAULT FALSE,
       mcp_access    BOOLEAN NOT NULL DEFAULT TRUE,
@@ -18,9 +17,24 @@ export async function migrate() {
     )
   `;
 
-  // Add columns if the table already existed without them
+  // Rename tier → account_type if table already exists with old column
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'user' CHECK (account_type IN ('owner', 'admin', 'user'))`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT TRUE`;
+
+  // Backfill account_type from legacy tier column if it exists
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'tier') THEN
+        UPDATE users SET account_type = CASE
+          WHEN tier IN ('admin', 'practice_leader') THEN 'admin'
+          ELSE 'user'
+        END WHERE account_type = 'user';
+      END IF;
+    END
+    $$
+  `;
 
   await db`
     CREATE TABLE IF NOT EXISTS api_keys (
@@ -46,8 +60,20 @@ export async function migrate() {
     )
   `;
 
+  // Rename permissions → role_permissions if old table exists
   await db`
-    CREATE TABLE IF NOT EXISTS permissions (
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'permissions')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'role_permissions') THEN
+        ALTER TABLE permissions RENAME TO role_permissions;
+      END IF;
+    END
+    $$
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS role_permissions (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       role_id    UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
       action     TEXT NOT NULL,
@@ -69,26 +95,72 @@ export async function migrate() {
     )
   `;
 
+  // User-level permission overrides (grant / deny)
+  await db`
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action     TEXT NOT NULL,
+      type       TEXT NOT NULL CHECK (type IN ('grant', 'deny')),
+      scope      TEXT NOT NULL DEFAULT 'all'
+                   CHECK (scope IN ('own_practice', 'all', 'none')),
+      granted_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, action)
+    )
+  `;
+
+  // Org config singleton
+  await db`
+    CREATE TABLE IF NOT EXISTS org_config (
+      id              INTEGER PRIMARY KEY DEFAULT 1,
+      default_role_id UUID REFERENCES roles(id),
+      CHECK (id = 1)
+    )
+  `;
+
   await db`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
-  await db`CREATE INDEX IF NOT EXISTS permissions_role_idx ON permissions(role_id)`;
+  await db`CREATE INDEX IF NOT EXISTS role_permissions_role_idx ON role_permissions(role_id)`;
+  await db`CREATE INDEX IF NOT EXISTS user_permissions_user_idx ON user_permissions(user_id)`;
+
+  // Seed system roles (idempotent)
+  await db`
+    INSERT INTO roles (slug, display_name, description, is_system) VALUES
+      ('editor',       'Editor',       'Elevated production access. Write access scoped to own practice.', TRUE),
+      ('practitioner', 'Practitioner', 'Standard production access. Platform default for new users.', TRUE)
+    ON CONFLICT (slug) DO NOTHING
+  `;
+
+  // Seed org_config pointing to practitioner as default role
+  await db`
+    INSERT INTO org_config (id, default_role_id)
+    SELECT 1, r.id FROM roles r WHERE r.slug = 'practitioner'
+    ON CONFLICT (id) DO NOTHING
+  `;
 }
 
 export async function upsertUser({
   objectId,
   email,
   name,
-  tier,
 }: {
   objectId: string;
   email?: string | null;
   name?: string | null;
-  tier?: string | null;
 }) {
-  // tier is only written on first creation. Subsequent logins do NOT overwrite tier —
-  // capabilities are now managed through user_roles, not the tier column.
+  // Determine if an owner already exists before touching the user record
+  const [ownerCheck] = await db`SELECT id FROM users WHERE account_type = 'owner' LIMIT 1`;
+  const isFirstUser = !ownerCheck;
+
   const [user] = await db`
-    INSERT INTO users (object_id, email, name, tier, last_seen_at)
-    VALUES (${objectId}, ${email ?? null}, ${name ?? null}, ${tier ?? "practitioner"}, NOW())
+    INSERT INTO users (object_id, email, name, account_type, last_seen_at)
+    VALUES (
+      ${objectId},
+      ${email ?? null},
+      ${name ?? null},
+      ${isFirstUser ? "owner" : "user"},
+      NOW()
+    )
     ON CONFLICT (object_id) DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
@@ -96,22 +168,21 @@ export async function upsertUser({
     RETURNING *
   `;
 
-  // Backfill role assignment for new users
-  if (tier) {
-    const roleSlugMap: Record<string, string> = {
-      admin:           "content_admin",
-      practice_leader: "practice_leader",
-      practitioner:    "practitioner",
-    };
-    const roleSlug = roleSlugMap[tier] ?? "practitioner";
+  // Assign default role to brand-new users only (when they were just inserted)
+  // We detect a new insert if created_at == last_seen_at (within a second)
+  const isNewUser = Math.abs(
+    new Date(user.created_at as string).getTime() -
+    new Date(user.last_seen_at as string).getTime()
+  ) < 2000;
+
+  if (isNewUser) {
     await db`
       INSERT INTO user_roles (user_id, role_id)
-      SELECT ${user.id as number}, r.id FROM roles r WHERE r.slug = ${roleSlug}
+      SELECT ${user.id as number}, oc.default_role_id
+      FROM org_config oc
+      WHERE oc.default_role_id IS NOT NULL
       ON CONFLICT (user_id, role_id) DO NOTHING
     `;
-    if (tier === "admin" || tier === "practice_leader") {
-      await db`UPDATE users SET portal_access = TRUE WHERE id = ${user.id as number} AND portal_access = FALSE`;
-    }
   }
 
   return user;

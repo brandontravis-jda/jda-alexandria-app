@@ -26,27 +26,12 @@ if (!AZURE_TENANT_ID) throw new Error("AZURE_TENANT_ID is not set");
 const MCP_BASE_URL = process.env.MCP_BASE_URL ?? "https://mcp-production-3192.up.railway.app";
 
 // ── Azure AD security groups ──────────────────────────────────────────────────
-// Azure AD groups gate authentication only — not capabilities.
-// Capabilities are determined by the permissions matrix (roles/permissions tables).
-//
-// Azure group → auth tier:
-//   Alexandria-Owners (cba99ef2) → "admin"       — Brandon only; full platform control
-//   Alexandria-Admins (c85b685b) → "admin"       — Portal admin; manage users and roles
-//   Alexandria-Users  (6864b47f) → "practitioner" — All practitioners; capabilities from matrix
-//
-// Both Owners and Admins map to auth tier "admin" — same portal access level.
-// Owner-specific controls are not yet built; add when needed.
-const GROUP_OWNERS = "cba99ef2-0d00-4753-9f3d-89ded870cba1"; // Alexandria-Owners
-const GROUP_ADMINS = "c85b685b-17e4-4902-ac2a-39e27f585f08"; // Alexandria-Admins
-const GROUP_USERS  = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
+// Alexandria-Users is the single authentication gate.
+// Everything after "authenticated" is managed inside the app (account_type, roles, permissions).
+const GROUP_USERS = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
 
-// Returns the auth tier for the session — used ONLY for portal admin gating,
-// NOT for capability decisions. Capability decisions go through checkPermission().
-function authTierFromGroups(groups: string[]): "admin" | "practitioner" | null {
-  if (groups.includes(GROUP_OWNERS)) return "admin";
-  if (groups.includes(GROUP_ADMINS)) return "admin";
-  if (groups.includes(GROUP_USERS))  return "practitioner";
-  return null; // Not in any authorized group — reject
+function isInAlexandriaUsers(groups: string[]): boolean {
+  return groups.includes(GROUP_USERS);
 }
 
 const SANITY_DATASET = process.env.SANITY_DATASET ?? "production";
@@ -123,8 +108,20 @@ async function migrate() {
     )
   `;
 
+  // Rename permissions → role_permissions if old table exists
   await sql`
-    CREATE TABLE IF NOT EXISTS permissions (
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'permissions')
+         AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'role_permissions') THEN
+        ALTER TABLE permissions RENAME TO role_permissions;
+      END IF;
+    END
+    $$
+  `;
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS role_permissions (
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       role_id    UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
       action     TEXT NOT NULL,
@@ -146,25 +143,56 @@ async function migrate() {
     )
   `;
 
-  await sql`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
-  await sql`CREATE INDEX IF NOT EXISTS permissions_role_idx ON permissions(role_id)`;
+  // User-level permission overrides (grant / deny — always wins over role)
+  await sql`
+    CREATE TABLE IF NOT EXISTS user_permissions (
+      id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      action     TEXT NOT NULL,
+      type       TEXT NOT NULL CHECK (type IN ('grant', 'deny')),
+      scope      TEXT NOT NULL DEFAULT 'all'
+                   CHECK (scope IN ('own_practice', 'all', 'none')),
+      granted_by INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, action)
+    )
+  `;
 
-  // Seed system roles (idempotent — ON CONFLICT DO NOTHING)
+  // Org config singleton — stores default_role_id for new user assignment
+  await sql`
+    CREATE TABLE IF NOT EXISTS org_config (
+      id              INTEGER PRIMARY KEY DEFAULT 1,
+      default_role_id UUID REFERENCES roles(id),
+      CHECK (id = 1)
+    )
+  `;
+
+  // Rename account_type column and add if needed
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'user' CHECK (account_type IN ('owner', 'admin', 'user'))`;
+
+  await sql`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS role_permissions_role_idx ON role_permissions(role_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS user_permissions_user_idx ON user_permissions(user_id)`;
+
+  // Seed system roles — Editor and Practitioner are the two canonical roles
   await sql`
     INSERT INTO roles (slug, display_name, description, is_system) VALUES
-      ('practice_leader', 'Practice Leader', 'Content write access scoped to own practice. Full methodology and capability record visibility.', TRUE),
-      ('practitioner',    'Practitioner',    'Standard production access. Read methodology and brand packages. No portal access.', TRUE),
-      ('content_admin',   'Content Admin',   'Full read/write/delete across all content types and portal management.', TRUE),
-      ('developer',       'Developer',       'Placeholder — permissions assigned after Discovery Intensives.', TRUE),
-      ('project_manager', 'Project Manager', 'Placeholder — permissions assigned after Discovery Intensives.', TRUE),
-      ('account_exec',    'Account Executive','Placeholder — permissions assigned after Discovery Intensives.', TRUE)
+      ('editor',       'Editor',       'Elevated production access. Write access scoped to own practice.', TRUE),
+      ('practitioner', 'Practitioner', 'Standard production access. Platform default for new users.', TRUE)
     ON CONFLICT (slug) DO NOTHING
   `;
 
-  // Seed permissions for practice_leader role (idempotent)
+  // Seed org_config pointing to practitioner as default role
   await sql`
-    WITH r AS (SELECT id FROM roles WHERE slug = 'practice_leader')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
+    INSERT INTO org_config (id, default_role_id)
+    SELECT 1, r.id FROM roles r WHERE r.slug = 'practitioner'
+    ON CONFLICT (id) DO NOTHING
+  `;
+
+  // Seed permissions for editor role (idempotent)
+  await sql`
+    WITH r AS (SELECT id FROM roles WHERE slug = 'editor')
+    INSERT INTO role_permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
     (VALUES
       ('methodology:read',                                  'all'),
       ('methodology:write',                                 'own_practice'),
@@ -190,7 +218,7 @@ async function migrate() {
   // Seed permissions for practitioner role (idempotent)
   await sql`
     WITH r AS (SELECT id FROM roles WHERE slug = 'practitioner')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
+    INSERT INTO role_permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
     (VALUES
       ('methodology:read',         'own_practice'),
       ('brand_package:read',       'all'),
@@ -202,58 +230,28 @@ async function migrate() {
     ON CONFLICT (role_id, action) DO NOTHING
   `;
 
-  // Seed permissions for content_admin role (idempotent)
+  // Backfill account_type from legacy tier column if it exists
   await sql`
-    WITH r AS (SELECT id FROM roles WHERE slug = 'content_admin')
-    INSERT INTO permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
-    (VALUES
-      ('methodology:read',                       'all'),
-      ('methodology:write',                      'all'),
-      ('methodology:update',                     'all'),
-      ('methodology:delete',                     'all'),
-      ('brand_package:read',                     'all'),
-      ('brand_package:write',                    'all'),
-      ('brand_package:update',                   'all'),
-      ('brand_package:delete',                   'all'),
-      ('capability_record:read',                 'all'),
-      ('capability_record:write',                'all'),
-      ('capability_record:update',               'all'),
-      ('capability_record:delete',               'all'),
-      ('template:read',                          'all'),
-      ('template:write',                         'all'),
-      ('template:update',                        'all'),
-      ('template:delete',                        'all'),
-      ('mcp_tool:alexandria_save_brand_package', 'all'),
-      ('mcp_tool:alexandria_update_capability',  'all'),
-      ('portal:access',                          'all'),
-      ('portal:dashboard',                       'all'),
-      ('portal:users',                           'all'),
-      ('portal:roles',                           'all'),
-      ('methodology_field:systemInstructions',   'all'),
-      ('methodology_field:visionOfGood',         'all'),
-      ('methodology_field:tips',                 'all'),
-      ('methodology_field:checkPrompt',          'all')
-    ) AS v(action, scope)
-    ON CONFLICT (role_id, action) DO NOTHING
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'tier') THEN
+        UPDATE users SET account_type = CASE
+          WHEN tier IN ('admin', 'practice_leader') THEN 'admin'
+          ELSE 'user'
+        END WHERE account_type = 'user';
+      END IF;
+    END
+    $$
   `;
 
-  // Backfill user_roles from existing users.tier (idempotent)
+  // Backfill user_roles from existing users for legacy editor-equivalent (practice_leader) users
   await sql`
     INSERT INTO user_roles (user_id, role_id)
     SELECT u.id, r.id
     FROM users u
-    JOIN roles r ON (
-      (u.tier = 'practice_leader' AND r.slug = 'practice_leader') OR
-      (u.tier = 'practitioner'    AND r.slug = 'practitioner') OR
-      (u.tier = 'admin'           AND r.slug = 'content_admin')
-    )
+    JOIN roles r ON r.slug = 'practitioner'
+    WHERE NOT EXISTS (SELECT 1 FROM user_roles ur WHERE ur.user_id = u.id)
     ON CONFLICT (user_id, role_id) DO NOTHING
-  `;
-
-  // Backfill portal_access for admin/practice_leader users
-  await sql`
-    UPDATE users SET portal_access = TRUE
-    WHERE tier IN ('admin', 'practice_leader') AND portal_access = FALSE
   `;
 }
 
@@ -263,7 +261,7 @@ migrate().catch((err) => console.error("Migration error:", err));
 
 async function logRequest(opts: {
   userId: number;
-  tier: string;
+  accountType: string;
   toolName: string;
   requestSummary?: string;
   matchedCapability?: boolean;
@@ -275,7 +273,7 @@ async function logRequest(opts: {
       INSERT INTO alexandria_request_log
         (user_id, permission_tier, tool_name, request_summary, matched_capability, capability_type, capability_id)
       VALUES
-        (${opts.userId.toString()}, ${opts.tier}, ${opts.toolName},
+        (${opts.userId.toString()}, ${opts.accountType}, ${opts.toolName},
          ${opts.requestSummary ?? null}, ${opts.matchedCapability ?? null},
          ${opts.capabilityType ?? null}, ${opts.capabilityId ?? null})
     `;
@@ -303,18 +301,46 @@ function makePermissionResolver(userId: number) {
   return async function checkPermission(action: string): Promise<ResolvedPermission> {
     if (cache.has(action)) return cache.get(action)!;
 
-    const rows = await sql<{ scope: string }[]>`
-      SELECT p.scope
+    // Step 1: collect role-granted permissions (best scope wins across multiple roles)
+    const roleRows = await sql<{ scope: string }[]>`
+      SELECT rp.scope
       FROM user_roles ur
-      JOIN permissions p ON p.role_id = ur.role_id
+      JOIN role_permissions rp ON rp.role_id = ur.role_id
       WHERE ur.user_id = ${userId}
-        AND p.action = ${action}
+        AND rp.action = ${action}
+    `;
+
+    // Step 2: get user-level override (grant or deny)
+    const [override] = await sql<{ type: string; scope: string }[]>`
+      SELECT type, scope
+      FROM user_permissions
+      WHERE user_id = ${userId}
+        AND action = ${action}
       LIMIT 1
     `;
 
-    const result: ResolvedPermission = rows.length > 0
-      ? { allowed: rows[0].scope !== "none", scope: rows[0].scope as PermissionScope }
-      : { allowed: false, scope: "none" };
+    let result: ResolvedPermission;
+
+    if (override) {
+      if (override.type === "deny") {
+        result = { allowed: false, scope: "none" };
+      } else {
+        // grant — use the override scope
+        result = { allowed: true, scope: override.scope as PermissionScope };
+      }
+    } else if (roleRows.length > 0) {
+      // Pick the most permissive scope across all roles: all > own_practice > none
+      const scopeRank: Record<string, number> = { all: 2, own_practice: 1, none: 0 };
+      const best = roleRows.reduce((a, b) =>
+        (scopeRank[b.scope] ?? 0) > (scopeRank[a.scope] ?? 0) ? b : a
+      );
+      result = {
+        allowed: best.scope !== "none",
+        scope: best.scope as PermissionScope,
+      };
+    } else {
+      result = { allowed: false, scope: "none" };
+    }
 
     cache.set(action, result);
     return result;
@@ -333,18 +359,16 @@ const sanity = createClient({
 
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
-type PermissionTier = "practitioner" | "practice_leader" | "admin";
-
 interface AuthResult {
   userId: number;
-  tier: PermissionTier;
+  accountType: "owner" | "admin" | "user";
   practice: string | null;
 }
 
 async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
   const keyHash = createHash("sha256").update(apiKey).digest("hex");
   const [row] = await sql`
-    SELECT k.id AS key_id, u.id AS user_id, u.tier, u.practice
+    SELECT k.id AS key_id, u.id AS user_id, u.account_type, u.practice
     FROM api_keys k
     JOIN users u ON u.id = k.user_id
     WHERE k.key_hash = ${keyHash}
@@ -355,14 +379,14 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
 
   return {
     userId: row.user_id as number,
-    tier: row.tier as PermissionTier,
+    accountType: row.account_type as "owner" | "admin" | "user",
     practice: row.practice as string | null,
   };
 }
 
 async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   const [row] = await sql`
-    SELECT s.id AS session_id, u.id AS user_id, u.tier, u.practice
+    SELECT s.id AS session_id, u.id AS user_id, u.account_type, u.practice
     FROM oauth_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ${token}
@@ -374,7 +398,7 @@ async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
 
   return {
     userId: row.user_id as number,
-    tier: row.tier as PermissionTier,
+    accountType: row.account_type as "owner" | "admin" | "user",
     practice: row.practice as string | null,
   };
 }
@@ -486,38 +510,36 @@ async function exchangeAzureCodeForProfile(code: string): Promise<{
   };
 }
 
-async function upsertUser(objectId: string, email: string, name: string, authTier: string): Promise<number> {
-  // tier column is retained for reference but is no longer the source of truth for capabilities.
-  // On first creation, tier is set from Azure group membership so backfill can assign the correct role.
-  // On subsequent logins, tier is NOT overwritten — capabilities come from user_roles.
+async function upsertUser(objectId: string, email: string, name: string): Promise<number> {
+  // Check if an owner already exists before inserting
+  const [ownerCheck] = await sql`SELECT id FROM users WHERE account_type = 'owner' LIMIT 1`;
+  const isFirstUser = !ownerCheck;
+
   const [user] = await sql`
-    INSERT INTO users (object_id, email, name, tier, created_at)
-    VALUES (${objectId}, ${email}, ${name}, ${authTier}, NOW())
+    INSERT INTO users (object_id, email, name, account_type, created_at)
+    VALUES (${objectId}, ${email}, ${name}, ${isFirstUser ? "owner" : "user"}, NOW())
     ON CONFLICT (object_id)
     DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
       last_seen_at = NOW()
-    RETURNING id
+    RETURNING id, created_at, last_seen_at
   `;
 
-  // Backfill role assignment for new users — maps initial auth tier to a system role.
-  // Existing users already have roles from the migration seed, so ON CONFLICT ensures idempotency.
-  // authTier is now only "admin" or "practitioner" — practice_leader is a platform role, not an Azure tier.
-  const roleSlugMap: Record<string, string> = {
-    admin:        "content_admin",
-    practitioner: "practitioner",
-  };
-  const roleSlug = roleSlugMap[authTier] ?? "practitioner";
-  await sql`
-    INSERT INTO user_roles (user_id, role_id)
-    SELECT ${user.id as number}, r.id FROM roles r WHERE r.slug = ${roleSlug}
-    ON CONFLICT (user_id, role_id) DO NOTHING
-  `;
+  // Assign default role only to brand-new users (detect via created_at ≈ last_seen_at)
+  const isNewUser = Math.abs(
+    new Date(user.created_at as string).getTime() -
+    new Date(user.last_seen_at as string).getTime()
+  ) < 2000;
 
-  // Set portal_access for admin/practice_leader auth tiers
-  if (authTier === "admin" || authTier === "practice_leader") {
-    await sql`UPDATE users SET portal_access = TRUE WHERE id = ${user.id as number} AND portal_access = FALSE`;
+  if (isNewUser) {
+    await sql`
+      INSERT INTO user_roles (user_id, role_id)
+      SELECT ${user.id as number}, oc.default_role_id
+      FROM org_config oc
+      WHERE oc.default_role_id IS NOT NULL
+      ON CONFLICT (user_id, role_id) DO NOTHING
+    `;
   }
 
   return user.id as number;
@@ -539,10 +561,6 @@ function buildServer(auth: AuthResult): McpServer {
   });
 
   const checkPermission = makePermissionResolver(auth.userId);
-
-  // Legacy convenience flag — used for tier-aware copy only (not gating).
-  // All capability gating must go through checkPermission().
-  const isPrivileged = auth.tier === "practice_leader" || auth.tier === "admin";
 
   // ── alexandria_list_methodologies ─────────────────────────────────────────
   server.tool(
@@ -731,7 +749,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
@@ -927,7 +945,7 @@ function buildServer(auth: AuthResult): McpServer {
         const logoSection = logoLines.length > 0 ? "\n" + logoLines.join("\n") + "\n\n---\n\n" : "";
         const fontSection = fontLines.length > 0 ? fontLines.join("\n") + "\n\n---\n\n" : "";
         const overrideSection = overrideLines.length > 0 ? overrideLines.join("\n") + "\n\n---\n\n" : "";
-        logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_brand_package", requestSummary: `Get brand package: ${slug}`, matchedCapability: true, capabilityType: "brand_package", capabilityId: slug });
+        logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_brand_package", requestSummary: `Get brand package: ${slug}`, matchedCapability: true, capabilityType: "brand_package", capabilityId: slug });
         return { content: [{ type: "text", text: header + overrideSection + fontSection + logoSection + p.rawMarkdown }] };
       }
 
@@ -1116,7 +1134,7 @@ function buildServer(auth: AuthResult): McpServer {
         RETURNING session_id
       `;
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_template", requestSummary: `Get template: ${t.slug}`, matchedCapability: true, capabilityType: "template", capabilityId: t.slug });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_template", requestSummary: `Get template: ${t.slug}`, matchedCapability: true, capabilityType: "template", capabilityId: t.slug });
 
       const lines: string[] = [
         `# ${t.title} — Practitioner Intake`,
@@ -1321,7 +1339,7 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
@@ -1334,7 +1352,7 @@ function buildServer(auth: AuthResult): McpServer {
       intent: z.string().optional().describe("Optional: what the practitioner is trying to do, if they expressed one. Used to tailor the response toward relevant capabilities."),
     },
     async ({ intent }) => {
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_help", requestSummary: intent ?? "general help query", matchedCapability: null as unknown as boolean });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_help", requestSummary: intent ?? "general help query", matchedCapability: null as unknown as boolean });
 
       // Fetch all live data in parallel
       const [guide, templates, methodologies, brandPackages, capStats] = await Promise.all([
@@ -1522,7 +1540,7 @@ function buildServer(auth: AuthResult): McpServer {
         }`
       );
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_list_capabilities", requestSummary: `list capabilities (practice: ${practice_area ?? "all"}, class: ${classification ?? "all"}, status: ${status ?? "all"})`, matchedCapability: records.length > 0 });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_list_capabilities", requestSummary: `list capabilities (practice: ${practice_area ?? "all"}, class: ${classification ?? "all"}, status: ${status ?? "all"})`, matchedCapability: records.length > 0 });
 
       const statusLabel: Record<string, string> = {
         not_evaluated: "Not Evaluated",
@@ -1609,14 +1627,14 @@ function buildServer(auth: AuthResult): McpServer {
       );
 
       if (!r) {
-        logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${slug}`, matchedCapability: false });
+        logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${slug}`, matchedCapability: false });
         return {
           content: [{ type: "text", text: `No capability record found for: ${slug}. Use alexandria_list_capabilities to browse available records, or alexandria_log_capability_gap to flag this as a missing capability.` }],
           isError: true,
         };
       }
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${r.deliverableName}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: r.slug.current });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${r.deliverableName}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: r.slug.current });
 
       const classLabel: Record<string, string> = {
         ai_led: "AI-Led",
@@ -1711,7 +1729,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       await sanity.create(doc);
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_log_capability_gap", requestSummary: `Gap logged: ${deliverable_name}`, matchedCapability: false });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_capability_gap", requestSummary: `Gap logged: ${deliverable_name}`, matchedCapability: false });
 
       return {
         content: [{ type: "text", text: `Logged "${deliverable_name}" as a capability gap. It has been added to the backlog as a not_evaluated record and will be reviewed in the next Discovery Intensive. Alexandria doesn't currently have AI capability guidance for this deliverable type — I'm happy to help using general best practices. Want me to proceed?` }],
@@ -1766,7 +1784,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       await sanity.patch(existing._id).set(patch).commit();
 
-      logRequest({ userId: auth.userId, tier: auth.tier, toolName: "alexandria_update_capability", requestSummary: `Updated capability: ${slug}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: normalizedSlug });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_update_capability", requestSummary: `Updated capability: ${slug}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: normalizedSlug });
 
       return { content: [{ type: "text", text: `Capability record updated: ${slug}\n\nFields updated: ${Object.keys(patch).join(", ")}` }] };
     }
@@ -1851,17 +1869,68 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_whoami ─────────────────────────────────────────────────────
   server.tool(
     "alexandria_whoami",
-    "Returns your current identity and permission tier in Alexandria.",
+    "Returns your current identity, account type, assigned roles, and effective permissions in Alexandria.",
     {},
     async () => {
-      const [user] = await sql`SELECT name, email, tier, practice FROM users WHERE id = ${auth.userId}`;
+      const [user] = await sql`SELECT name, email, account_type, practice FROM users WHERE id = ${auth.userId}`;
       if (!user) return { content: [{ type: "text", text: "User not found." }], isError: true };
-      return {
-        content: [{
-          type: "text",
-          text: `Name: ${user.name ?? "—"}\nEmail: ${user.email ?? "—"}\nTier: ${user.tier}\nPractice: ${user.practice ?? "All"}`,
-        }],
-      };
+
+      const roles = await sql`
+        SELECT r.display_name, r.slug
+        FROM user_roles ur
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = ${auth.userId}
+        ORDER BY r.display_name
+      `;
+
+      const rolePermissions = await sql`
+        SELECT rp.action, rp.scope, r.display_name AS role_name
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        JOIN roles r ON r.id = ur.role_id
+        WHERE ur.user_id = ${auth.userId}
+        ORDER BY rp.action
+      `;
+
+      const userPerms = await sql`
+        SELECT action, type, scope
+        FROM user_permissions
+        WHERE user_id = ${auth.userId}
+        ORDER BY action
+      `;
+
+      const lines: string[] = [];
+      lines.push(`Name: ${user.name ?? "—"}`);
+      lines.push(`Email: ${user.email ?? "—"}`);
+      lines.push(`Account type: ${user.account_type}`);
+      lines.push(`Practice: ${user.practice ?? "All"}`);
+
+      if (roles.length > 0) {
+        lines.push(`\nRoles: ${roles.map((r: Record<string, unknown>) => r.display_name).join(", ")}`);
+      } else {
+        lines.push("\nRoles: None assigned");
+      }
+
+      if (rolePermissions.length > 0) {
+        lines.push("\nRole permissions:");
+        for (const p of rolePermissions as unknown as Array<{ action: string; scope: string; role_name: string }>) {
+          lines.push(`  ${p.action} [${p.scope}] — via ${p.role_name}`);
+        }
+      }
+
+      const grants = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "grant");
+      const denials = (userPerms as unknown as Array<{ action: string; type: string; scope: string }>).filter((p) => p.type === "deny");
+
+      if (grants.length > 0) {
+        lines.push("\nCustom grants:");
+        for (const g of grants) lines.push(`  + ${g.action} [${g.scope}]`);
+      }
+      if (denials.length > 0) {
+        lines.push("\nDenials:");
+        for (const d of denials) lines.push(`  - ${d.action}`);
+      }
+
+      return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );
 
@@ -1960,10 +2029,8 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       return;
     }
 
-    // Azure AD groups gate authentication only — not capabilities.
-    // Capabilities are determined by user_roles in the permissions matrix.
-    const tier = authTierFromGroups(profile.groups);
-    if (!tier) {
+    // Alexandria-Users group is the single authentication gate
+    if (!isInAlexandriaUsers(profile.groups)) {
       res.writeHead(403, { "Content-Type": "text/html" });
       res.end(`
         <!DOCTYPE html><html><head><title>Alexandria — Access Denied</title></head>
@@ -1975,7 +2042,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       return;
     }
 
-    const userId = await upsertUser(profile.objectId, profile.email, profile.name, tier);
+    const userId = await upsertUser(profile.objectId, profile.email, profile.name);
 
     // Issue our own short-lived auth code to Claude
     const ourCode = randomBytes(32).toString("hex");

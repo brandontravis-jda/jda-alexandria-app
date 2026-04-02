@@ -22,8 +22,8 @@ export async function GET(req: Request) {
   const status = searchParams.get("status");
 
   let filter = `_type == "capabilityRecord"`;
-  // Scoping: admin sees all; non-admin with a practice assignment sees own practice by default
-  const isAdmin = user.tier === "admin";
+  // Scoping: owner/admin sees all; users with a practice assignment see own practice by default
+  const isAdmin = ["owner", "admin"].includes(user.account_type as string);
   if (!isAdmin && user.practice && !practiceArea) {
     filter += ` && practiceArea == "${user.practice}"`;
   } else if (practiceArea) {
@@ -55,5 +55,5 @@ export async function GET(req: Request) {
     human_led: records.filter((r: { aiClassification: string }) => r.aiClassification === "human_led").length,
   };
 
-  return NextResponse.json({ records, stats, userTier: user.tier, userPractice: user.practice });
+  return NextResponse.json({ records, stats, userAccountType: user.account_type, userPractice: user.practice });
 }

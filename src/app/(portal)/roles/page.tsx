@@ -63,8 +63,11 @@ export default function RolesPage() {
     const role = roles.find((r) => r.id === roleId);
     const existing = role?.permissions.find((p) => p.action === action);
 
-    if (scope === null) {
-      // Remove — but only if it exists
+    // Clicking the already-active scope toggles it off
+    const isToggleOff = scope !== null && existing?.scope === scope;
+    const shouldRemove = scope === null || isToggleOff;
+
+    if (shouldRemove) {
       if (existing) {
         const res = await fetch(`/api/roles/${roleId}`, {
           method: "PATCH",
@@ -77,7 +80,7 @@ export default function RolesPage() {
         }
       }
     } else {
-      // Add or update scope
+      // Add or switch scope
       const res = await fetch(`/api/roles/${roleId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },

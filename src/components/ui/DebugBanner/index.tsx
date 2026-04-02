@@ -15,19 +15,22 @@ export default function DebugBanner() {
   const fetchDebugState = useCallback(async () => {
     try {
       const res = await fetch("/api/me/debug");
-      if (res.ok) {
-        const data = await res.json();
-        setDebugRole(data.debug_role ?? null);
+      // 401 = logged out, 200 with null = not in debug. Either way, hide banner.
+      if (!res.ok) {
+        setDebugRole(null);
+        return;
       }
+      const data = await res.json();
+      setDebugRole(data.debug_role ?? null);
     } catch {
-      // Silently ignore — banner is non-critical
+      // Network error — leave current state rather than flashing
     }
   }, []);
 
   useEffect(() => {
     fetchDebugState();
-    // Poll every 30s so the banner disappears automatically if debug is exited via Claude
-    const interval = setInterval(fetchDebugState, 30_000);
+    // 3s polling so portal and Claude stay in near-realtime sync
+    const interval = setInterval(fetchDebugState, 3_000);
     return () => clearInterval(interval);
   }, [fetchDebugState]);
 
@@ -48,11 +51,8 @@ export default function DebugBanner() {
       role="alert"
       aria-live="polite"
       style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
+        // In-flow (not fixed) so the rest of the layout naturally shifts down
+        width: "100%",
         background: "#b45309",
         borderBottom: "2px solid #fbbf24",
         padding: "8px 16px",

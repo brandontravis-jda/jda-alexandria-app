@@ -15,7 +15,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       clientSecret: process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET!,
       issuer: `https://login.microsoftonline.com/${process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID}/v2.0`,
       authorization: {
-        params: { scope: "openid profile email User.Read GroupMember.Read.All" },
+        params: {
+          scope: "openid profile email User.Read GroupMember.Read.All",
+          prompt: "select_account",
+        },
       },
     }),
   ],

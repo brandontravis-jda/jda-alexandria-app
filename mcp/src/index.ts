@@ -659,7 +659,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_get_methodology ─────────────────────────────────────────────
   server.tool(
     "alexandria_get_methodology",
-    "Get the production methodology for a specific deliverable type. Returns instructions, steps, quality checks, and required inputs. Use this when a practitioner needs to produce a specific deliverable. The slug parameter accepts the exact slug OR a plain-english name — it will match either. If unsure of the slug, call alexandria_list_methodologies first to see what's available. IMPORTANT: The response ends with a feedback footer — you MUST present this footer to the practitioner verbatim after delivering the output. Do not paraphrase it or skip it.",
+    "Get the production methodology for a specific deliverable type. Returns instructions, steps, quality checks, and required inputs. Use this when a practitioner needs to produce a specific deliverable. The slug parameter accepts the exact slug OR a plain-english name — it will match either. If unsure of the slug, call alexandria_list_methodologies first to see what's available. The response ends with a section called 'Final Step: Rate This Methodology' — this is an execution instruction, not reference material. You MUST execute it by presenting the blockquote to the practitioner verbatim after delivering the output and completing the approval gate.",
     {
       slug: z.string().describe("The methodology slug OR a plain-english name (e.g. 'post discovery brief', 'brand package extraction', 'post_discovery_brief'). Hyphens, underscores, and spaces are all accepted."),
     },
@@ -798,7 +798,10 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      lines.push(`\n---\n**Rate this methodology** — Once you've reviewed the output, take 30 seconds to rate how well the **${m.name} methodology** performed. Your rating tells the practice team what to improve in the methodology itself — not this conversation, but the instructions Alexandria gave. Say "rate this methodology" and I'll walk you through it.`);
+      lines.push(`\n---\n## Final Step: Rate This Methodology`);
+      lines.push(`After delivering the output and completing the approval gate above, present this to the practitioner:\n`);
+      lines.push(`> **Rate the ${m.name} methodology** — Your rating goes directly to the practice team and tells them what to improve in Alexandria's instructions (not this conversation — the methodology itself). Say **"rate this methodology"** when you're ready and I'll walk you through it. Takes 30 seconds.`);
+      lines.push(`\nThis step is not optional. Present it verbatim after the approval gate.`);
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1288,7 +1291,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_build_template ─────────────────────────────────────────────
   server.tool(
     "alexandria_build_template",
-    "Step 3 of 3 for building a deliverable. Call this ONLY after alexandria_submit_intake has been called and the practitioner has confirmed the intake summary. Requires session_id. The server validates session status — calls on sessions still awaiting intake are rejected. Returns full production instructions with confirmed practitioner parameters injected. IMPORTANT: The response ends with a feedback footer — you MUST present this footer to the practitioner verbatim after delivering the output. Do not paraphrase it or skip it.",
+    "Step 3 of 3 for building a deliverable. Call this ONLY after alexandria_submit_intake has been called and the practitioner has confirmed the intake summary. Requires session_id. The server validates session status — calls on sessions still awaiting intake are rejected. Returns full production instructions with confirmed practitioner parameters injected. The response ends with a section called 'Final Step: Rate This Template' — this is an execution instruction, not reference material. You MUST execute it by presenting the blockquote to the practitioner verbatim after delivering the output.",
     {
       slug: z.string().describe("The template slug from alexandria_get_template."),
       session_id: z.string().describe("The session_id from alexandria_get_template. Must correspond to a completed intake session."),
@@ -1390,7 +1393,10 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
 
-      lines.push(`\n---\n**Rate this template** — Once you've reviewed the output, take 30 seconds to rate how well the **${t.title} template** performed. Your rating tells the practice team what to improve in the template itself — not this conversation, but the instructions Alexandria provided. Say "rate this template" and I'll walk you through it.`);
+      lines.push(`\n---\n## Final Step: Rate This Template`);
+      lines.push(`After delivering the output, present this to the practitioner:\n`);
+      lines.push(`> **Rate the ${t.title} template** — Your rating goes directly to the practice team and tells them what to improve in Alexandria's instructions (not this conversation — the template itself). Say **"rate this template"** when you're ready and I'll walk you through it. Takes 30 seconds.`);
+      lines.push(`\nThis step is not optional. Present it verbatim after delivering the output.`);
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };

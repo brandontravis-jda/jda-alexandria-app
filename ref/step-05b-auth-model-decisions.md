@@ -1,217 +1,230 @@
 # Alexandria Auth Model — Finalized Decisions
 **Date:** April 1, 2026  
 **Status:** Decisions locked. Ready to implement.  
-**Supersedes:** `step-05-alexandria-auth-architecture-decisions.md` (structural direction) and `step-5-auth-architecture-review.md` (issue list)
+**Supersedes:** `step-05-alexandria-auth-architecture-decisions.md` and `step-5-auth-architecture-review.md`
 
 ---
 
-## The Model
+## What We Are Building Now
 
-### Identity Provider (Azure AD)
+### 1. Identity Provider (Azure AD)
 
 Single group: **Alexandria-Users**.
 
-If you are in the group, you can authenticate. That is all Azure does. It does not signal account type, role, or any capability. Everything after "you are authenticated" is the app's responsibility.
+If you are in the group, you can authenticate. That is all Azure does. No tier, no role, no capability is derived from Azure group membership. Everything after "you are authenticated" is the app's responsibility.
 
-**Future enhancement:** Email/password signup with local credentials, building an IdP layer similar to WordPress first-run setup or SaaS account creation. At that point, SSO becomes one of several configured authentication methods rather than the only path. This is not in scope now. Document it, do not build it.
+The existing three-group model (Owners, Admins, Users) collapses to one. The Owners and Admins groups can be retired in Azure or left in place — they will not be read by the application.
 
 ---
 
-### Account Types (3, system-defined, not editable)
+### 2. Account Types
 
-Account types are the platform's administrative tier. They are not the same as App Roles.
+Three fixed types. Not editable. Not the same as Roles.
 
-| Account Type | How you get it | What it means |
+| Account Type | Value | How you get it |
 |---|---|---|
-| **Owner** | First login to a fresh system (no Owner exists). After that, transferred by the current Owner only. | Full platform control. One per platform at all times. |
-| **Admin** | Assigned by Owner or another Admin via portal. | Can manage users, roles, and permissions. |
-| **User** | Default for all new logins. | What they can do is determined entirely by their App Role and any user-level permission overrides. |
+| Owner | `owner` | First login to a fresh system (no Owner exists). After that, transferred by current Owner only. |
+| Admin | `admin` | Assigned by Owner or Admin via portal. |
+| User | `user` | Default for all new logins. |
 
-**Owner rules:**
-- There is exactly one Owner at all times.
-- Cannot be assigned via the standard user management UI. Has its own distinct "Transfer Ownership" action, Owner-initiated only, target must be an existing account.
-- Cannot be modified, demoted, or deleted through any portal API route. This is enforced at the code level, not the permission level.
-- If the Owner account is somehow lost (deleted from DB), recovery requires direct DB access. There is no automatic re-claim mechanism after initial setup. This is intentional — automatic ownership claims after bootstrap are a security surface we don't need.
+**Owner rules — non-negotiable:**
+- Exactly one Owner at all times.
+- Cannot be assigned via standard user management UI. Has its own "Transfer Ownership" action — Owner-initiated, target must be an existing account.
+- Code-level guard in every API route that modifies users: if target user `account_type = 'owner'`, reject with 403. Only the Transfer Ownership route is exempt.
+- If Owner account is lost (deleted from DB): recovery requires direct DB access. No automatic re-claim. This is intentional.
 
-**First login bootstrap:**
-On every login, before creating or updating the user record, the system checks: does an Owner account exist? If not, the authenticating user becomes Owner regardless of who they are. This fires exactly once in the life of a fresh system. After an Owner exists, this check is a no-op.
+**First-login bootstrap:**
+On every login, before creating or updating the user record: does an Owner exist? If not, the authenticating user becomes Owner. This fires exactly once in the life of a fresh system. After an Owner exists, this check is a no-op on every subsequent login.
 
 **Admin assignment:**
-Both Owner and Admin can promote a User to Admin. Only Owner can promote an Admin to Owner (via Transfer, not assignment).
+Owner or Admin can promote a User to Admin. Only Owner can initiate a Transfer of ownership.
+
+**`requireAdmin()` gate:**
+Checks `account_type IN ('owner', 'admin')`. This is an account type check, not a permission check. Account type gates platform administration. The permissions matrix gates capabilities.
 
 ---
 
-### App Roles (fully in-app, customizable)
+### 3. Roles
 
-App Roles define what a user can do. They are entirely managed inside Alexandria — create, rename, edit permissions, delete (non-system roles). No Azure group membership signals a role.
+Fully managed inside the app. Create, rename, edit permissions, delete (non-system roles). No Azure group membership signals a role.
 
 **Role identity is always the UUID.** Display name and slug are editable metadata. Renaming a role never breaks permission lookups, user assignments, or capability checks — everything references the UUID.
 
-**Two system defaults (cannot be deleted, can have permissions edited):**
-- **Editor** — elevated production access. Equivalent to the current `practice_leader` role.
-- **Practitioner** — standard production access. Default for new users.
+**Two system roles (cannot be deleted, permissions are editable):**
+- **Editor** — elevated production access. Equivalent to current `practice_leader` role.
+- **Practitioner** — standard production access. Platform default for new users.
 
-**Additional roles created as needed:** Developer, Project Manager, Account Executive (currently empty shells — populate when Discovery Intensives surface real requirements).
-
-**New users get:** account_type `User` + the org's configured default role (initially: Practitioner).
+**New users get:** `account_type = 'user'` + the org's configured default role (initially: Practitioner).
 
 ---
 
-### Default Role Configuration
+### 4. Configurable Default Role
 
-The default role assigned to new users is configurable by Owner/Admin in org settings (`Settings → Organization`). Stored as `default_role_id` in an org config table.
+Stored in `org_config.default_role_id`. Editable by Owner or Admin in portal Settings → Organization.
 
-**Why this matters:** If JDA later adds interns, contractors, or a new practice with restricted access needs, the admin changes the default role before onboarding that cohort — rather than manually overriding each new user. One setting, one place.
-
-**Future enhancement:** Default role configurable per SSO connection (different IdPs get different defaults). Not in scope now.
+When a new user authenticates for the first time, they receive the role pointed to by `default_role_id`. If that setting is changed, it only affects future new users — existing assignments are not touched.
 
 ---
 
-### Permissions Model
+### 5. Permissions Model
 
-Two layers, always evaluated together.
+Two layers. Always evaluated together. User-level always wins.
 
-**Layer 1 — Role permissions:** Every role has a set of permissions (`resource:operation` format, with scope). A user inherits all permissions from all roles assigned to them. Roles are additive — if a user has two roles, they get the union of both permission sets.
+**Layer 1 — Role permissions:** A user inherits all permissions from all roles assigned to them. Multiple roles are additive — the user gets the union of all role permission sets.
 
-**Layer 2 — User-level overrides:** Permissions can be explicitly granted to a specific user, independent of their role. These stack on top of role permissions. User-level grants always win over role grants.
+**Layer 2 — User-level overrides:** Permissions explicitly set on a specific user, independent of their role. Two types:
+- **Grant** — adds a permission the user's role(s) don't grant.
+- **Deny** — removes a permission the user's role(s) do grant.
 
-**What user-level overrides can do now:**
-- Grant a permission the user's role doesn't have.
-- Remove a redundant explicit grant (clean up).
+User-level always wins over role-level in both directions. Grant beats role absence. Deny beats role grant.
 
-**What user-level overrides cannot do now (future enhancement):**
-- Deny a permission that a role grants. Role-granted permissions cannot be taken away at the user level yet. To restrict a user below their role, change their role or create a more restricted role for them.
-
-**Conflict indicator in the UI:**
-- If a user has a permission explicitly granted that their role already grants → show as "Redundant — granted by role [Role Name]. You can remove this override without changing access."
-- If a user has a permission explicitly granted that their role does not grant → show as "Custom grant — not inherited from any assigned role."
-- Deny conflicts (future) will need their own indicator when built.
-
----
-
-### Permission Lookup
-
-All permission lookups use `app_role_id` (UUID). Never slug, never display name.
-
-Query pattern:
-```sql
-SELECT p.action, p.scope
-FROM user_app_roles ur
-JOIN app_role_permissions p ON p.app_role_id = ur.app_role_id
-WHERE ur.user_id = $userId
-
-UNION
-
-SELECT up.action, up.scope
-FROM user_permissions up
-WHERE up.user_id = $userId
+**Effective permission resolution:**
+```
+effective = (union of all role permissions) + user grants - user denials
 ```
 
-User-level permissions take precedence where there is overlap.
+---
+
+### 6. Permissions UI
+
+**View mode — three distinct sections on the user record:**
+
+- **Role Permissions** — permissions this user has because of their assigned role(s). Each permission shows which role grants it. Read-only. To change, edit the role or change the user's role assignment.
+- **Granted Permissions** — user-level additions. Permissions this user has that their role(s) don't grant. Shows who granted it and when.
+- **Denied Permissions** — permissions explicitly blocked for this user. Shows which role would have granted it if the denial weren't in place.
+
+**Edit mode — unified permission list with inline toggle:**
+All known permissions shown in one list. Each row has a three-state toggle:
+- **Grant** — explicitly grant this permission to the user (regardless of role)
+- **Deny** — explicitly deny this permission for this user (regardless of role)
+- **Inherit** — no user-level override; user gets whatever their role(s) grant
+
+**Status indicators on each row:**
+- Role grants it + Inherit → active via role (normal state)
+- Role grants it + Grant → "Redundant — already granted by [Role Name]"
+- Role grants it + Deny → "Denied — overrides [Role Name]" (shown with warning color)
+- Role doesn't grant it + Grant → "Custom grant — not from any assigned role"
+- Role doesn't grant it + Deny → "Denial has no effect — role doesn't grant this"
+- Role doesn't grant it + Inherit → not granted (normal state)
 
 ---
 
-### `alexandria_whoami` Response
+### 7. `roles` Table and Naming
 
-Returns all three layers clearly:
+No `app_` prefix. Clean names.
 
-```
-Account type: Owner
-App role: Editor
-  Permissions from role:
-    methodology:read (scope: all)
-    methodology:write (scope: own_practice)
-    [...]
-User-level overrides:
-    mcp_tool:alexandria_save_template (scope: all) — custom grant
-```
-
-If no user-level overrides: "No custom permissions — all access from assigned role."
+| Concept | Table / Column |
+|---|---|
+| Administrative tier | `users.account_type` (values: `owner`, `admin`, `user`) |
+| Capability groups | `roles` table |
+| User → role assignment | `user_roles` table |
+| Role → permission | `role_permissions` table |
+| User-level overrides | `user_permissions` table |
+| Org default role | `org_config.default_role_id` |
 
 ---
 
-### Naming Conventions (to eliminate the `role` collision)
-
-| What | Old name | New name |
-|---|---|---|
-| Administrative tier | `tier` (column), `"admin"` (value) | `account_type` (column), `"owner"` / `"admin"` / `"user"` |
-| App-defined capability groups | `roles` (table), `role` (general) | `app_roles` (table), "App Role" (UI label) |
-| User→role assignment | `user_roles` (table) | `user_app_roles` (table) |
-| Role permissions | `permissions` (table) | `app_role_permissions` (table) |
-| User permission overrides | (didn't exist) | `user_permissions` (table) |
-| Org default role | (didn't exist) | `org_config.default_role_id` |
-
----
-
-### Database Schema Changes
+### 8. Database Schema
 
 ```sql
--- users table: rename tier → account_type, values: 'owner' | 'admin' | 'user'
+-- Rename tier → account_type on users table
 ALTER TABLE users RENAME COLUMN tier TO account_type;
 
--- New org_config table (singleton row, id = 1)
+-- Update account_type values: 'admin' stays 'admin', add 'owner', 'user' replaces 'practitioner'
+-- (data migration: existing 'practitioner' → 'user', existing 'admin' → 'admin')
+
+-- Rename roles → no change (already correct name)
+-- Rename user_roles → no change (already correct name)  
+-- Rename permissions → role_permissions
+ALTER TABLE permissions RENAME TO role_permissions;
+
+-- Org config singleton (one row, id always = 1)
 CREATE TABLE org_config (
   id              INTEGER PRIMARY KEY DEFAULT 1,
-  default_role_id UUID REFERENCES app_roles(id),
-  CHECK (id = 1)  -- only one row ever
+  default_role_id UUID REFERENCES roles(id),
+  CHECK (id = 1)
 );
+INSERT INTO org_config (default_role_id)
+  SELECT id FROM roles WHERE slug = 'practitioner';
 
--- Rename roles → app_roles (no structural change)
-ALTER TABLE roles RENAME TO app_roles;
-
--- Rename user_roles → user_app_roles (no structural change)
-ALTER TABLE user_roles RENAME TO user_app_roles;
-
--- Rename permissions → app_role_permissions (no structural change)
-ALTER TABLE permissions RENAME TO app_role_permissions;
-
--- New user_permissions table (user-level overrides)
+-- User-level permission overrides
 CREATE TABLE user_permissions (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   action     TEXT NOT NULL,
+  type       TEXT NOT NULL CHECK (type IN ('grant', 'deny')),
   scope      TEXT NOT NULL DEFAULT 'all'
                CHECK (scope IN ('own_practice', 'all', 'none')),
   granted_by INTEGER REFERENCES users(id),
-  granted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  UNIQUE(user_id, action)
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(user_id, action)  -- one override per user per action
 );
+
+CREATE INDEX user_permissions_user_idx ON user_permissions(user_id);
 ```
 
 ---
 
-### What Changes in the Code
+### 9. Permission Resolver (`checkPermission`)
 
-**MCP `authTierFromGroups`:** Collapses to: in group → authenticated, not in group → rejected. No tier mapping from Azure.
+```sql
+-- Step 1: get role-based permissions for user
+SELECT rp.action, rp.scope, 'role' AS source
+FROM user_roles ur
+JOIN role_permissions rp ON rp.role_id = ur.role_id
+WHERE ur.user_id = $userId
 
-**`upsertUser`:** On first login ever (no Owner exists) → set `account_type = 'owner'`. On all subsequent first-time logins → set `account_type = 'user'`, assign `default_role_id` from `org_config`. On returning logins → update email, name, last_seen_at only. Account type and role never overwritten by login.
+-- Step 2: get user-level overrides
+SELECT action, scope, type
+FROM user_permissions
+WHERE user_id = $userId
+```
 
-**`checkPermission`:** Queries `user_app_roles → app_role_permissions` UNION `user_permissions`. User-level wins on conflict.
-
-**`requireAdmin`:** Checks `account_type IN ('owner', 'admin')`. Not a permission check — account type is the correct gate for platform administration. Permission checks are for capability decisions.
-
-**Owner guard:** Any API route that modifies a user checks: is the target user `account_type = 'owner'`? If yes, reject with 403. Only the Transfer Ownership route is exempt from this guard.
-
-**Portal `auth.ts`:** No tier mapping from Azure groups. `authTierFromGroups` removed. On login: verify user is in Alexandria-Users group. If not, reject. If yes, proceed to `upsertUser`.
-
----
-
-### What Does NOT Change
-
-- The `checkPermission()` resolver pattern — same logic, new table names.
-- The permissions matrix content — same actions, same scopes, just in renamed tables.
-- The MCP OAuth flow — no changes to `/authorize`, `/token`, `/callback`. The only change is what happens after a successful Azure auth.
-- Existing seeded permissions — migrate to new table names, data intact.
+Resolution logic:
+1. Build map of all role-granted permissions
+2. Apply user-level denials (remove from map)
+3. Apply user-level grants (add to map)
+4. Result is effective permission set
 
 ---
 
-### Future Enhancements (document, do not build)
+### 10. Code Changes
 
-1. **User-level permission denials** — explicitly deny a permission a role grants. Requires conflict UI design and precedence rules for "role updated to grant more."
-2. **Per-SSO-connection default role** — different IdPs get different default roles at onboarding.
-3. **Email/password authentication** — local credentials as an alternative to SSO. Builds an IdP layer. Standard SaaS first-run setup (like WordPress). SSO becomes one configured auth method, not the only path.
-4. **Configurable Owner recovery flow** — a designated recovery admin who can reclaim Owner via a time-limited token without DB access. Useful if/when Alexandria becomes a product used by others.
+**`mcp/src/index.ts`:**
+- `authTierFromGroups` → simplified: in group = authenticated, not in group = rejected. Returns `null` | `"authenticated"`. No tier derived from Azure.
+- `upsertUser`: on first-login-ever (no Owner in DB) → set `account_type = 'owner'`. On new user → set `account_type = 'user'`, assign `org_config.default_role_id`. On returning user → update email, name, last_seen_at only. Never overwrite `account_type` or roles.
+- `checkPermission`: updated to query `user_roles → role_permissions` UNION `user_permissions`, apply deny/grant logic.
+- `isPrivileged`: remove (dead code).
+- `alexandria_whoami`: returns account_type, role(s) with permissions, user-level grants, user-level denials.
+
+**`src/lib/auth.ts`:**
+- Remove group-to-tier mapping. Verify user is in Alexandria-Users group. If yes, call `upsertUser`. If no, reject.
+- `authTierFromGroups` removed.
+
+**Portal API routes:**
+- `requireAdmin()`: checks `account_type IN ('owner', 'admin')`.
+- All user-modifying routes: add Owner guard — if target `account_type = 'owner'`, return 403 (except Transfer Ownership route).
+- `/api/users/[id]` PATCH: handle `user_permissions` add/remove alongside existing role assignment.
+- New route: `POST /api/users/[id]/transfer-ownership` — Owner only, swaps `account_type` between two users atomically.
+
+**Portal UI:**
+- `/users` page: add permissions view/edit UI with three-section view mode and toggle edit mode.
+- `/settings` page (new): org config — default role selector.
+- `/users/[id]` or modal: Transfer Ownership action (Owner-only, shown only to Owner).
 
 ---
 
-*Decisions finalized April 1, 2026. Implementation spec for Cursor — build against this document.*
+## What Is Deferred
+
+### IdP group → role mapping table
+A future `idp_group_role_mappings` table maps an external IdP group ID to a role UUID. When a user authenticates and is in a mapped group, they get that role automatically instead of the default. Needed when you have multiple Azure groups with different meanings, or a second IdP. For now: everyone gets the default role, admins assign roles manually.
+
+### Email/password authentication
+Local credentials as an alternative to SSO. Full IdP layer — like WordPress first-run or SaaS account creation. SSO becomes one of several configured auth methods. Not in scope until Alexandria is used by external organizations.
+
+### Configurable Owner recovery
+A time-limited recovery token so a designated person can reclaim Owner without DB access. For now: Owner lost = DB access required.
+
+---
+
+*Decisions finalized April 1, 2026. Build against this document.*

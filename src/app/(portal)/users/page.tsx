@@ -637,7 +637,7 @@ export default function UsersPage() {
                         </button>
 
                     {/* Transfer Ownership — owner only */}
-                    {currentUserAccountType === "owner" && user.account_type !== "owner" && (
+                    {(currentUserAccountType as string) === "owner" && (
                       <div>
                         {transferTarget !== user.id ? (
                           <button

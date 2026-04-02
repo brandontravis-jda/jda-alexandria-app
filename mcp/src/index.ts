@@ -798,7 +798,7 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-      lines.push(`\n---\n**Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call \`alexandria_log_feedback\` when you're ready, or say "log feedback for this output."`);
+      lines.push(`\n---\n**Rate this methodology** — Once you've reviewed the output, take 30 seconds to rate how well the **${m.name} methodology** performed. Your rating tells the practice team what to improve in the methodology itself — not this conversation, but the instructions Alexandria gave. Say "rate this methodology" and I'll walk you through it.`);
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1390,7 +1390,7 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
 
-      lines.push(`\n---\n**Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call \`alexandria_log_feedback\` when you're ready, or say "log feedback for this output."`);
+      lines.push(`\n---\n**Rate this template** — Once you've reviewed the output, take 30 seconds to rate how well the **${t.title} template** performed. Your rating tells the practice team what to improve in the template itself — not this conversation, but the instructions Alexandria provided. Say "rate this template" and I'll walk you through it.`);
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -2016,7 +2016,7 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_log_feedback ───────────────────────────────────────────────
   server.tool(
     "alexandria_log_feedback",
-    "Log structured feedback on a methodology or template output. Call this after delivering a production output. Once called, ask the practitioner the structured questions below — verbatim, in order — then call this tool again with their answers. Do NOT skip any question. Questions to ask after calling this tool: (1) \"How would you rate this output overall? 1 = significant problems, 5 = production-ready as-is.\" (2) \"Was the content and structure accurate for this deliverable type? Yes or no.\" (3) \"Was the brand applied correctly — colors, fonts, voice, logos? Yes or no.\" (4) \"Did the output need significant rework before you could share it? Yes or no.\" (5) \"Anything specific to note — what worked, what didn't, what should change? (Optional — press Enter to skip.)\" Then call alexandria_log_feedback with all collected answers.",
+    "Log a practitioner's rating of an Alexandria methodology or template — meaning their assessment of how well Alexandria's instructions performed, not a rating of this conversation. Call this when the practitioner says they want to rate a methodology or template. Then ask these questions verbatim, in order, before calling the tool with their answers: (1) \"How would you rate the methodology itself? 1 = the instructions produced significant problems, 5 = the instructions were production-ready as-is.\" (2) \"Was the content and structure the methodology produced accurate for this deliverable type? Yes or no.\" (3) \"Was the brand applied correctly — colors, fonts, voice, logos? Yes or no.\" (4) \"Did the output need significant rework before you could share it with the client? Yes or no.\" (5) \"Anything specific to note about the methodology — what worked, what the instructions got wrong, what should change? Optional.\" Do NOT skip any question. Collect all answers first, then call this tool once with the complete set.",
     {
       content_type: z.enum(["methodology", "template"]).describe("Whether this feedback is for a methodology or a template run"),
       content_slug: z.string().describe("The slug of the methodology or template that was used"),

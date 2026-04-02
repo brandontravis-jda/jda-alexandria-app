@@ -41,6 +41,11 @@ export default function RolesPage() {
   const [addScope, setAddScope] = useState<"own_practice" | "all" | "none">("own_practice");
   const [addingFor, setAddingFor] = useState<string | null>(null);
 
+  // Rename state
+  const [renamingRole, setRenamingRole] = useState<string | null>(null);
+  const [renameDisplay, setRenameDisplay] = useState("");
+  const [renameDesc, setRenameDesc] = useState("");
+
   // Create role form state
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState("");
@@ -105,6 +110,24 @@ export default function RolesPage() {
       setShowCreate(false);
     }
     setCreating(false);
+  }
+
+  async function renameRole(roleId: string) {
+    if (!renameDisplay.trim()) return;
+    setSaving(roleId);
+    const res = await fetch(`/api/roles/${roleId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: renameDisplay.trim(), description: renameDesc.trim() || null }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setRoles((prev) => prev.map((r) =>
+        r.id === roleId ? { ...r, ...data.role, permissions: data.permissions ?? r.permissions } : r
+      ));
+      setRenamingRole(null);
+    }
+    setSaving(null);
   }
 
   async function deleteRole(roleId: string) {
@@ -200,37 +223,88 @@ export default function RolesPage() {
                 style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)", opacity: isSaving ? 0.7 : 1, transition: "opacity 0.15s" }}
               >
                 {/* Role header row */}
-                <div
-                  className="flex items-center justify-between px-5 py-4 cursor-pointer"
-                  onClick={() => setExpandedRole(isExpanded ? null : role.id)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-sm font-semibold" style={{ color: "var(--color-jda-cream)" }}>
-                          {role.display_name}
-                        </span>
-                        {role.is_system && (
-                          <span
-                            className="text-xs px-1.5 py-0.5 rounded"
-                            style={{ background: "rgba(255,255,255,0.06)", color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
-                          >
-                            SYSTEM
+                {renamingRole === role.id ? (
+                  <div className="flex items-center gap-3 px-5 py-4">
+                    <input
+                      autoFocus
+                      value={renameDisplay}
+                      onChange={(e) => setRenameDisplay(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") renameRole(role.id); if (e.key === "Escape") setRenamingRole(null); }}
+                      placeholder="Display name"
+                      className="text-sm px-3 py-1.5 rounded-lg font-semibold"
+                      style={{ background: "var(--color-jda-bg)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-cream)", outline: "none", minWidth: 180 }}
+                    />
+                    <input
+                      value={renameDesc}
+                      onChange={(e) => setRenameDesc(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") renameRole(role.id); if (e.key === "Escape") setRenamingRole(null); }}
+                      placeholder="Description (optional)"
+                      className="text-sm px-3 py-1.5 rounded-lg flex-1"
+                      style={{ background: "var(--color-jda-bg)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text)", outline: "none" }}
+                    />
+                    <button
+                      onClick={() => renameRole(role.id)}
+                      disabled={!renameDisplay.trim() || isSaving}
+                      className="text-xs px-3 py-1.5 rounded font-semibold"
+                      style={{ background: "var(--color-jda-red)", color: "#fff", border: "none", cursor: "pointer", opacity: !renameDisplay.trim() ? 0.5 : 1 }}
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => setRenamingRole(null)}
+                      className="text-xs px-3 py-1.5 rounded"
+                      style={{ background: "transparent", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div
+                    className="flex items-center justify-between px-5 py-4 cursor-pointer"
+                    onClick={() => setExpandedRole(isExpanded ? null : role.id)}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold" style={{ color: "var(--color-jda-cream)" }}>
+                            {role.display_name}
                           </span>
+                          {role.is_system && (
+                            <span
+                              className="text-xs px-1.5 py-0.5 rounded"
+                              style={{ background: "rgba(255,255,255,0.06)", color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", letterSpacing: "0.06em" }}
+                            >
+                              SYSTEM
+                            </span>
+                          )}
+                        </div>
+                        {role.description && (
+                          <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>{role.description}</p>
                         )}
                       </div>
-                      {role.description && (
-                        <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)" }}>{role.description}</p>
-                      )}
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+                        {role.permissions.length} permission{role.permissions.length !== 1 ? "s" : ""} · {role.user_count} user{role.user_count !== 1 ? "s" : ""}
+                      </span>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRenamingRole(role.id);
+                          setRenameDisplay(role.display_name);
+                          setRenameDesc(role.description ?? "");
+                          setExpandedRole(role.id);
+                        }}
+                        className="text-xs px-2 py-1 rounded"
+                        style={{ background: "rgba(255,255,255,0.05)", border: "1px solid var(--color-jda-border)", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
+                        title="Rename role"
+                      >
+                        Rename
+                      </button>
+                      <span style={{ color: "var(--color-jda-text-muted)", fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4">
-                    <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                      {role.permissions.length} permission{role.permissions.length !== 1 ? "s" : ""} · {role.user_count} user{role.user_count !== 1 ? "s" : ""}
-                    </span>
-                    <span style={{ color: "var(--color-jda-text-muted)", fontSize: 12 }}>{isExpanded ? "▲" : "▼"}</span>
-                  </div>
-                </div>
+                )}
 
                 {/* Expanded permission list */}
                 {isExpanded && (

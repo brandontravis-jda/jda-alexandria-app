@@ -80,15 +80,19 @@ export default function UsersPage() {
   const [currentUserAccountType, setCurrentUserAccountType] = useState<string | null>(null);
 
   async function loadUsers() {
-    const res = await fetch("/api/users");
-    if (res.ok) {
-      const data = await res.json();
+    const [usersRes, meRes] = await Promise.all([
+      fetch("/api/users"),
+      fetch("/api/me"),
+    ]);
+    if (usersRes.ok) {
+      const data = await usersRes.json();
       setUsers(data.users ?? []);
       setAllRoles(data.allRoles ?? []);
       setAllActions(data.allActions ?? []);
-      // Determine current user's account type from the session
-      const me = (data.users ?? []).find((u: User) => u.portal_access);
-      setCurrentUserAccountType(me?.account_type ?? null);
+    }
+    if (meRes.ok) {
+      const me = await meRes.json();
+      setCurrentUserAccountType(me.account_type ?? null);
     }
     setLoading(false);
   }

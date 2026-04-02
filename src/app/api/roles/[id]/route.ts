@@ -22,13 +22,33 @@ export async function PATCH(
   const { id: roleId } = await params;
 
   const body = await request.json().catch(() => ({}));
-  const { add_permission, remove_permission_id } = body as {
+  const { display_name, description, add_permission, remove_permission_id } = body as {
+    display_name?: string;
+    description?: string;
     add_permission?: { action: string; scope: string };
     remove_permission_id?: string;
   };
 
   const [role] = await db`SELECT id, is_system FROM roles WHERE id = ${roleId}`;
   if (!role) return NextResponse.json({ error: "Role not found" }, { status: 404 });
+
+  // Rename / update description (works on system and non-system roles)
+  if (display_name !== undefined || description !== undefined) {
+    if (display_name !== undefined && !display_name.trim()) {
+      return NextResponse.json({ error: "display_name cannot be empty" }, { status: 400 });
+    }
+    const newSlug = display_name
+      ? display_name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "")
+      : undefined;
+
+    await db`
+      UPDATE roles SET
+        display_name = COALESCE(${display_name?.trim() ?? null}, display_name),
+        slug         = COALESCE(${newSlug ?? null}, slug),
+        description  = COALESCE(${description ?? null}, description)
+      WHERE id = ${roleId}
+    `;
+  }
 
   if (add_permission) {
     const validScopes = ["own_practice", "all", "none"];
@@ -46,11 +66,14 @@ export async function PATCH(
     await db`DELETE FROM role_permissions WHERE id = ${remove_permission_id} AND role_id = ${roleId}`;
   }
 
+  const [updatedRole] = await db`
+    SELECT id, slug, display_name, description, is_system FROM roles WHERE id = ${roleId}
+  `;
   const permissions = await db`
     SELECT id, action, scope FROM role_permissions WHERE role_id = ${roleId} ORDER BY action
   `;
 
-  return NextResponse.json({ permissions });
+  return NextResponse.json({ role: updatedRole, permissions });
 }
 
 // DELETE /api/roles/[id] — delete a role (admin only, cannot delete system roles)

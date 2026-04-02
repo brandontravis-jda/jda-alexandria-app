@@ -2,6 +2,8 @@ import { auth } from "@/lib/auth";
 import { getUserByObjectId } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/me — return the current authenticated user's DB record
 export async function GET() {
   const session = await auth();

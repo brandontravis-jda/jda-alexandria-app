@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { getUserByObjectId } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
+export const dynamic = "force-dynamic";
+
 // GET /api/me/debug
 // Returns the active debug role (if any) on the current user's most-recently-used MCP OAuth session.
 // Only meaningful for owners. Used by the portal debug banner.

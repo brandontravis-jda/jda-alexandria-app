@@ -161,7 +161,6 @@ export default function UsersPage() {
   }
 
   async function transferOwnership(targetId: number) {
-    if (!confirm("Transfer ownership to this user? You will become an Admin.")) return;
     setSaving(targetId);
     const res = await fetch(`/api/users/${targetId}/transfer-ownership`, { method: "POST" });
     setSaving(null);

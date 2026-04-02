@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 
 interface ApiKey {
   id: number;
@@ -35,6 +36,7 @@ export default function SettingsPage() {
   const [allRoles, setAllRoles] = useState<Role[]>([]);
   const [orgConfig, setOrgConfig] = useState<OrgConfig>({ default_role_id: null, default_role_name: null });
   const [savingOrgConfig, setSavingOrgConfig] = useState(false);
+  const [revokeModal, setRevokeModal] = useState<ApiKey | null>(null);
 
   async function copyToClipboard(text: string) {
     await navigator.clipboard.writeText(text);
@@ -104,9 +106,9 @@ export default function SettingsPage() {
   }
 
   async function revokeKey(id: number) {
-    if (!confirm("Revoke this API key? This cannot be undone.")) return;
     await fetch(`/api/keys?id=${id}`, { method: "DELETE" });
     await loadKeys();
+    setRevokeModal(null);
   }
 
   function formatDate(ts: string | null) {
@@ -297,7 +299,7 @@ export default function SettingsPage() {
                   </p>
                 </div>
                 <button
-                  onClick={() => revokeKey(k.id)}
+                  onClick={() => setRevokeModal(k)}
                   style={{
                     background: "transparent",
                     border: "1px solid var(--color-jda-border)",
@@ -315,6 +317,15 @@ export default function SettingsPage() {
           )}
         </div>
       </section>
+      <ConfirmModal
+        open={!!revokeModal}
+        title="Revoke API key"
+        message={`Revoke "${revokeModal?.name}"? Any connections using this key will stop working immediately. This cannot be undone.`}
+        confirmLabel="Revoke"
+        confirmDanger
+        onConfirm={() => revokeModal && revokeKey(revokeModal.id)}
+        onCancel={() => setRevokeModal(null)}
+      />
     </div>
   );
 }

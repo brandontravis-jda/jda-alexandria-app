@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import ConfirmModal from "@/components/ui/ConfirmModal";
 
 interface Permission {
   id: string;
@@ -45,6 +46,9 @@ export default function RolesPage() {
   const [renamingRole, setRenamingRole] = useState<string | null>(null);
   const [renameDisplay, setRenameDisplay] = useState("");
   const [renameDesc, setRenameDesc] = useState("");
+
+  // Confirm modal state
+  const [confirmModal, setConfirmModal] = useState<{ roleId: string; name: string } | null>(null);
 
   // Create role form state
   const [showCreate, setShowCreate] = useState(false);
@@ -131,12 +135,12 @@ export default function RolesPage() {
   }
 
   async function deleteRole(roleId: string) {
-    if (!confirm("Delete this role? This will remove it from all assigned users.")) return;
     const res = await fetch(`/api/roles/${roleId}`, { method: "DELETE" });
     if (res.ok) {
       setRoles((prev) => prev.filter((r) => r.id !== roleId));
       if (expandedRole === roleId) setExpandedRole(null);
     }
+    setConfirmModal(null);
   }
 
   return (
@@ -395,7 +399,7 @@ export default function RolesPage() {
                         </button>
                         {!role.is_system && (
                           <button
-                            onClick={() => deleteRole(role.id)}
+                            onClick={() => setConfirmModal({ roleId: role.id, name: role.display_name })}
                             className="text-xs px-3 py-1.5 rounded"
                             style={{ background: "transparent", border: "1px solid rgba(239,68,68,0.3)", color: "var(--color-jda-red)", cursor: "pointer" }}
                           >
@@ -419,6 +423,16 @@ export default function RolesPage() {
         <span style={{ fontFamily: "monospace" }}>all</span>, or{" "}
         <span style={{ fontFamily: "monospace" }}>none</span>.
       </p>
+
+      <ConfirmModal
+        open={!!confirmModal}
+        title="Delete role"
+        message={`Delete "${confirmModal?.name}"? This will remove it from all assigned users and cannot be undone.`}
+        confirmLabel="Delete"
+        confirmDanger
+        onConfirm={() => confirmModal && deleteRole(confirmModal.roleId)}
+        onCancel={() => setConfirmModal(null)}
+      />
     </div>
   );
 }

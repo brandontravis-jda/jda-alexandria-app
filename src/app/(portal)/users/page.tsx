@@ -279,7 +279,15 @@ export default function UsersPage() {
             return (
               <div key={user.id}>
                 <div
-                  className="grid items-center px-6 py-4 border-t"
+                  className="grid items-center px-6 py-4 border-t cursor-pointer"
+                  onClick={async (e) => {
+                    // Don't expand if clicking an interactive child (select, button, input)
+                    if ((e.target as HTMLElement).closest("button, select, input, a")) return;
+                    const next = isExpanded ? null : user.id;
+                    setExpandedUser(next);
+                    setPermEditMode(null);
+                    if (next !== null) await loadRolePermissions(user);
+                  }}
                   style={{
                     gridTemplateColumns: "1fr 140px 180px 80px 80px 100px",
                     borderColor: i === 0 ? "transparent" : "var(--color-jda-border)",
@@ -289,23 +297,12 @@ export default function UsersPage() {
                 >
                   {/* Name + email */}
                   <div>
-                    <button
-                      onClick={async () => {
-                        const next = isExpanded ? null : user.id;
-                        setExpandedUser(next);
-                        setPermEditMode(null);
-                        if (next !== null) await loadRolePermissions(user);
-                      }}
-                      className="text-left"
-                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }}
-                    >
-                      <p className="text-sm font-medium" style={{ color: "var(--color-jda-cream)" }}>
-                        {user.name ?? "Unknown"}
-                      </p>
-                      <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)", fontFamily: "monospace" }}>
-                        {user.email ?? user.object_id}
-                      </p>
-                    </button>
+                    <p className="text-sm font-medium" style={{ color: "var(--color-jda-cream)" }}>
+                      {user.name ?? "Unknown"}
+                    </p>
+                    <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)", fontFamily: "monospace" }}>
+                      {user.email ?? user.object_id}
+                    </p>
                   </div>
 
                   {/* Account type badge — clickable to promote/demote if current user is owner/admin and target is not owner */}
@@ -433,262 +430,224 @@ export default function UsersPage() {
                     </button>
                   </div>
 
-                  {/* Last seen */}
-                  <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                    {formatDate(user.last_seen_at)}
-                  </p>
+                  {/* Last seen + expand chevron */}
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+                      {formatDate(user.last_seen_at)}
+                    </p>
+                    <span style={{ color: "var(--color-jda-text-muted)", fontSize: 10, marginLeft: 8 }}>
+                      {isExpanded ? "▲" : "▼"}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Expanded panel */}
                 {isExpanded && (
                   <div
-                    className="px-6 pb-5 border-t"
+                    className="px-6 pb-6 border-t"
                     style={{ borderColor: "var(--color-jda-border)", background: "rgba(255,255,255,0.02)" }}
                   >
-                    {/* Panel tabs */}
-                    <div className="flex gap-4 pt-3 pb-3 border-b" style={{ borderColor: "var(--color-jda-border)" }}>
-                      <button
-                        onClick={() => setPermEditMode(null)}
-                        className="text-xs font-semibold pb-1"
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          color: !isPermEdit ? "var(--color-jda-cream)" : "var(--color-jda-text-muted)",
-                          borderBottom: !isPermEdit ? "2px solid var(--color-jda-accent)" : "2px solid transparent",
-                          letterSpacing: "0.06em", textTransform: "uppercase",
-                        }}
-                      >
-                        Roles &amp; Permissions
-                      </button>
-                      <button
-                        onClick={() => setPermEditMode(user.id)}
-                        className="text-xs font-semibold pb-1"
-                        style={{
-                          background: "none", border: "none", cursor: "pointer",
-                          color: isPermEdit ? "var(--color-jda-cream)" : "var(--color-jda-text-muted)",
-                          borderBottom: isPermEdit ? "2px solid var(--color-jda-accent)" : "2px solid transparent",
-                          letterSpacing: "0.06em", textTransform: "uppercase",
-                        }}
-                      >
-                        Edit Overrides
-                      </button>
-                      {currentUserAccountType === "owner" && user.account_type !== "owner" && (
-                        <button
-                          onClick={() => setTransferTarget(transferTarget === user.id ? null : user.id)}
-                          className="text-xs font-semibold pb-1 ml-auto"
-                          style={{
-                            background: "none", border: "none", cursor: "pointer",
-                            color: "#fbbf24",
-                            borderBottom: "2px solid transparent",
-                            letterSpacing: "0.06em", textTransform: "uppercase",
-                          }}
-                        >
-                          Transfer Ownership
-                        </button>
-                      )}
-                    </div>
+                    <div className="mt-4 grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
 
-                    {/* Transfer ownership confirmation */}
-                    {transferTarget === user.id && (
-                      <div
-                        className="mt-3 mb-2 p-3 rounded-lg"
-                        style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}
-                      >
-                        <p className="text-sm font-semibold mb-2" style={{ color: "#fbbf24" }}>
-                          Transfer ownership to {user.name ?? user.email}?
+                      {/* LEFT: Roles */}
+                      <div>
+                        <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                          Roles
                         </p>
-                        <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>
-                          You will become an Admin. Exactly one Owner exists at all times. This cannot be undone without DB access.
-                        </p>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => transferOwnership(user.id)}
-                            className="text-xs px-3 py-1.5 rounded font-semibold"
-                            style={{ background: "#fbbf24", color: "#000", border: "none", cursor: "pointer" }}
-                          >
-                            Confirm Transfer
-                          </button>
-                          <button
-                            onClick={() => setTransferTarget(null)}
-                            className="text-xs px-3 py-1.5 rounded"
-                            style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px solid var(--color-jda-border)", cursor: "pointer" }}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {!isPermEdit ? (
-                      /* ── VIEW MODE ── */
-                      <div className="mt-3 space-y-4">
-                        {/* Section 1: Role Permissions */}
-                        <div>
-                          <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                            Role Permissions
-                          </p>
-                          {rolePermissions.length === 0 ? (
-                            <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions from assigned roles.</p>
-                          ) : (
-                            <div className="flex flex-col gap-1">
-                              {rolePermissions.map((rp) => {
-                                const role = user.roles.find((r) => r.id === rp.role_id);
-                                return (
-                                  <div key={`${rp.role_id}-${rp.action}`} className="flex items-center gap-2">
-                                    <span className="text-xs font-mono" style={{ color: "var(--color-jda-text)" }}>{rp.action}</span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{rp.scope}</span>
-                                    {role && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {role.display_name}</span>}
-                                  </div>
-                                );
-                              })}
-                            </div>
+                        <div className="flex flex-wrap gap-2 mb-2">
+                          {user.roles.length === 0 && (
+                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>
                           )}
-                        </div>
-
-                        {/* Role assignment */}
-                        <div>
-                          <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                            Assigned Roles
-                          </p>
-                          <div className="flex flex-wrap gap-2 mb-2">
-                            {user.roles.length === 0 && (
-                              <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>
-                            )}
-                            {user.roles.map((r) => (
-                              <span
-                                key={r.id}
-                                className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
-                                style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}
+                          {user.roles.map((r) => (
+                            <span
+                              key={r.id}
+                              className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+                              style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}
+                            >
+                              {r.display_name}
+                              <button
+                                onClick={() => removeRole(user.id, r.id)}
+                                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }}
+                                title="Remove role"
                               >
-                                {r.display_name}
-                                <button
-                                  onClick={() => removeRole(user.id, r.id)}
-                                  style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }}
-                                  title="Remove role"
-                                >
-                                  ×
-                                </button>
-                              </span>
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        {unassignedRoles.length > 0 && (
+                          <div className="flex flex-wrap gap-2">
+                            {unassignedRoles.map((r) => (
+                              <button
+                                key={r.id}
+                                onClick={() => addRole(user.id, r.id)}
+                                className="text-xs px-2 py-1 rounded-full"
+                                style={{
+                                  background: "rgba(255,255,255,0.05)",
+                                  color: "var(--color-jda-text-muted)",
+                                  border: "1px dashed var(--color-jda-border)",
+                                  cursor: "pointer",
+                                }}
+                              >
+                                + {r.display_name}
+                              </button>
                             ))}
                           </div>
-                          {unassignedRoles.length > 0 && (
-                            <div className="flex flex-wrap gap-2">
-                              {unassignedRoles.map((r) => (
-                                <button
-                                  key={r.id}
-                                  onClick={() => addRole(user.id, r.id)}
-                                  className="text-xs px-2 py-1 rounded-full"
-                                  style={{
-                                    background: "rgba(255,255,255,0.05)",
-                                    color: "var(--color-jda-text-muted)",
-                                    border: "1px dashed var(--color-jda-border)",
-                                    cursor: "pointer",
-                                  }}
-                                >
-                                  + {r.display_name}
-                                </button>
-                              ))}
-                            </div>
-                          )}
+                        )}
+                      </div>
+
+                      {/* RIGHT: Permissions */}
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <p className="text-xs font-semibold" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                            Permissions
+                          </p>
+                          <button
+                            onClick={() => setPermEditMode(isPermEdit ? null : user.id)}
+                            className="text-xs px-2 py-0.5 rounded font-semibold"
+                            style={{
+                              background: isPermEdit ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
+                              border: "1px solid var(--color-jda-border)",
+                              color: isPermEdit ? "var(--color-jda-cream)" : "var(--color-jda-text-muted)",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {isPermEdit ? "Done" : "Edit"}
+                          </button>
                         </div>
 
-                        {/* Section 2: Granted overrides */}
-                        {user.user_permissions.filter((p) => p.type === "grant").length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                              Granted Permissions
-                            </p>
-                            <div className="flex flex-col gap-1">
-                              {user.user_permissions.filter((p) => p.type === "grant").map((p) => (
-                                <div key={p.id} className="flex items-center gap-2">
-                                  <span className="text-xs font-mono" style={{ color: "#60a5fa" }}>+ {p.action}</span>
-                                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{p.scope}</span>
-                                  {p.granted_by_name && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>by {p.granted_by_name}</span>}
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Section 3: Denied overrides */}
-                        {user.user_permissions.filter((p) => p.type === "deny").length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                              Denied Permissions
-                            </p>
-                            <div className="flex flex-col gap-1">
-                              {user.user_permissions.filter((p) => p.type === "deny").map((p) => {
-                                const roleGrant = getRoleGrantingAction(user, p.action);
-                                return (
+                        {!isPermEdit ? (
+                          /* View mode */
+                          <div className="flex flex-col gap-1">
+                            {rolePermissions.length === 0 && user.user_permissions.length === 0 ? (
+                              <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions from assigned roles.</p>
+                            ) : (
+                              <>
+                                {rolePermissions.map((rp) => {
+                                  const role = user.roles.find((r) => r.id === rp.role_id);
+                                  const denied = user.user_permissions.find((p) => p.action === rp.action && p.type === "deny");
+                                  return (
+                                    <div key={`${rp.role_id}-${rp.action}`} className="flex items-center gap-2">
+                                      <span
+                                        className="text-xs font-mono"
+                                        style={{ color: denied ? "#f87171" : "var(--color-jda-text)", textDecoration: denied ? "line-through" : "none" }}
+                                      >
+                                        {rp.action}
+                                      </span>
+                                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{rp.scope}</span>
+                                      {role && !denied && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {role.display_name}</span>}
+                                      {denied && <span className="text-xs" style={{ color: "#f87171" }}>denied</span>}
+                                    </div>
+                                  );
+                                })}
+                                {user.user_permissions.filter((p) => p.type === "grant").map((p) => (
                                   <div key={p.id} className="flex items-center gap-2">
-                                    <span className="text-xs font-mono" style={{ color: "#f87171" }}>− {p.action}</span>
-                                    {roleGrant && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>overrides {roleGrant}</span>}
+                                    <span className="text-xs font-mono" style={{ color: "#60a5fa" }}>+ {p.action}</span>
+                                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{p.scope}</span>
+                                    <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>custom grant</span>
+                                  </div>
+                                ))}
+                              </>
+                            )}
+                          </div>
+                        ) : (
+                          /* Edit mode — full toggle list */
+                          <div className="flex flex-col gap-1">
+                            {allKnownActions.length === 0 ? (
+                              <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions defined on any role yet.</p>
+                            ) : (
+                              allKnownActions.map((action) => {
+                                const state = getPermOverrideState(user, action);
+                                const roleGrantingRole = getRoleGrantingAction(user, action);
+                                const statusLabel = getPermStatusLabel(user, action);
+
+                                return (
+                                  <div
+                                    key={action}
+                                    className="flex items-center gap-2 py-1 px-2 rounded"
+                                    style={{ background: "rgba(255,255,255,0.02)" }}
+                                  >
+                                    <span className="text-xs font-mono flex-1" style={{ color: "var(--color-jda-text)" }}>{action}</span>
+                                    {statusLabel ? (
+                                      <span className="text-xs" style={{ color: statusLabel.color }}>{statusLabel.text}</span>
+                                    ) : roleGrantingRole ? (
+                                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {roleGrantingRole}</span>
+                                    ) : null}
+                                    <div className="flex rounded overflow-hidden" style={{ border: "1px solid var(--color-jda-border)", flexShrink: 0 }}>
+                                      {(["grant", "inherit", "deny"] as OverrideState[]).map((opt) => (
+                                        <button
+                                          key={opt}
+                                          onClick={() => setPermOverride(user.id, action, opt)}
+                                          disabled={saving === user.id}
+                                          className="text-xs px-2 py-0.5 font-semibold"
+                                          style={{
+                                            background: state === opt
+                                              ? opt === "grant" ? "rgba(96,165,250,0.2)"
+                                                : opt === "deny" ? "rgba(248,113,113,0.2)"
+                                                : "rgba(255,255,255,0.1)"
+                                              : "transparent",
+                                            color: state === opt
+                                              ? opt === "grant" ? "#60a5fa"
+                                                : opt === "deny" ? "#f87171"
+                                                : "var(--color-jda-cream)"
+                                              : "var(--color-jda-text-muted)",
+                                            border: "none",
+                                            cursor: "pointer",
+                                            textTransform: "capitalize",
+                                            transition: "all 0.1s",
+                                          }}
+                                        >
+                                          {opt}
+                                        </button>
+                                      ))}
+                                    </div>
                                   </div>
                                 );
-                              })}
-                            </div>
+                              })
+                            )}
                           </div>
                         )}
                       </div>
-                    ) : (
-                      /* ── EDIT MODE: unified permission toggle list ── */
-                      <div className="mt-3">
-                        <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>
-                          Set per-user overrides. <strong style={{ color: "var(--color-jda-text)" }}>Inherit</strong> = use whatever the role grants.
-                        </p>
-                        {allKnownActions.length === 0 ? (
-                          <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions defined yet. Add permissions to roles first.</p>
-                        ) : (
-                          <div className="flex flex-col gap-1">
-                            {allKnownActions.map((action) => {
-                              const state = getPermOverrideState(user, action);
-                              const statusLabel = getPermStatusLabel(user, action);
-                              const roleGrantingRole = getRoleGrantingAction(user, action);
+                    </div>
 
-                              return (
-                                <div
-                                  key={action}
-                                  className="flex items-center gap-3 py-1.5 px-2 rounded"
-                                  style={{ background: "rgba(255,255,255,0.02)" }}
-                                >
-                                  <span className="text-xs font-mono flex-1" style={{ color: "var(--color-jda-text)" }}>{action}</span>
-                                  {statusLabel && (
-                                    <span className="text-xs" style={{ color: statusLabel.color }}>{statusLabel.text}</span>
-                                  )}
-                                  {!statusLabel && roleGrantingRole && (
-                                    <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {roleGrantingRole}</span>
-                                  )}
-                                  {/* Three-state toggle */}
-                                  <div className="flex rounded overflow-hidden" style={{ border: "1px solid var(--color-jda-border)" }}>
-                                    {(["grant", "inherit", "deny"] as OverrideState[]).map((opt) => (
-                                      <button
-                                        key={opt}
-                                        onClick={() => setPermOverride(user.id, action, opt)}
-                                        disabled={saving === user.id}
-                                        className="text-xs px-2 py-0.5 font-semibold"
-                                        style={{
-                                          background: state === opt
-                                            ? opt === "grant" ? "rgba(96,165,250,0.2)"
-                                              : opt === "deny" ? "rgba(248,113,113,0.2)"
-                                              : "rgba(255,255,255,0.1)"
-                                            : "transparent",
-                                          color: state === opt
-                                            ? opt === "grant" ? "#60a5fa"
-                                              : opt === "deny" ? "#f87171"
-                                              : "var(--color-jda-text)"
-                                            : "var(--color-jda-text-muted)",
-                                          border: "none",
-                                          cursor: "pointer",
-                                          textTransform: "capitalize",
-                                          transition: "all 0.1s",
-                                        }}
-                                      >
-                                        {opt}
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              );
-                            })}
+                    {/* Transfer Ownership — owner only, shown at the bottom */}
+                    {currentUserAccountType === "owner" && user.account_type !== "owner" && (
+                      <div className="mt-4 pt-4 border-t" style={{ borderColor: "var(--color-jda-border)" }}>
+                        {transferTarget !== user.id ? (
+                          <button
+                            onClick={() => setTransferTarget(user.id)}
+                            className="text-xs font-semibold"
+                            style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}
+                          >
+                            Transfer Ownership to this user…
+                          </button>
+                        ) : (
+                          <div
+                            className="p-3 rounded-lg"
+                            style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}
+                          >
+                            <p className="text-sm font-semibold mb-1" style={{ color: "#fbbf24" }}>
+                              Transfer ownership to {user.name ?? user.email}?
+                            </p>
+                            <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>
+                              You will become an Admin. Exactly one Owner exists at all times. This cannot be undone without DB access.
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => transferOwnership(user.id)}
+                                className="text-xs px-3 py-1.5 rounded font-semibold"
+                                style={{ background: "#fbbf24", color: "#000", border: "none", cursor: "pointer" }}
+                              >
+                                Confirm Transfer
+                              </button>
+                              <button
+                                onClick={() => setTransferTarget(null)}
+                                className="text-xs px-3 py-1.5 rounded"
+                                style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px solid var(--color-jda-border)", cursor: "pointer" }}
+                              >
+                                Cancel
+                              </button>
+                            </div>
                           </div>
                         )}
                       </div>

@@ -44,7 +44,7 @@ export async function PATCH(
     practice?: string;
     portal_access?: boolean;
     mcp_access?: boolean;
-    account_type?: "admin" | "user";
+    account_type?: "owner" | "admin" | "user";
     add_role?: string;
     remove_role?: string;
     add_permission?: { action: string; type: "grant" | "deny"; scope?: string };

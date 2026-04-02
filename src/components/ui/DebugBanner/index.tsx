@@ -1,47 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-
-interface DebugRole {
-  id: string;
-  name: string;
-  slug: string;
-}
+import { useState } from "react";
+import { useDebug } from "./context";
 
 export default function DebugBanner() {
-  const [debugRole, setDebugRole] = useState<DebugRole | null>(null);
+  const { debugRole, exitDebug } = useDebug();
   const [clearing, setClearing] = useState(false);
 
-  const fetchDebugState = useCallback(async () => {
-    try {
-      const res = await fetch("/api/me/debug");
-      // 401 = logged out, 200 with null = not in debug. Either way, hide banner.
-      if (!res.ok) {
-        setDebugRole(null);
-        return;
-      }
-      const data = await res.json();
-      setDebugRole(data.debug_role ?? null);
-    } catch {
-      // Network error — leave current state rather than flashing
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchDebugState();
-    // 3s polling so portal and Claude stay in near-realtime sync
-    const interval = setInterval(fetchDebugState, 3_000);
-    return () => clearInterval(interval);
-  }, [fetchDebugState]);
-
-  async function exitDebug() {
+  async function handleExit() {
     setClearing(true);
-    try {
-      await fetch("/api/me/debug", { method: "DELETE" });
-      setDebugRole(null);
-    } finally {
-      setClearing(false);
-    }
+    await exitDebug();
+    setClearing(false);
   }
 
   if (!debugRole) return null;
@@ -51,7 +20,6 @@ export default function DebugBanner() {
       role="alert"
       aria-live="polite"
       style={{
-        // In-flow (not fixed) so the rest of the layout naturally shifts down
         width: "100%",
         background: "#b45309",
         borderBottom: "2px solid #fbbf24",
@@ -73,7 +41,7 @@ export default function DebugBanner() {
         MCP session is impersonating role <strong>{debugRole.name}</strong> — owner permissions suspended
       </span>
       <button
-        onClick={exitDebug}
+        onClick={handleExit}
         disabled={clearing}
         style={{
           background: "rgba(0,0,0,0.25)",

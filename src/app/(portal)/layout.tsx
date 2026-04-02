@@ -2,6 +2,7 @@ import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Topbar } from "@/components/portal/Topbar";
 import DebugBanner from "@/components/ui/DebugBanner";
+import { DebugProvider } from "@/components/ui/DebugBanner/context";
 
 function getInitials(name?: string | null): string {
   if (!name) return "?";
@@ -24,12 +25,14 @@ export default async function PortalLayout({
   const userInitials = getInitials(userName);
 
   return (
-    <div className="min-h-screen" style={{ background: "var(--color-jda-bg)" }}>
-      <DebugBanner />
-      <Topbar userName={userName} userInitials={userInitials} />
-      <main id="main-content" className="p-7">
-        {children}
-      </main>
-    </div>
+    <DebugProvider>
+      <div className="min-h-screen" style={{ background: "var(--color-jda-bg)" }}>
+        <DebugBanner />
+        <Topbar userName={userName} userInitials={userInitials} />
+        <main id="main-content" className="p-7">
+          {children}
+        </main>
+      </div>
+    </DebugProvider>
   );
 }

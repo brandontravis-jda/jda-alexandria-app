@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { signOutAction } from "@/app/sign-out/actions";
 
 const navItems = [
   { label: "Dashboard", href: "/" },
@@ -87,7 +88,7 @@ export function Topbar({ userName, userInitials }: TopbarProps) {
             {userName.split(" ")[0]}
           </span>
         )}
-        <form action="/api/auth/signout" method="POST">
+        <form action={signOutAction}>
           <button type="submit" className="p-0 border-0 bg-transparent cursor-pointer">
             <div
               className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"

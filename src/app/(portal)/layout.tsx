@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { redirect } from "next/navigation";
 import { Topbar } from "@/components/portal/Topbar";
 import DebugBanner from "@/components/ui/DebugBanner";
 
@@ -18,6 +19,7 @@ export default async function PortalLayout({
   children: React.ReactNode;
 }) {
   const session = await auth();
+  if (!session?.user?.id) redirect("/sign-in");
   const userName = session?.user?.name;
   const userInitials = getInitials(userName);
 

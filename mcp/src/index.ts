@@ -1351,7 +1351,7 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
-      const a = session.answers;
+      const a: Record<string, string> = typeof session.answers === "string" ? JSON.parse(session.answers) : session.answers;
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 

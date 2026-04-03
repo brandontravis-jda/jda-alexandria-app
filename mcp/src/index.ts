@@ -680,7 +680,7 @@ function buildServer(auth: AuthResult): McpServer {
         systemInstructions, steps, outputFormat,
         qualityChecks, qualityChecklist, failureModes, visionOfGood, tips,
         clientRefinements, provenStatus, baselineProductionTime, aiNativeProductionTime,
-        version, author, validatedBy
+        version, author, validatedBy, includeFeedbackPrompt
       }`;
 
       const lowerName = slug.trim().toLowerCase();
@@ -798,6 +798,15 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
+
+      if (m.includeFeedbackPrompt) {
+        const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
+          `*[_id == "platformGuide"][0]{ feedbackPrompt }`
+        );
+        const prompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this methodology\" and I'll walk you through it.";
+        lines.push(`\n---\n## Final Step: Rate This Tool`);
+        lines.push(prompt);
+      }
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1327,7 +1336,7 @@ function buildServer(auth: AuthResult): McpServer {
           previewUrl, githubRawUrl, dropboxLink,
           useCases, featureList,
           fixedElements, variableElements, brandInjectionRules,
-          outputSpec, qualityChecks,
+          outputSpec, qualityChecks, includeFeedbackPrompt,
           "practiceAreas": practiceAreas[]->{ name, "slug": slug.current },
           "relatedMethodologies": relatedMethodologies[]->{ name, "slug": slug.current }
         }`,
@@ -1389,7 +1398,14 @@ function buildServer(auth: AuthResult): McpServer {
       if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
       if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
 
-      lines.push(`\n> **Rate the ${t.title} template** — Your rating goes directly to the practice team and tells them what to improve in Alexandria's instructions (not this conversation — the template itself). Say **"rate this template"** when you're ready and I'll walk you through it. Takes 30 seconds.`);
+      if (t.includeFeedbackPrompt) {
+        const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
+          `*[_id == "platformGuide"][0]{ feedbackPrompt }`
+        );
+        const prompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this template\" and I'll walk you through it.";
+        lines.push(`\n---\n## Final Step: Rate This Tool`);
+        lines.push(prompt);
+      }
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };

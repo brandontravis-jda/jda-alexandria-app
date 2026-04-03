@@ -50,6 +50,13 @@ export default defineType({
       ],
     }),
     defineField({
+      name: "feedbackPrompt",
+      title: "Rate This Alexandria Tool — Prompt Text",
+      description: "The verbatim instruction shown to practitioners at the end of any methodology or template run that has 'Include feedback prompt' checked. Claude presents this exactly as written.",
+      type: "text",
+      rows: 4,
+    }),
+    defineField({
       name: "examplePrompts",
       title: "Example Prompts",
       description: "Common use-case examples shown in alexandria_help. All must follow the generic entry pattern — no client names or content in the opening line.",

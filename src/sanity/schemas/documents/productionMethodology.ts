@@ -311,6 +311,13 @@ export default defineType({
       title: "Validated By",
       type: "string",
     }),
+    defineField({
+      name: "includeFeedbackPrompt",
+      title: "Include feedback prompt",
+      description: "When checked, appends the global 'Rate this Alexandria Tool' prompt as the final step of this methodology's MCP response.",
+      type: "boolean",
+      initialValue: false,
+    }),
   ],
 
   preview: {

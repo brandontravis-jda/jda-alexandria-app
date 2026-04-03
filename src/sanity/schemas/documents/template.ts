@@ -156,6 +156,13 @@ export default defineType({
       initialValue: "draft",
       validation: (R) => R.required(),
     }),
+    defineField({
+      name: "includeFeedbackPrompt",
+      title: "Include feedback prompt",
+      description: "When checked, appends the global 'Rate this Alexandria Tool' prompt as the final step of this template's MCP response.",
+      type: "boolean",
+      initialValue: false,
+    }),
   ],
 
   preview: {

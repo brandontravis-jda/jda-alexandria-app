@@ -100,16 +100,25 @@ async function migrate() {
       user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       content_type     TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
       content_slug     TEXT NOT NULL,
-      quality_score    INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
-      content_accurate BOOLEAN,
-      brand_applied    BOOLEAN,
-      needed_rework    BOOLEAN,
+      editing_needed   TEXT,
+      shortfalls       TEXT[],
+      intake_adequate  TEXT,
+      would_use_again  TEXT,
       observation      TEXT,
       created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
   await sql`CREATE INDEX IF NOT EXISTS production_feedback_content_idx ON production_feedback(content_type, content_slug)`;
   await sql`CREATE INDEX IF NOT EXISTS production_feedback_user_idx ON production_feedback(user_id)`;
+  // Migrate old boolean columns to new multiple-choice answer columns
+  await sql`ALTER TABLE production_feedback ADD COLUMN IF NOT EXISTS editing_needed TEXT`;
+  await sql`ALTER TABLE production_feedback ADD COLUMN IF NOT EXISTS shortfalls TEXT[]`;
+  await sql`ALTER TABLE production_feedback ADD COLUMN IF NOT EXISTS intake_adequate TEXT`;
+  await sql`ALTER TABLE production_feedback ADD COLUMN IF NOT EXISTS would_use_again TEXT`;
+  await sql`ALTER TABLE production_feedback DROP COLUMN IF EXISTS quality_score`;
+  await sql`ALTER TABLE production_feedback DROP COLUMN IF EXISTS content_accurate`;
+  await sql`ALTER TABLE production_feedback DROP COLUMN IF EXISTS brand_applied`;
+  await sql`ALTER TABLE production_feedback DROP COLUMN IF EXISTS needed_rework`;
 
   // ── Step 5: Permissions matrix ──────────────────────────────────────────────
   await sql`
@@ -2044,40 +2053,44 @@ function buildServer(auth: AuthResult): McpServer {
   // ── alexandria_log_feedback ───────────────────────────────────────────────
   server.tool(
     "alexandria_log_feedback",
-    "Log a practitioner's rating of an Alexandria methodology or template — meaning their assessment of how well Alexandria's instructions performed, not a rating of this conversation. Call this when the practitioner says they want to rate a methodology or template. Then ask these questions verbatim, in order, before calling the tool with their answers: (1) \"How would you rate the methodology itself? 1 = the instructions produced significant problems, 5 = the instructions were production-ready as-is.\" (2) \"Was the content and structure the methodology produced accurate for this deliverable type? Yes or no.\" (3) \"Was the brand applied correctly — colors, fonts, voice, logos? Yes or no.\" (4) \"Did the output need significant rework before you could share it with the client? Yes or no.\" (5) \"Anything specific to note about the methodology — what worked, what the instructions got wrong, what should change? Optional.\" Do NOT skip any question. Collect all answers first, then call this tool once with the complete set.",
+    "Log a practitioner's rating of an Alexandria methodology or template — meaning their assessment of how well Alexandria's instructions performed, not a rating of this conversation. Call this when the practitioner says they want to rate a methodology or template. Present these five questions as a poll, verbatim and in order. Do NOT paraphrase. Do NOT skip any question. Collect all answers first, then call this tool once with the complete set. Q1: \"How much editing did this output need before it was client-ready? A) None, it was ready to send after human review  B) Light editing (tone, word choice, minor adjustments)  C) Moderate editing (restructured sections, rewrote portions)  D) Heavy editing (essentially started over)\" Q2: \"Where did the methodology fall short? Select all that apply. A) It didn't, output was solid  B) Content structure or organization  C) Strategic depth or accuracy  D) Brand voice or tone  E) Visual formatting or layout  F) Missing context it should have had\" Q3: \"Did the intake questions capture what you needed for this deliverable? A) Yes, they covered the right ground  B) Mostly, but missed something important  C) No, I had to add significant context manually\" Q4: \"Would you use this methodology again for the same deliverable type? A) Yes, confidently  B) Yes, with minor adjustments  C) Only if it's improved  D) No, I'd rather build it manually\" Q5: \"Anything else we should know? A) No, that's everything  B) Other — type below\" Do NOT skip any question.",
     {
       content_type: z.enum(["methodology", "template"]).describe("Whether this feedback is for a methodology or a template run"),
       content_slug: z.string().describe("The slug of the methodology or template that was used"),
-      quality_score: z.number().int().min(1).max(5).describe("Overall quality rating 1–5"),
-      content_accurate: z.boolean().describe("Whether the content and structure were accurate for this deliverable type"),
-      brand_applied: z.boolean().describe("Whether the brand was applied correctly — colors, fonts, voice, logos"),
-      needed_rework: z.boolean().describe("Whether the output needed significant rework before it could be shared"),
-      observation: z.string().optional().describe("Open-ended practitioner observations — what worked, what didn't, what should change"),
+      editing_needed: z.enum(["A", "B", "C", "D"]).describe("Q1: How much editing was needed — A=None, B=Light, C=Moderate, D=Heavy"),
+      shortfalls: z.array(z.enum(["A", "B", "C", "D", "E", "F"])).describe("Q2: Where did the methodology fall short — select all that apply"),
+      intake_adequate: z.enum(["A", "B", "C"]).describe("Q3: Did intake questions capture what was needed — A=Yes, B=Mostly, C=No"),
+      would_use_again: z.enum(["A", "B", "C", "D"]).describe("Q4: Would practitioner use this methodology again — A=Yes confidently, B=Yes with adjustments, C=Only if improved, D=No"),
+      observation: z.string().optional().describe("Q5 open-ended response if practitioner selected 'Other' or wants to add notes"),
     },
-    async ({ content_type, content_slug, quality_score, content_accurate, brand_applied, needed_rework, observation }) => {
+    async ({ content_type, content_slug, editing_needed, shortfalls, intake_adequate, would_use_again, observation }) => {
       const [user] = await sql`SELECT id FROM users WHERE id = ${auth.userId}`;
       if (!user) return { content: [{ type: "text", text: "Could not identify user — feedback not logged." }], isError: true };
 
       await sql`
         INSERT INTO production_feedback
-          (user_id, content_type, content_slug, quality_score, content_accurate, brand_applied, needed_rework, observation)
+          (user_id, content_type, content_slug, editing_needed, shortfalls, intake_adequate, would_use_again, observation)
         VALUES
-          (${auth.userId as number}, ${content_type}, ${content_slug}, ${quality_score}, ${content_accurate}, ${brand_applied}, ${needed_rework}, ${observation ?? null})
+          (${auth.userId as number}, ${content_type}, ${content_slug}, ${editing_needed}, ${shortfalls}, ${intake_adequate}, ${would_use_again}, ${observation ?? null})
       `;
 
-      const scoreLabel = ["", "significant problems", "below expectations", "acceptable", "good", "production-ready"][quality_score];
+      const editingLabels: Record<string, string> = { A: "None — ready after human review", B: "Light editing", C: "Moderate editing", D: "Heavy editing" };
+      const shortfallLabels: Record<string, string> = { A: "Output was solid", B: "Content structure/organization", C: "Strategic depth/accuracy", D: "Brand voice/tone", E: "Visual formatting/layout", F: "Missing context" };
+      const intakeLabels: Record<string, string> = { A: "Yes, covered the right ground", B: "Mostly, missed something", C: "No, added significant context manually" };
+      const useAgainLabels: Record<string, string> = { A: "Yes, confidently", B: "Yes, with minor adjustments", C: "Only if improved", D: "No, would build manually" };
+
       const lines = [
         `✓ Feedback logged for **${content_slug}** (${content_type}).`,
         ``,
-        `**Score:** ${quality_score}/5 — ${scoreLabel}`,
-        `**Content accurate:** ${content_accurate ? "Yes" : "No"}`,
-        `**Brand applied correctly:** ${brand_applied ? "Yes" : "No"}`,
-        `**Needed rework:** ${needed_rework ? "Yes" : "No"}`,
+        `**Editing needed:** ${editingLabels[editing_needed] ?? editing_needed}`,
+        `**Shortfalls:** ${shortfalls.map(s => shortfallLabels[s] ?? s).join(", ")}`,
+        `**Intake adequate:** ${intakeLabels[intake_adequate] ?? intake_adequate}`,
+        `**Would use again:** ${useAgainLabels[would_use_again] ?? would_use_again}`,
       ];
       if (observation) lines.push(`**Notes:** ${observation}`);
       lines.push(``, `This feedback is now visible to practice leaders and admins in the Alexandria portal.`);
 
-      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_feedback", requestSummary: `Feedback for ${content_type} ${content_slug}: ${quality_score}/5`, matchedCapability: true });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_feedback", requestSummary: `Feedback for ${content_type} ${content_slug}`, matchedCapability: true });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );

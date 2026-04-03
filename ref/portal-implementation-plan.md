@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated April 2, 2026 to reflect Steps 2–5 completion and auth model overhaul.
+> Updated April 2, 2026 to reflect Steps 2–5 and 9.5 completion.
 
 ---
 
@@ -330,11 +330,12 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 - ✅ `alexandria_debug_as_role` accepts role slug or UUID — frictionless from Claude (no UUID lookup needed)
 - ✅ `alexandria_whoami` includes role UUID in output
 - ✅ User deletion — `DELETE /api/users/[id]` with cascade; delete button + confirm modal in users page; blocked on owner and self
-- ✅ `prompt: "select_account"` on portal sign-in — always shows Microsoft account picker
+- ✅ `prompt: "select_account"` scoped to sign-in action only — shows Microsoft account picker on explicit sign-in, does not loop on callback
 - ✅ Debug mode permission enforcement validated end-to-end (tool calls actually blocked, not just reported)
 - ✅ `alexandria_debug_exit` from Claude clears portal banner within ~3s (confirmed post caching fix)
 - ✅ Transfer ownership tested end-to-end
 - ✅ Sign-in error message confirmed working for unauthorized accounts
+- ✅ Platform Guide added to Sanity Studio sidebar
 
 **Open items:**
 - ✅ Default role change in Settings → new user logs in and receives updated role
@@ -521,31 +522,34 @@ Originally designed to generate everything needed to stand up a new Claude Proje
 
 ### Step 9.5: Production Feedback Loop — ✅ COMPLETE (shipped April 2, 2026)
 
-**What this is:** A lightweight structured feedback mechanism that runs after every methodology or template output. The practitioner explicitly calls the feedback tool when they're ready — Alexandria doesn't auto-trigger anything. Feedback is stored in the DB and surfaced in the portal. This is the primary data source for advancing capability records to Proven Status.
+**What this is:** A lightweight structured feedback mechanism that runs after every methodology or template output. The practitioner says "rate this" when ready — Alexandria walks them through five structured questions, logs the answers, and confirms. Feedback is stored in the DB and surfaced in the portal. This is the primary data source for advancing capability records to Proven Status.
 
-**Why this matters:** The platform has no signal on output quality today. Request logs tell us what tools were called. The capabilities matrix tells us what we believe is possible. Neither tells us whether the actual output was good. Without practitioner feedback, "Proven Status" is a label we assign ourselves. With it, Proven Status means something — it's backed by logged, attributed practitioner validation.
+**Why this matters:** The platform has no signal on output quality. Request logs tell us what tools were called. The capabilities matrix tells us what we believe is possible. Neither tells us whether the actual output was good. Without practitioner feedback, "Proven Status" is a label we assign ourselves. With it, it's backed by logged, attributed practitioner validation.
 
-**What feedback is NOT:** Not an edit request. Not a revision workflow. Not a gate. It is structured qualitative observation logged to Alexandria for practice leaders and Brandon to act on.
+**What feedback is NOT:** Not an edit request. Not a revision workflow. Not a gate. Structured qualitative observation logged to Alexandria for practice leaders and Brandon to act on through content updates.
 
 **Flow (as built):**
-1. Practitioner asks Alexandria to help build a thing
-2. Alexandria presents the output
-3. Alexandria appends an encouragement block at the end of every methodology/template response: a brief, consistent nudge to call `alexandria_log_feedback` when done
-4. Practitioner calls the tool explicitly when ready
-5. Claude runs `alexandria_log_feedback` and then asks a structured set of questions **verbatim, every time** — fixed 1–5 score question, then fixed structured dimension questions (output quality, content accuracy, brand application, usability), then open feedback invitation. The questions are baked into the tool's response, not authored in Sanity, so they are always consistent.
+1. Practitioner asks Alexandria to build something
+2. Alexandria delivers the output
+3. If the methodology or template has `includeFeedbackPrompt` checked, the MCP appends `## Final Step: Rate This Tool` at the end of the response — pulling verbatim prompt text from `platformGuide.feedbackPrompt` in Sanity
+4. Practitioner says "rate this" (or similar)
+5. Claude calls `alexandria_log_feedback`, then asks five structured questions verbatim — baked into the tool description so they're consistent regardless of Claude instance or conversation context
+6. Claude calls the tool again with collected answers, confirms logged
 
-**Encouragement block (appended to methodology and template outputs):**
-> ---
-> **Before you move on** — if you use this output, log feedback for Alexandria. It takes 30 seconds and directly informs what gets improved. Call `alexandria_log_feedback` when you're ready, or say "log feedback for this output."
+**`includeFeedbackPrompt` flag:** Boolean on `productionMethodology` and `template` schemas. When checked, MCP fetches `platformGuide.feedbackPrompt` and appends it as the final section. Checked on all four current methodologies. Templates opt in per-template in Sanity Studio.
 
-**Structured questions Claude asks after calling the tool (verbatim, every time):**
-1. "How would you rate this output overall? (1 = significant problems, 5 = production-ready as-is)"
-2. "Were the content and structure accurate for this deliverable type?"
-3. "Was the brand applied correctly — colors, fonts, voice, logos?"
-4. "Was the output usable as-is, or did it need significant rework before sharing?"
-5. "Anything specific to note — what worked, what didn't, what should change?"
+**`platformGuide.feedbackPrompt`:** Single source of truth for the rate prompt text. Editable in Sanity Studio → Platform Guide. Current text: *"Rate this Alexandria Tool — Your rating tells the practice team what to improve in Alexandria's instructions, not this conversation. Say 'rate this' and I'll walk you through five quick questions. Takes 30 seconds."*
 
-Claude collects answers, calls `alexandria_log_feedback` with the structured data, confirms it was logged.
+**Approval gates removed:** All four methodologies had approval gates removed. Claude delivers output and stops — no competing closing question before the Final Step block.
+
+**Structured questions (verbatim, baked into tool description):**
+1. "How would you rate the methodology itself? 1 = the instructions produced significant problems, 5 = production-ready as-is."
+2. "Was the content and structure accurate for this deliverable type? Yes or no."
+3. "Was the brand applied correctly — colors, fonts, voice, logos? Yes or no."
+4. "Did the output need significant rework before you could share it with the client? Yes or no."
+5. "Anything specific to note about the methodology — what worked, what the instructions got wrong, what should change? Optional."
+
+Claude collects all answers first, then calls `alexandria_log_feedback` once with the complete set.
 
 **MCP tool: `alexandria_log_feedback`**
 
@@ -701,4 +705,4 @@ Resolved in discovery. Deliverable classifications are a field on `capabilityRec
 
 ---
 
-*Updated April 2, 2026. Steps 1–5 complete and fully tested. Steps 6–11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives) before the matrix is production-ready. Step 5 has one open item: API key keep/restrict/remove decision.*
+*Updated April 2, 2026. Steps 1–5 and 9.5 complete. Steps 6–9, 10, 11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives). Step 5 open item: API key decision. Step 9.5 open item: portal feedback surface deferred to Step 6.*

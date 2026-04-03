@@ -78,6 +78,19 @@ async function migrate() {
   await sql`CREATE INDEX IF NOT EXISTS intake_sessions_status_idx ON intake_sessions(status)`;
 
   await sql`
+    CREATE TABLE IF NOT EXISTS feedback_sessions (
+      session_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      content_type  TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
+      content_slug  TEXT NOT NULL,
+      user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status        TEXT NOT NULL DEFAULT 'awaiting_answers'
+                      CHECK (status IN ('awaiting_answers', 'complete')),
+      created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS feedback_sessions_user_idx ON feedback_sessions(user_id)`;
+
+  await sql`
     CREATE TABLE IF NOT EXISTS alexandria_request_log (
       id                SERIAL PRIMARY KEY,
       user_id           TEXT NOT NULL,
@@ -743,7 +756,7 @@ function buildServer(auth: AuthResult): McpServer {
           const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
             `*[_id == "platformGuide"][0]{ feedbackPrompt }`
           );
-          feedbackPromptText = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this\" and I'll walk you through five quick questions. Takes 30 seconds.";
+          feedbackPromptText = guide?.feedbackPrompt ?? "To give feedback on this methodology, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
         }
 
         lines.push("\n## Steps");
@@ -1415,7 +1428,7 @@ function buildServer(auth: AuthResult): McpServer {
         const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
           `*[_id == "platformGuide"][0]{ feedbackPrompt }`
         );
-        templateFeedbackPrompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — Your rating tells the leadership team what to improve in Alexandria's instructions, not this conversation. Say \"rate this\" and I'll walk you through five quick questions. Takes 30 seconds.";
+        templateFeedbackPrompt = guide?.feedbackPrompt ?? "To give feedback on this template, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
       }
 
       if (t.fixedElements)      lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
@@ -2050,29 +2063,102 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_give_feedback ──────────────────────────────────────────────
+  // Phase 1: practitioner says "Alexandria, give feedback". Creates a session
+  // and returns the five questions verbatim for Claude to present as a poll.
+  // Claude MUST present all questions and collect all answers before calling
+  // alexandria_log_feedback with the session_id and answers.
+  server.tool(
+    "alexandria_give_feedback",
+    "Call this when the practitioner says 'Alexandria, give feedback' or similar after a methodology or template run. This starts a feedback session and returns the five questions to present. You MUST present ALL five questions to the practitioner as a numbered poll, verbatim as returned, and collect all answers before calling alexandria_log_feedback. Do NOT call alexandria_log_feedback until you have answers to all five questions.",
+    {
+      content_type: z.enum(["methodology", "template"]).describe("Whether this feedback is for a methodology or a template"),
+      content_slug: z.string().describe("The slug of the methodology or template that was just run"),
+    },
+    async ({ content_type, content_slug }) => {
+      const [user] = await sql`SELECT id FROM users WHERE id = ${auth.userId}`;
+      if (!user) return { content: [{ type: "text", text: "Could not identify user." }], isError: true };
+
+      const [session] = await sql`
+        INSERT INTO feedback_sessions (content_type, content_slug, user_id)
+        VALUES (${content_type}, ${content_slug}, ${auth.userId as number})
+        RETURNING session_id
+      `;
+
+      const questions = [
+        `**Q1.** How much editing did this output need before it was client-ready?`,
+        `A) None — it was ready to send after human review`,
+        `B) Light editing (tone, word choice, minor adjustments)`,
+        `C) Moderate editing (restructured sections, rewrote portions)`,
+        `D) Heavy editing (essentially started over)`,
+        ``,
+        `**Q2.** Where did the methodology fall short? *(select all that apply)*`,
+        `A) It didn't — output was solid`,
+        `B) Content structure or organization`,
+        `C) Strategic depth or accuracy`,
+        `D) Brand voice or tone`,
+        `E) Visual formatting or layout`,
+        `F) Missing context it should have had`,
+        ``,
+        `**Q3.** Did the intake questions capture what you needed for this deliverable?`,
+        `A) Yes, they covered the right ground`,
+        `B) Mostly, but missed something important`,
+        `C) No, I had to add significant context manually`,
+        ``,
+        `**Q4.** Would you use this methodology again for the same deliverable type?`,
+        `A) Yes, confidently`,
+        `B) Yes, with minor adjustments`,
+        `C) Only if it's improved`,
+        `D) No, I'd rather build it manually`,
+        ``,
+        `**Q5.** Anything else we should know? *(optional)*`,
+        `A) No, that's everything`,
+        `B) Other — type your response below`,
+      ].join("\n");
+
+      return {
+        content: [{
+          type: "text",
+          text: `Feedback session started for **${content_slug}** (${content_type}).\n\nPresent these questions to the practitioner verbatim, in order. Collect all answers, then call \`alexandria_log_feedback\` with the session_id and answers.\n\n**session_id:** \`${session.session_id}\`\n\n---\n\n${questions}`,
+        }],
+      };
+    }
+  );
+
   // ── alexandria_log_feedback ───────────────────────────────────────────────
   server.tool(
     "alexandria_log_feedback",
-    "When the practitioner says they want to rate a methodology or template, do NOT call this tool yet. First, present these five questions as a numbered poll, exactly as written below — verbatim, in order, no paraphrasing. Wait for all five answers. Then call this tool once with the complete set. Q1: \"How much editing did this output need before it was client-ready? A) None, it was ready to send after human review  B) Light editing (tone, word choice, minor adjustments)  C) Moderate editing (restructured sections, rewrote portions)  D) Heavy editing (essentially started over)\" Q2: \"Where did the methodology fall short? Select all that apply. A) It didn't, output was solid  B) Content structure or organization  C) Strategic depth or accuracy  D) Brand voice or tone  E) Visual formatting or layout  F) Missing context it should have had\" Q3: \"Did the intake questions capture what you needed for this deliverable? A) Yes, they covered the right ground  B) Mostly, but missed something important  C) No, I had to add significant context manually\" Q4: \"Would you use this methodology again for the same deliverable type? A) Yes, confidently  B) Yes, with minor adjustments  C) Only if it's improved  D) No, I'd rather build it manually\" Q5: \"Anything else we should know? A) No, that's everything  B) Other — type below\" Do NOT skip any question. Do NOT call this tool until you have all five answers.",
+    "Phase 2 of giving feedback. Call this ONLY after alexandria_give_feedback has been called and the practitioner has answered all five questions. Requires the session_id returned by alexandria_give_feedback. The server rejects calls without a valid session_id.",
     {
-      content_type: z.enum(["methodology", "template"]).describe("Whether this feedback is for a methodology or a template run"),
-      content_slug: z.string().describe("The slug of the methodology or template that was used"),
-      editing_needed: z.enum(["A", "B", "C", "D"]).describe("Q1: How much editing was needed — A=None, B=Light, C=Moderate, D=Heavy"),
-      shortfalls: z.array(z.enum(["A", "B", "C", "D", "E", "F"])).describe("Q2: Where did the methodology fall short — select all that apply"),
-      intake_adequate: z.enum(["A", "B", "C"]).describe("Q3: Did intake questions capture what was needed — A=Yes, B=Mostly, C=No"),
-      would_use_again: z.enum(["A", "B", "C", "D"]).describe("Q4: Would practitioner use this methodology again — A=Yes confidently, B=Yes with adjustments, C=Only if improved, D=No"),
-      observation: z.string().optional().describe("Q5 open-ended response if practitioner selected 'Other' or wants to add notes"),
+      session_id: z.string().uuid().describe("The session_id returned by alexandria_give_feedback"),
+      editing_needed: z.enum(["A", "B", "C", "D"]).describe("Q1 answer — A=None, B=Light, C=Moderate, D=Heavy"),
+      shortfalls: z.array(z.enum(["A", "B", "C", "D", "E", "F"])).describe("Q2 answers — select all that apply"),
+      intake_adequate: z.enum(["A", "B", "C"]).describe("Q3 answer — A=Yes, B=Mostly, C=No"),
+      would_use_again: z.enum(["A", "B", "C", "D"]).describe("Q4 answer — A=Yes confidently, B=Yes with adjustments, C=Only if improved, D=No"),
+      observation: z.string().optional().describe("Q5 open text if practitioner selected Other or has additional notes"),
     },
-    async ({ content_type, content_slug, editing_needed, shortfalls, intake_adequate, would_use_again, observation }) => {
-      const [user] = await sql`SELECT id FROM users WHERE id = ${auth.userId}`;
-      if (!user) return { content: [{ type: "text", text: "Could not identify user — feedback not logged." }], isError: true };
+    async ({ session_id, editing_needed, shortfalls, intake_adequate, would_use_again, observation }) => {
+      const [session] = await sql`
+        SELECT session_id, content_type, content_slug, status, user_id
+        FROM feedback_sessions
+        WHERE session_id = ${session_id}
+      `;
+
+      if (!session) {
+        return { content: [{ type: "text", text: `Cannot log feedback: session \`${session_id}\` not found. Call \`alexandria_give_feedback\` first.` }], isError: true };
+      }
+      if (session.status === "complete") {
+        return { content: [{ type: "text", text: `Feedback for session \`${session_id}\` has already been logged.` }], isError: true };
+      }
 
       await sql`
         INSERT INTO production_feedback
           (user_id, content_type, content_slug, editing_needed, shortfalls, intake_adequate, would_use_again, observation)
         VALUES
-          (${auth.userId as number}, ${content_type}, ${content_slug}, ${editing_needed}, ${shortfalls}, ${intake_adequate}, ${would_use_again}, ${observation ?? null})
+          (${session.user_id as number}, ${session.content_type}, ${session.content_slug}, ${editing_needed}, ${shortfalls}, ${intake_adequate}, ${would_use_again}, ${observation ?? null})
       `;
+
+      await sql`UPDATE feedback_sessions SET status = 'complete' WHERE session_id = ${session_id}`;
 
       const editingLabels: Record<string, string> = { A: "None — ready after human review", B: "Light editing", C: "Moderate editing", D: "Heavy editing" };
       const shortfallLabels: Record<string, string> = { A: "Output was solid", B: "Content structure/organization", C: "Strategic depth/accuracy", D: "Brand voice/tone", E: "Visual formatting/layout", F: "Missing context" };
@@ -2080,17 +2166,17 @@ function buildServer(auth: AuthResult): McpServer {
       const useAgainLabels: Record<string, string> = { A: "Yes, confidently", B: "Yes, with minor adjustments", C: "Only if improved", D: "No, would build manually" };
 
       const lines = [
-        `✓ Feedback logged for **${content_slug}** (${content_type}).`,
+        `✓ Feedback logged for **${session.content_slug}** (${session.content_type}).`,
         ``,
         `**Editing needed:** ${editingLabels[editing_needed] ?? editing_needed}`,
-        `**Shortfalls:** ${shortfalls.map(s => shortfallLabels[s] ?? s).join(", ")}`,
+        `**Shortfalls:** ${shortfalls.map((s: string) => shortfallLabels[s] ?? s).join(", ")}`,
         `**Intake adequate:** ${intakeLabels[intake_adequate] ?? intake_adequate}`,
         `**Would use again:** ${useAgainLabels[would_use_again] ?? would_use_again}`,
       ];
       if (observation) lines.push(`**Notes:** ${observation}`);
       lines.push(``, `This feedback is now visible to practice leaders and admins in the Alexandria portal.`);
 
-      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_feedback", requestSummary: `Feedback for ${content_type} ${content_slug}`, matchedCapability: true });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_feedback", requestSummary: `Feedback for ${session.content_type} ${session.content_slug}`, matchedCapability: true });
       return { content: [{ type: "text", text: lines.join("\n") }] };
     }
   );

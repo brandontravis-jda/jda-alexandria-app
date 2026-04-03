@@ -728,10 +728,27 @@ function buildServer(auth: AuthResult): McpServer {
       }
 
       if (m.steps?.length) {
+        // Fetch feedback prompt once if needed, inject into last step's instructions
+        let feedbackPromptText: string | null = null;
+        if (m.includeFeedbackPrompt) {
+          const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
+            `*[_id == "platformGuide"][0]{ feedbackPrompt }`
+          );
+          feedbackPromptText = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this\" and I'll walk you through five quick questions. Takes 30 seconds.";
+        }
+
         lines.push("\n## Steps");
-        m.steps.forEach((step: Record<string, unknown>, i: number) => {
+        const steps = m.steps as Record<string, unknown>[];
+        steps.forEach((step, i) => {
           lines.push(`\n### Step ${i + 1}: ${step.name}`);
-          if (step.instructions) lines.push(step.instructions as string);
+          let instructions = (step.instructions as string) ?? "";
+          // Inject feedback prompt into last step's instructions at render time
+          if (feedbackPromptText && i === steps.length - 1) {
+            instructions = instructions
+              ? `${instructions}\n\nAfter delivering the output, present this to the practitioner verbatim:\n\n> ${feedbackPromptText}`
+              : `After delivering the output, present this to the practitioner verbatim:\n\n> ${feedbackPromptText}`;
+          }
+          if (instructions) lines.push(instructions);
           if (step.approvalGate) {
             lines.push(`⏸ **Approval gate** — pause for practitioner review`);
             if (step.gatePrompt) lines.push(`Gate prompt: "${step.gatePrompt}"`);
@@ -798,15 +815,6 @@ function buildServer(auth: AuthResult): McpServer {
         }
       }
 
-
-      if (m.includeFeedbackPrompt) {
-        const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
-          `*[_id == "platformGuide"][0]{ feedbackPrompt }`
-        );
-        const prompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this methodology\" and I'll walk you through it.";
-        lines.push(`\n---\n## Final Step: Rate This Tool`);
-        lines.push(prompt);
-      }
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_methodology", requestSummary: `Get methodology: ${slug}`, matchedCapability: true, capabilityType: "methodology", capabilityId: slug });
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1392,19 +1400,24 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`\n---\n## Production Instructions`);
       lines.push(`Apply the confirmed practitioner parameters above throughout. Read all sections before producing any output.\n`);
 
-      if (t.fixedElements)      lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
-      if (t.variableElements)   lines.push(`\n### Variable Elements\n${t.variableElements}`);
-      if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
-      if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
-      if (t.qualityChecks)      lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
-
+      // Fetch feedback prompt once if needed, inject after quality checks (last instruction before output)
+      let templateFeedbackPrompt: string | null = null;
       if (t.includeFeedbackPrompt) {
         const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
           `*[_id == "platformGuide"][0]{ feedbackPrompt }`
         );
-        const prompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — say \"rate this template\" and I'll walk you through it.";
-        lines.push(`\n---\n## Final Step: Rate This Tool`);
-        lines.push(prompt);
+        templateFeedbackPrompt = guide?.feedbackPrompt ?? "Rate this Alexandria Tool — Your rating tells the leadership team what to improve in Alexandria's instructions, not this conversation. Say \"rate this\" and I'll walk you through five quick questions. Takes 30 seconds.";
+      }
+
+      if (t.fixedElements)      lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
+      if (t.variableElements)   lines.push(`\n### Variable Elements\n${t.variableElements}`);
+      if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
+      if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
+      if (t.qualityChecks) {
+        lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
+      }
+      if (templateFeedbackPrompt) {
+        lines.push(`\n### Final Step\nAfter delivering the output, present this to the practitioner verbatim:\n\n> ${templateFeedbackPrompt}`);
       }
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_build_template", requestSummary: `Build template: ${slug} (session: ${session_id})`, matchedCapability: true, capabilityType: "template", capabilityId: slug });

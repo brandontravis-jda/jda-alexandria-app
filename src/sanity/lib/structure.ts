@@ -18,6 +18,11 @@ export const structure: StructureResolver = (S) =>
         .child(S.documentTypeList("template").title("Templates")),
       S.divider(),
       S.listItem()
+        .title("Platform Guide")
+        .icon(() => "📖")
+        .child(S.document().schemaType("platformGuide").documentId("platformGuide").title("Platform Guide")),
+      S.divider(),
+      S.listItem()
         .title("Practice Areas")
         .icon(() => "🏢")
         .child(S.documentTypeList("practiceArea").title("Practice Areas")),

@@ -2119,7 +2119,7 @@ function buildServer(auth: AuthResult): McpServer {
       return {
         content: [{
           type: "text",
-          text: `Feedback session started for **${content_slug}** (${content_type}).\n\nPresent these questions to the practitioner verbatim, in order. Collect all answers, then call \`alexandria_log_feedback\` with the session_id and answers.\n\n**session_id:** \`${session.session_id}\`\n\n---\n\n${questions}`,
+          text: `Feedback session started for **${content_slug}** (${content_type}).\n\nPresent these five questions to the practitioner verbatim, in order, as a single message. For questions with lettered options, use an interactive poll widget if available — this lets the practitioner answer with a single click. Collect all answers, then call \`alexandria_log_feedback\` with the session_id and answers.\n\n**session_id:** \`${session.session_id}\`\n\n---\n\n${questions}`,
         }],
       };
     }

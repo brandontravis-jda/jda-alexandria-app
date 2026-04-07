@@ -1,6 +1,6 @@
 # JDA AI-Native Platform — Implementation Plan
 
-> Updated April 2, 2026 to reflect Steps 2–5 and 9.5 completion.
+> Updated April 7, 2026. Step 6 split into **6.a** (portal browse shell and full IA) and **6.b** (measurement dashboards). Earlier updates reflect Steps 2–5 and 9.5 completion; feedback loop validated end-to-end with first DB entry confirmed.
 
 ---
 
@@ -228,7 +228,7 @@ Not a refusal. Transparent handoff that keeps Alexandria assets in the loop. Eve
 - `examplePrompts` — array of example prompts for common use cases, all following generic entry pattern. Maintained in Sanity by Brandon/practice leaders.
 
 **Request logging: `alexandria_request_log` table**
-Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `permission_tier`, `tool_name`, `request_summary`, `matched_capability` (bool), `capability_type` (template/methodology/brand_package/null), `capability_id`, `created_at`. Unsupported requests (`matched_capability = false`) are the priority data — primary input for deciding what to build next. Reporting surface deferred to Step 6 dashboards.
+Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `permission_tier`, `tool_name`, `request_summary`, `matched_capability` (bool), `capability_type` (template/methodology/brand_package/null), `capability_id`, `created_at`. Unsupported requests (`matched_capability = false`) are the priority data — primary input for deciding what to build next. Reporting surface deferred to Step 6.b dashboards.
 
 **Build items:**
 - ✅ `alexandria_request_log` DB migration
@@ -279,7 +279,7 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 - ⬜ **Discovery Intensives** — the process that moves records from `not_evaluated` to `classified` and beyond. All 72 records are currently `not_evaluated`.
 - ⬜ **Define Proven Status threshold** — once Step 9.5 feedback logging ships, establish the minimum feedback count and average quality score required for a record to advance to Proven Status. Suggested starting point: ≥3 feedback entries, average score ≥4.
 
-**Step 6 dependency notes preserved from discovery:** See `ref/step-4-discovery-and-plan-updates.md` Part 3. Step 6 dashboard data sources are entirely sourced from Step 3 (`alexandria_request_log`) and Step 4 (`capabilityRecord` schema). No new data model needed in Step 6.
+**Step 6 dependency notes preserved from discovery:** See `ref/step-4-discovery-and-plan-updates.md` Part 3. Step 6.b dashboard data sources are entirely sourced from Step 3 (`alexandria_request_log`) and Step 4 (`capabilityRecord` schema). No new data model needed in Step 6.b. Step 6.a is the portal browse shell (Sanity-backed reads); it does not require new analytics tables.
 
 ---
 
@@ -346,11 +346,33 @@ Applied to ALL MCP tool calls, not just `alexandria_help`. Columns: `user_id`, `
 
 ---
 
-### Step 6: Dashboards and Measurement Layer
+### Step 6.a: Portal Browse Experience and Application Shell
 
-Wire up the measurement infrastructure for the transformation. This is a visualization layer — the data model was established in Steps 3 and 4. Do not invent a new data model here.
+**Purpose:** The portal is the full product surface for anyone browsing and using Alexandria as an application. Sanity Studio remains the **editor** for authored content; the portal must **represent the entirety of the platform** — real routes, real data, no mock dashboards, no navigation to missing pages.
 
-**Data available by the time Step 6 is built:**
+**What to build:**
+
+- **Navigation integrity:** Every item in the portal shell (e.g. Dashboard, Content, Clients, Capabilities, Users, Roles, Tools, Settings) resolves to an implemented route. Use explicit placeholder/roadmap copy only where a feature is intentionally not built yet — never silent 404s.
+- **Content library:** Browse and detail views for production content in Sanity — methodologies, templates, and related types as they exist in the schema. List, filter, and read in the portal; deep linking to Studio for create/edit/archive workflows.
+- **Clients:** Brand packages (and related client-scoped content) — list, detail, Studio links; reuse patterns consistent with MCP-exposed content.
+- **Tools:** A real Tools area — entry points to each LOB tool as they ship, or a clear, on-brand empty state with scope described.
+- **Home dashboard (first layer):** Replace placeholder widgets with **live** summaries: signed-in user context, counts and highlights from Sanity and Postgres (e.g. users, content inventory), and deep links into library sections. Expand with request-log-driven widgets when queries exist (can align with 6.b visuals later).
+- **Portal-native interactions:** Everything that is not authoring in Studio — admin flows, settings, API keys, debug UX, exports/copy actions already in the stack — lives in coherent pages tied to the same layout and IA.
+
+**RBAC:** Respect account types, roles, and permissions for which sections and actions appear (consistent with portal API routes and MCP gating philosophy).
+
+**Open items:**
+- Practice areas as a first-class Studio content type remain deferred elsewhere in the plan; until then, practice may appear as taxonomy/filters on capabilities and content, not necessarily a dedicated “Practices” CMS section.
+
+**Depends on:** Steps 1–5 complete. Steps 3–4 complete for meaningful content and capability inventory to display.
+
+---
+
+### Step 6.b: Measurement and Dashboard Layer
+
+**Purpose:** Wire up the **measurement and transformation reporting** layer. This is primarily visualization and aggregation on data models from Steps 3, 4, and 9.5 — **do not invent a new data model here** except as thin presentation/query layers.
+
+**Data available by the time Step 6.b is built:**
 - `alexandria_request_log` (Step 3) — all MCP activity, by user, tool, practice
 - `capabilityRecord` (Step 4) — full deliverable taxonomy with status, classification, proven status, production time data
 - `capability_gap_log` via `alexandria_log_capability_gap` (Step 4) — unsupported requests and unidentified deliverable types
@@ -360,6 +382,7 @@ Wire up the measurement infrastructure for the transformation. This is a visuali
 - Executive dashboard (Chance): transformation progress — workflows identified, classification coverage, proven status progression, practice-by-practice breakdown. Sourced from Capability Records.
 - Practice leader dashboard: their practice slice of the Capabilities Matrix + MCP usage data for their team
 - Admin dashboard (Brandon): full platform view — all of the above + request log volume, unsupported request patterns, capability gap trends
+- Portal surfaces for **feedback and quality signals** tied to capability records (e.g. counts, recent observations) where Step 9.5 defers presentation to the portal — implemented as part of or alongside these dashboards
 - n8n: background data routing as needed. First workflow TBD based on what's actually needed.
 
 **Primary metrics (defined in Step 4 discovery):**
@@ -381,11 +404,11 @@ Wire up the measurement infrastructure for the transformation. This is a visuali
 - What does the first n8n workflow actually look like?
 - Does the practice leader dashboard need write capability (log production time, mark proven status) or is it read-only?
 
-**Depends on:** Steps 3 and 4 complete. Capability Records seeded and partially evaluated through at least two Discovery Intensives.
+**Depends on:** Steps 3 and 4 complete. Step 6.a complete so dashboards sit inside a **real application shell** (navigation, layout, RBAC), not mock pages. Capability Records seeded and partially evaluated through at least two Discovery Intensives (for meaningful executive narrative — early 6.b prototypes can still use current seed data).
 
 ---
 
-### Step 7: Claude Project Architecture — NEEDS FULL REVISIT
+### Step 7: Claude Project Architecture — ✅ RESOLVED THROUGH DISCOVERY. NO ACTION REQUIRED.
 
 This step was written before MCP was proven and before the platform had real content. The assumptions have changed significantly.
 
@@ -413,7 +436,7 @@ This step was written before MCP was proven and before the platform had real con
 
 ---
 
-### Step 8: LOB Tools
+### Step 8: LOB Tools — ⏭ SKIP
 
 Build the first standalone tool modules in the portal.
 
@@ -433,82 +456,72 @@ Build the first standalone tool modules in the portal.
 
 ---
 
-### Step 8.5: Claude Skills Strategy
+### Step 8.5: Extending Claude — Full Discovery Required
 
-**What this is:** A deliberate strategy for how JDA uses Claude's Skills feature across three layers — org-provisioned skills pushed to all practitioners, session-seeded skills practitioners can copy as personal skills, and personal skills practitioners build themselves. Alexandria is the most sophisticated expression of the Skills concept, but Skills and Alexandria are complementary, not redundant.
+**Status:** NOT STARTED. The previous version of this step was written before Anthropic shipped plugins, desktop extensions, the unified directory, skill sharing, and enterprise governance controls for most of these surfaces. The assumptions in the prior version are outdated. This step needs a full discovery session built from current Anthropic documentation and product surfaces, not from prior assumptions.
 
-**The three layers (from claude.com/skills):**
+**What this step covers:** A deliberate strategy for how JDA configures, governs, and trains practitioners on the four mechanisms for extending Claude's capabilities. Each has its own admin surface, governance model, distribution mechanism, and security profile. All four need to be evaluated before the May 11 launch.
 
-| Layer | Who controls it | How it works |
-|---|---|---|
-| Built-in skills | Anthropic | Already active — Excel, PPTX, DOCX, PDF creation. This is what file generation runs on. No action needed. |
-| Org-provisioned skills | Brandon (admin) | Pushed to every practitioner at the org level. They are active automatically. No practitioner setup required. |
-| Personal skills | Individual practitioner | Built or copied by the practitioner. Only active in their own sessions. |
+**The four extension mechanisms (as of April 2026):**
 
-**The practitioner framing for training:** A skill is a standing brief. Instead of re-explaining your formatting preferences, brand voice rules, or meeting note structure every conversation, you write it once and Claude applies it automatically whenever it's relevant. The same skill runs across Claude.ai, Claude Code, and the API without modification.
+| Mechanism | What it is | Where it runs | Org governance |
+|---|---|---|---|
+| **Skills** | SKILL.md instruction packages that teach Claude procedural knowledge for specific tasks. Load dynamically when relevant. | Chat, Cowork, Claude Code, API | Org-provisionable by admin (enabled or disabled by default). Peer sharing and org-wide sharing toggleable independently. Partner directory (Notion, Figma, Atlassian, Canva, etc.). |
+| **Connectors** | Cloud-hosted remote MCP servers. OAuth-authenticated. | claude.ai, desktop app, Claude Code | Configured at org level or individually. This is where Alexandria lives alongside M365, Slack, Google, Fireflies, etc. 50+ in the directory. |
+| **Extensions** | Locally-installed MCP servers packaged as .MCPB files (formerly .DXT). Run on the practitioner's machine with full system privileges. One-click install. | Desktop app only | Enterprise allowlists, blocklists, private extension distribution. Security implications: extensions run unsandboxed with full host system access. |
+| **Plugins** | Bundles that package skills, slash commands, agents, and MCP servers into a single installable unit. | Cowork, Claude Code | Private marketplaces, per-team provisioning, auto-install. Marketplace launched February 2026. |
 
----
+**How Alexandria fits:** Alexandria is a Connector (cloud-hosted MCP server, org-level config, per-user OAuth). It carries live production content: methodologies, brand packages, templates, capabilities matrix, quality checklists. Skills carry persistent behavioral instructions (JDA voice, writing standards, meeting note format). The two are complementary. Extensions and Plugins are additional surfaces that may or may not be relevant to JDA's practitioner experience at launch.
 
-**Workstream 1: Org-provisioned skills (admin-managed)**
+**What the prior version got right (preserve these ideas):**
 
-These are skills Brandon pushes to all practitioners at the org level. Every practitioner gets them automatically.
+- The distinction between org-provisioned skills and personal skills is valid and confirmed by current product behavior
+- The candidate org skills (JDA brand voice, meeting note structure, client brief format, quality gate reminders) are still good candidates
+- The framing "a skill is a standing brief" is accurate for training
+- Alexandria and Skills are complementary, not redundant
+- The `alexandria_get_skill` MCP tool concept (session-seeded skills) is still viable but should be evaluated against the native skill sharing features Anthropic has since shipped
 
-**Candidate org skills to develop:**
-- **JDA brand voice** — JDA's own tone, terminology, formatting preferences. Applied to all internal comms, proposals, and materials. Reduces the need to specify "write in JDA voice" every session.
-- **Meeting note structure** — JDA's preferred format for meeting summaries, action items, and follow-ups. Practitioners using Fireflies or manual notes get consistent output without prompting.
-- **Client brief format** — the standing structure for how JDA summarizes client context before a production run. Reduces the intake question burden.
-- **Quality gate reminders** — reminds Claude to surface Alexandria quality checklist items at handoff, even outside a formal methodology run.
+**What the prior version got wrong or missed:**
 
-**How this fits Alexandria:** Org skills carry persistent behavioral instructions. Alexandria carries live content (brand packages, methodology instructions, templates). A practitioner running a post-discovery brief uses both: the org skill shapes how Claude writes and structures output; Alexandria provides the methodology, the client brand package, and the quality checklist. They don't overlap.
+- Assumed Skills were the only extension mechanism. Plugins, Extensions, and the unified directory did not exist when this was written
+- Did not account for skill sharing (peer-to-peer or org-wide publishing), which changes the distribution model
+- Did not account for the partner skills directory, which may provide ready-made skills JDA should deploy immediately
+- No mention of desktop extensions or their security implications (unsandboxed, full system privileges, enterprise allowlist/blocklist controls)
+- No mention of plugins as bundled packages of skills + commands + agents
+- The three-layer model (built-in / org-provisioned / personal) was accurate for Skills but is not a complete picture of the extension landscape
 
-**Portal surface (future):** A skills management page where Brandon can author, version, and publish org skills. For now, org skills are authored directly in Claude admin settings.
+**Discovery questions (all open, do not assume answers):**
 
----
+*Skills:*
+- Which org-provisioned skills should ship at launch? JDA brand voice and writing standards are the obvious candidates, but validate against current product behavior
+- Should skill sharing be enabled org-wide, restricted to admin-provisioned only, or somewhere in between? What's the governance posture?
+- Are there partner skills in the directory (Notion, Figma, Atlassian, Canva) that JDA should deploy to practitioners on day one?
+- Does the `alexandria_get_skill` tool still make sense given that Anthropic now supports native skill sharing and org directory publishing?
+- How do org skills stay current when JDA's brand or processes evolve?
 
-**Workstream 2: Session-seeded skills (Alexandria → practitioner)**
+*Connectors:*
+- Connector strategy is largely resolved (Alexandria + the standard set from training Session 1). Any gaps?
+- Is there anything in the 50+ connector directory that JDA should evaluate?
 
-This is the mechanism for Alexandria to surface a skill definition into a chat session so the practitioner can copy it to their personal skills library with one click. It does not require org-level provisioning — it works at the individual session level.
+*Extensions:*
+- Does JDA need desktop extensions at launch, or are Connectors sufficient?
+- What is the security evaluation and approval process before any extension gets allowlisted?
+- Which of the Anthropic-built extensions (PowerPoint, Word, PDF, Filesystem, Control Chrome, Control Mac) should be enabled org-wide vs. left to individual practitioners?
+- Does the Figma extension change the existing Figma MCP workflow?
 
-**How it works:**
-1. Practitioner asks Alexandria for a skill — e.g. "Give me a skill for running client discovery sessions"
-2. Alexandria returns a formatted skill definition (name, description, instruction block) designed to be copied directly into Claude's personal skills
-3. Claude surfaces the "Add to my skills" option in the chat UI
-4. Practitioner clicks it — skill is saved to their personal library and active in all future sessions
+*Plugins:*
+- Are plugins relevant to JDA at launch, or is this a post-launch evaluation?
+- Is there value in building a JDA plugin that bundles Alexandria skills + connector configuration?
+- Does the private marketplace feature have a use case for JDA/Prolific?
 
-**MCP tool: `alexandria_get_skill`**
+*Cross-cutting:*
+- What do practitioners need to know about each mechanism in training? The training doc currently mentions Skills and Connectors but not Extensions or Plugins
+- How does each mechanism interact with Projects (resolved in Step 7 as optional, practitioner-managed collaboration spaces)?
+- What is the admin configuration checklist before May 11? Each mechanism has its own org-level toggles and controls
 
-Inputs:
-- `skill_type` — what kind of skill the practitioner wants (e.g. `brand_voice`, `meeting_notes`, `client_brief`, `discovery_session`)
-- `practice` — optional practice area scoping (returns a practice-specific variant if one exists)
+**Discovery method:** Work through each mechanism using current Anthropic documentation (support.claude.com, claude.com/skills, claude.com/connectors, the desktop app Extensions settings, Claude Code plugin docs). Do not rely on the prior version of this step or on AI-generated summaries. Verify everything against the actual product.
 
-Returns:
-- `skill_name` — what to name the skill
-- `skill_description` — one-line description shown in the skills list
-- `skill_instructions` — the full instruction block Claude will apply automatically
-- `copy_prompt` — a formatted block the practitioner can paste directly into the "Add skill" flow
-
-**Sanity content type: `alexandriaSkill`**
-Skills are authored in Sanity and retrieved live, same pattern as methodologies and templates. Fields: `name`, `slug`, `description`, `practiceArea`, `instructionBlock`, `isOrgCandidate` (flag for skills Brandon may want to promote to org-provisioned).
-
-**Practitioner experience:** No configuration required. They ask Alexandria for a skill, get a ready-to-copy definition, and add it in one click. The skill is then active in all their future sessions without them ever opening a settings page.
-
----
-
-**Workstream 3: Personal skills (practitioner-built)**
-
-Not managed by Alexandria — practitioners build these themselves. The training message: you can build skills for anything that doesn't exist in Alexandria yet. A practitioner who runs a specific type of client workshop can skill-ify their own prep process. Personal skills are private and not logged.
-
-**Training material to develop (not a code task):** A short guide on what makes a good personal skill, with 3–4 JDA-specific examples. Include in the practitioner onboarding materials developed in Step 7.
-
----
-
-**Open questions for discovery:**
-- Which org skills have the highest immediate value — JDA brand voice or meeting notes structure?
-- Should Alexandria surface skill definitions proactively (e.g. after a methodology run: "Want a skill for this?") or only on explicit request?
-- Is there a meaningful difference between a "practice skill" (scoped to a practice area) and an "org skill" pushed to everyone? Who decides which is which?
-- How do org skills stay current when JDA's brand or processes evolve? Does the portal need a versioning/republish flow?
-
-**Depends on:** Step 7 (Claude Project Architecture discovery — understanding what belongs in a Project vs. a Skill vs. MCP). Can begin Workstream 1 (org skill authoring) immediately without code. Workstream 2 (`alexandria_get_skill` tool) can be built in parallel with or after Step 7.
+**Depends on:** Step 7 resolved (Claude Project Architecture — confirmed: Chat + Alexandria MCP + org skills is the primary practitioner experience, Projects are optional collaboration spaces). Can begin immediately. Skills Workstream 1 (org skill authoring) can begin without code. Extensions and Plugins evaluation is independent of Alexandria build work.
 
 ---
 
@@ -531,10 +544,11 @@ Originally designed to generate everything needed to stand up a new Claude Proje
 **Flow (as built):**
 1. Practitioner asks Alexandria to build something
 2. Alexandria delivers the output
-3. If the methodology or template has `includeFeedbackPrompt` checked, the MCP appends `## Final Step: Rate This Tool` at the end of the response — pulling verbatim prompt text from `platformGuide.feedbackPrompt` in Sanity
-4. Practitioner says "rate this" (or similar)
-5. Claude calls `alexandria_log_feedback`, then asks five structured questions verbatim — baked into the tool description so they're consistent regardless of Claude instance or conversation context
-6. Claude calls the tool again with collected answers, confirms logged
+3. If the methodology or template has `includeFeedbackPrompt` checked, the MCP injects the verbatim prompt text (from `platformGuide.feedbackPrompt`) directly into the **last step's instructions** at render time — not appended as a footer. For methodologies, injected into the last step. For templates, injected as a `### Final Step` section after quality checks. This ensures Claude encounters the instruction inside the active execution sequence, not after it has already closed its response.
+4. Practitioner says "Alexandria, give feedback"
+5. Claude calls `alexandria_give_feedback(content_type, content_slug)` — server creates a `feedback_sessions` record and returns the five questions formatted as a poll with interactive widget instruction
+6. Claude presents all five questions as a poll (same pattern as HTML template intake questions), collects all answers
+7. Claude calls `alexandria_log_feedback(session_id, answers)` — server validates the session exists and isn't already complete, inserts to `production_feedback`, marks session complete, confirms logged
 
 **`includeFeedbackPrompt` flag:** Boolean on `productionMethodology` and `template` schemas. When checked, MCP fetches `platformGuide.feedbackPrompt` and appends it as the final section. Checked on all four current methodologies. Templates opt in per-template in Sanity Studio.
 
@@ -542,53 +556,63 @@ Originally designed to generate everything needed to stand up a new Claude Proje
 
 **Approval gates removed:** All four methodologies had approval gates removed. Claude delivers output and stops — no competing closing question before the Final Step block.
 
-**Structured questions (verbatim, baked into tool description):**
-1. "How would you rate the methodology itself? 1 = the instructions produced significant problems, 5 = production-ready as-is."
-2. "Was the content and structure accurate for this deliverable type? Yes or no."
-3. "Was the brand applied correctly — colors, fonts, voice, logos? Yes or no."
-4. "Did the output need significant rework before you could share it with the client? Yes or no."
-5. "Anything specific to note about the methodology — what worked, what the instructions got wrong, what should change? Optional."
+**Structured questions (verbatim poll, baked into tool description — Claude presents all options, collects all answers before logging):**
+1. "How much editing did this output need before it was client-ready? A) None, it was ready to send after human review  B) Light editing  C) Moderate editing  D) Heavy editing (essentially started over)"
+2. "Where did the methodology fall short? Select all that apply. A) It didn't, output was solid  B) Content structure or organization  C) Strategic depth or accuracy  D) Brand voice or tone  E) Visual formatting or layout  F) Missing context it should have had"
+3. "Did the intake questions capture what you needed for this deliverable? A) Yes, they covered the right ground  B) Mostly, but missed something important  C) No, I had to add significant context manually"
+4. "Would you use this methodology again for the same deliverable type? A) Yes, confidently  B) Yes, with minor adjustments  C) Only if it's improved  D) No, I'd rather build it manually"
+5. "Anything else we should know? A) No, that's everything  B) Other — type below" (optional open text)
 
 Claude collects all answers first, then calls `alexandria_log_feedback` once with the complete set.
 
-**MCP tool: `alexandria_log_feedback`**
+**MCP tool: `alexandria_give_feedback`** (phase 1)
 
 Inputs:
 - `content_type` — `"methodology"` or `"template"`
-- `content_slug` — slug of the methodology or template used (required)
-- `quality_score` — integer 1–5 (required)
-- `content_accurate` — boolean (required)
-- `brand_applied` — boolean (required)
-- `needed_rework` — boolean (required)
-- `observation` — freetext, practitioner's own words (optional)
+- `content_slug` — slug of what was just run
+
+Returns: `session_id` + five poll questions verbatim. Claude presents all questions with poll widget instruction before proceeding.
+
+**MCP tool: `alexandria_log_feedback`** (phase 2)
+
+Inputs:
+- `session_id` — from `alexandria_give_feedback` (required — server hard-rejects without valid session)
+- `editing_needed` — enum A/B/C/D (Q1)
+- `shortfalls` — array of A/B/C/D/E/F (Q2, multi-select)
+- `intake_adequate` — enum A/B/C (Q3)
+- `would_use_again` — enum A/B/C/D (Q4)
+- `observation` — freetext if Q5 "Other" or additional notes (optional)
 
 Logged automatically:
-- `user_id`, `created_at`
+- `user_id` (from session), `content_type`, `content_slug`, `created_at`
 
-**Database table: `production_feedback`**
+**Database tables:**
+
+`feedback_sessions` — tracks in-progress feedback requests (session_id, content_type, content_slug, user_id, status, created_at). Same pattern as `intake_sessions`.
+
+`production_feedback`
 ```sql
 CREATE TABLE production_feedback (
-  id             SERIAL PRIMARY KEY,
-  user_id        INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  content_type   TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
-  content_slug   TEXT NOT NULL,
-  quality_score  INTEGER NOT NULL CHECK (quality_score BETWEEN 1 AND 5),
-  content_accurate BOOLEAN,
-  brand_applied   BOOLEAN,
-  needed_rework   BOOLEAN,
-  observation    TEXT,
-  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id               SERIAL PRIMARY KEY,
+  user_id          INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  content_type     TEXT NOT NULL CHECK (content_type IN ('methodology', 'template')),
+  content_slug     TEXT NOT NULL,
+  editing_needed   TEXT,
+  shortfalls       TEXT[],
+  intake_adequate  TEXT,
+  would_use_again  TEXT,
+  observation      TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX production_feedback_content_idx ON production_feedback(content_type, content_slug);
 CREATE INDEX production_feedback_user_idx ON production_feedback(user_id);
 ```
 
-**Portal surface (Step 6):**
-- Feedback count and average score per capability record on the Capabilities page
-- Most recent observations visible to practice leaders (their practice) and admins (all)
-- Feed into Step 6 dashboard as quality signal alongside request volume
+**Portal surface (Steps 6.a–6.b):**
+- **6.a:** Capabilities and related pages remain the operational browse surface; extend as needed for readable context alongside Studio.
+- **6.b:** Feedback count and average score per capability record on the Capabilities page (and/or admin views); most recent observations visible to practice leaders (their practice) and admins (all); feed into executive and admin dashboards as quality signal alongside request volume
 
-**Connection to Proven Status:** Suggested threshold: ≥3 feedback entries, average score ≥4, `needed_rework` false on majority. Exact threshold TBD — defined when Step 6 dashboard is built.
+**Connection to Proven Status:** Suggested threshold: ≥3 feedback entries, `editing_needed` majority A or B, `would_use_again` majority A or B. Exact threshold TBD — defined when Step 6.b dashboards are built.
 
 **Access:** All roles. Practitioners and practice leaders both log feedback. Admins see all feedback in the portal.
 
@@ -657,7 +681,7 @@ The following questions need to be worked through before committing to the build
 
 ### Claude Project Architecture (Step 7 — highest priority to resolve)
 
-The original plan deferred this to Step 6, but the decisions here affect everything before it. What's in a Project system prompt determines what MCP needs to return and how. This needs to be resolved early, not late.
+The original plan deferred this behind portal and dashboard work (now **Steps 6.a–6.b**), but the decisions affect MCP and content strategy broadly. **Step 7 is resolved through discovery** — see Step 7 above. What belongs in a Project system prompt vs. MCP vs Skills (Step 8.5) still informs how much content lives in Sanity vs. elsewhere.
 
 - What is the right Project structure? Options:
   - One Project per practice area (Brand, Digital, PR, etc.)
@@ -692,7 +716,7 @@ Resolved in discovery. Deliverable classifications are a field on `capabilityRec
 - Which tool would practitioners actually use today if it existed?
 - Do LOB tools need to live in the portal or could they be standalone Claude Projects with the right MCP tools?
 
-### Measurement (Step 6)
+### Measurement (Step 6.b)
 
 - What does "adoption" mean concretely? Is it MCP call volume, deliverable count, something else?
 - Who looks at dashboards — Brandon, practice leaders, or both?
@@ -705,4 +729,4 @@ Resolved in discovery. Deliverable classifications are a field on `capabilityRec
 
 ---
 
-*Updated April 2, 2026. Steps 1–5 and 9.5 complete. Steps 6–9, 10, 11 pending. Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives). Step 5 open item: API key decision. Step 9.5 open item: portal feedback surface deferred to Step 6.*
+*Updated April 7, 2026. Steps 1–5 and 9.5 complete. Step 6 split into **6.a** (portal browse shell and full IA) then **6.b** (measurement dashboards); both pending. Steps 7–9, 10, 11 pending (Step 7 resolved through discovery — no build). Step 4 has open human-work items (data review, Asana extraction, Discovery Intensives). Step 5 open item: API key decision. Step 9.5 open item: portal feedback presentation deferred to Steps 6.a–6.b. Feedback loop validated end-to-end — first production_feedback record confirmed in DB.*

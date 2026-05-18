@@ -137,7 +137,22 @@ Both deployables run on **Railway** (not Vercel):
 - **Portal** — `jda-alexandria-app-production.up.railway.app`
 - **MCP server** — `mcp-production-3192.up.railway.app` (build/deploy config in `mcp/railway.json`)
 
-Environment variables are managed in each Railway service. The MCP connector is configured once at the Claude Teams org level — see `ref/portal-implementation-plan.md` for the connector setup and OAuth details.
+Environment variables are managed in each Railway service.
+
+### Claude Teams connector setup (admin, one-time)
+
+The MCP connector is configured once at the Claude Teams org level. Individual practitioners don't configure it — they authorize via their own Azure AD login when they first use it.
+
+| Field | Value |
+|---|---|
+| Name | Alexandria |
+| Remote MCP server URL | `https://mcp-production-3192.up.railway.app/mcp` |
+| OAuth Client ID | `AZURE_CLIENT_ID` value from the MCP Railway service variables |
+| OAuth Client Secret | Leave blank — the secret lives server-side in Railway, never in the client |
+
+**The OAuth Client ID is required.** Without it, the OAuth popup opens blank and never reaches the Microsoft login page. The value is the Azure app registration UUID (`AZURE_CLIENT_ID` in Railway env vars).
+
+See `ref/portal-implementation-plan.md` for the full redirect URI list and OAuth permission requirements.
 
 ## 10. Troubleshooting
 

@@ -78,9 +78,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.objectId) {
         session.user.id = token.objectId as string;
       }
-      // Surface authorization fields so middleware can gate without a DB call
-      (session as Record<string, unknown>).portalAccess = token.portalAccess;
-      (session as Record<string, unknown>).accountType = token.accountType;
+      // Surface authorization fields so middleware can gate without a DB call.
+      // Double cast required — Session type doesn't declare these custom fields.
+      const s = session as unknown as Record<string, unknown>;
+      s.portalAccess = token.portalAccess;
+      s.accountType = token.accountType;
       return session;
     },
   },

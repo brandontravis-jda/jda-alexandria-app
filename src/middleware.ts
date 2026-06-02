@@ -25,7 +25,7 @@ export default auth((req) => {
   // in the session callback). Owners and admins always pass; regular users
   // must have portal_access = true. The portal layout does an authoritative
   // DB re-check so revocations take effect on next page navigation.
-  const session = req.auth as Record<string, unknown> | null;
+  const session = req.auth as unknown as Record<string, unknown> | null;
   const accountType = session?.accountType as string | undefined;
   const portalAccess = session?.portalAccess as boolean | undefined;
 

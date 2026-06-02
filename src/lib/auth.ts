@@ -1,6 +1,7 @@
 import NextAuth from "next-auth";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
 import { migrate, upsertUser } from "./schema";
+import { db } from "./db";
 
 let migrated = false;
 
@@ -58,6 +59,17 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           email: token.email,
           name: token.name,
         });
+
+        // Embed authorization fields in the JWT so middleware can gate
+        // portal access without a DB call on every request.
+        const [user] = await db`
+          SELECT portal_access, account_type
+          FROM users WHERE object_id = ${objectId}
+        `;
+        if (user) {
+          token.portalAccess = user.portal_access as boolean;
+          token.accountType = user.account_type as string;
+        }
       }
       return token;
     },
@@ -66,6 +78,9 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token.objectId) {
         session.user.id = token.objectId as string;
       }
+      // Surface authorization fields so middleware can gate without a DB call
+      (session as Record<string, unknown>).portalAccess = token.portalAccess;
+      (session as Record<string, unknown>).accountType = token.accountType;
       return session;
     },
   },

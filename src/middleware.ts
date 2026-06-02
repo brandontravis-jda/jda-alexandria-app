@@ -21,6 +21,27 @@ export default auth((req) => {
     return NextResponse.redirect(signInUrl);
   }
 
+  // Fast-path portal_access check from the session (populated from the JWT
+  // in the session callback). Owners and admins always pass; regular users
+  // must have portal_access = true. The portal layout does an authoritative
+  // DB re-check so revocations take effect on next page navigation.
+  const session = req.auth as Record<string, unknown> | null;
+  const accountType = session?.accountType as string | undefined;
+  const portalAccess = session?.portalAccess as boolean | undefined;
+
+  if (accountType !== "owner" && accountType !== "admin" && portalAccess !== true) {
+    // API routes get a 403 JSON response instead of a redirect
+    if (pathname.startsWith("/api/")) {
+      return NextResponse.json(
+        { error: "Portal access not granted. Contact your administrator." },
+        { status: 403 }
+      );
+    }
+    const denied = new URL("/sign-in", req.url);
+    denied.searchParams.set("error", "PortalAccessDenied");
+    return NextResponse.redirect(denied);
+  }
+
   return NextResponse.next();
 });
 

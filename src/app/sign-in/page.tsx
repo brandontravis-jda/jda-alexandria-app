@@ -9,9 +9,7 @@ export default async function SignInPage({
   const errorMessage = error
     ? error === "AccessDenied"
       ? "Your Microsoft account is not authorized to access Alexandria. Contact your administrator."
-      : error === "PortalAccessDenied"
-        ? "You are authenticated but portal access has not been granted to your account. Contact your administrator to request portal access."
-        : "Sign-in failed. Please try again."
+      : "Sign-in failed. Please try again."
     : null;
   return (
     <div style={{

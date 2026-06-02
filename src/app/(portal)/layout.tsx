@@ -23,14 +23,13 @@ export default async function PortalLayout({
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  // Authoritative DB check — catches portal_access revocations between
-  // JWT refreshes. Middleware does a fast JWT-based check; this is the
-  // fallback that makes revocation effective on next page navigation.
+  // Authoritative DB check — every page navigation verifies the user's
+  // portal_access flag directly from Postgres. This is the single gate.
   const user = await getUserByObjectId(session.user.id);
   if (!user) redirect("/sign-in");
   const accountType = user.account_type as string;
   if (accountType !== "owner" && accountType !== "admin" && !user.portal_access) {
-    redirect("/sign-in?error=PortalAccessDenied");
+    redirect("/no-access");
   }
 
   const userName = session?.user?.name;

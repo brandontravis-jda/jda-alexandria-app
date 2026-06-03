@@ -36,6 +36,7 @@ interface User {
   mcp_access: boolean;
   created_at: string;
   last_seen_at: string | null;
+  last_mcp_seen_at: string | null;
   roles: Role[];
   user_permissions: UserPermission[];
   practices: Practice[];
@@ -350,7 +351,7 @@ export default function UsersPage() {
           <span>Practice</span>
           <span>Portal</span>
           <span>MCP</span>
-          <span>Last seen</span>
+          <span>Last MCP use</span>
         </div>
 
         {loading ? (
@@ -515,10 +516,10 @@ export default function UsersPage() {
                     </button>
                   </div>
 
-                  {/* Last seen + expand chevron */}
+                  {/* Last MCP use + expand chevron */}
                   <div className="flex items-center justify-between">
                     <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                      {formatDate(user.last_seen_at)}
+                      {formatDate(user.last_mcp_seen_at)}
                     </p>
                     <span style={{ color: "var(--color-jda-text-muted)", fontSize: 10, marginLeft: 8 }}>
                       {isExpanded ? "▲" : "▼"}

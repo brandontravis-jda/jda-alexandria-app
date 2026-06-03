@@ -17,9 +17,9 @@ export async function GET() {
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const users = await db`
-    SELECT id, object_id, email, name, account_type, practice, portal_access, mcp_access, created_at, last_seen_at
+    SELECT id, object_id, email, name, account_type, practice, portal_access, mcp_access, created_at, last_seen_at, last_mcp_seen_at
     FROM users
-    ORDER BY last_seen_at DESC NULLS LAST
+    ORDER BY last_mcp_seen_at DESC NULLS LAST, last_seen_at DESC NULLS LAST
   `;
 
   const userIds = users.map((u: Record<string, unknown>) => u.id as number);

@@ -137,7 +137,8 @@ async function migrate() {
   await sql`
     ALTER TABLE users
       ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT FALSE
+      ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT FALSE,
+      ADD COLUMN IF NOT EXISTS last_mcp_seen_at TIMESTAMPTZ
   `;
 
   await sql`
@@ -628,9 +629,10 @@ async function upsertUser(objectId: string, email: string, name: string): Promis
     VALUES (${objectId}, ${email}, ${name}, ${isFirstUser ? "owner" : "user"}, NOW())
     ON CONFLICT (object_id)
     DO UPDATE SET
-      email        = EXCLUDED.email,
-      name         = EXCLUDED.name,
-      last_seen_at = NOW()
+      email            = EXCLUDED.email,
+      name             = EXCLUDED.name,
+      last_seen_at     = NOW(),
+      last_mcp_seen_at = NOW()
     RETURNING id, created_at, last_seen_at
   `;
 

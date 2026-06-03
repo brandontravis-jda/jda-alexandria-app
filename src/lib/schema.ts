@@ -22,6 +22,7 @@ export async function migrate() {
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT FALSE`;
   await db`ALTER TABLE users ALTER COLUMN last_seen_at DROP NOT NULL`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_mcp_seen_at TIMESTAMPTZ`;
 
   // Backfill account_type from legacy tier column if it exists
   await db`

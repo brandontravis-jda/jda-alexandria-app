@@ -185,10 +185,10 @@ export default function UsersPage() {
         setLastAdSync(data.synced_at);
         await loadUsers();
       } else {
-        setSyncResult(`Error: ${data.error ?? "Sync failed"}`);
+        setSyncResult(`Error: ${data.detail ?? data.error ?? "Sync failed"}`);
       }
-    } catch {
-      setSyncResult("Error: Network request failed");
+    } catch (e) {
+      setSyncResult(`Error: ${e instanceof Error ? e.message : "Network request failed"}`);
     }
     setSyncing(false);
   }

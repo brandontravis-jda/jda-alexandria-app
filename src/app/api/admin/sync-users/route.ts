@@ -4,7 +4,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
 
 const TENANT_ID = process.env.AUTH_MICROSOFT_ENTRA_ID_TENANT_ID!;
 const CLIENT_ID = process.env.AUTH_MICROSOFT_ENTRA_ID_ID!;
@@ -88,6 +87,13 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    if (!TENANT_ID || !CLIENT_ID || !CLIENT_SECRET) {
+      return NextResponse.json(
+        { error: "AD sync failed", detail: `Missing env vars: ${!TENANT_ID ? "TENANT_ID " : ""}${!CLIENT_ID ? "CLIENT_ID " : ""}${!CLIENT_SECRET ? "CLIENT_SECRET" : ""}`.trim() },
+        { status: 500 }
+      );
+    }
+
     const token = await getAppToken();
     const members = await fetchGroupMembers(token);
     const memberObjectIds = new Set(members.map((m) => m.id));

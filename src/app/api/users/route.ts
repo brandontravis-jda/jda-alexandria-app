@@ -58,14 +58,35 @@ export async function GET() {
     permsByUser[row.user_id].push({ id: row.id, action: row.action, type: row.type, scope: row.scope, created_at: row.created_at, granted_by_name: row.granted_by_name });
   }
 
+  // Load practices for each user
+  const userPractices = userIds.length > 0
+    ? await db`
+        SELECT up.user_id, p.id, p.name, p.slug
+        FROM user_practices up
+        JOIN practices p ON p.id = up.practice_id
+        WHERE up.user_id = ANY(${userIds})
+        ORDER BY p.name
+      `
+    : [];
+
+  const practicesByUser: Record<number, { id: number; name: string; slug: string }[]> = {};
+  for (const row of userPractices) {
+    if (!practicesByUser[row.user_id]) practicesByUser[row.user_id] = [];
+    practicesByUser[row.user_id].push({ id: row.id, name: row.name, slug: row.slug });
+  }
+
   const enriched = users.map((u: Record<string, unknown>) => ({
     ...u,
     roles: rolesByUser[u.id as number] ?? [],
     user_permissions: permsByUser[u.id as number] ?? [],
+    practices: practicesByUser[u.id as number] ?? [],
   }));
 
   // All available roles for the assignment UI
   const allRoles = await db`SELECT id, slug, display_name, description, is_system FROM roles ORDER BY display_name`;
+
+  // All available practices for the assignment UI
+  const allPractices = await db`SELECT id, name, slug FROM practices ORDER BY name`;
 
   // All known permission actions (union of all role_permissions + user_permissions)
   const allActions = await db`
@@ -75,5 +96,10 @@ export async function GET() {
     ORDER BY action
   `;
 
-  return NextResponse.json({ users: enriched, allRoles, allActions: allActions.map((r: Record<string, unknown>) => r.action) });
+  return NextResponse.json({
+    users: enriched,
+    allRoles,
+    allPractices,
+    allActions: allActions.map((r: Record<string, unknown>) => r.action),
+  });
 }

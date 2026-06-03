@@ -33,6 +33,9 @@ export async function PATCH(
   const body = await request.json().catch(() => ({}));
   const {
     practice,
+    practice_ids,
+    add_practice,
+    remove_practice,
     portal_access,
     mcp_access,
     account_type,
@@ -42,6 +45,9 @@ export async function PATCH(
     remove_permission_action,
   } = body as {
     practice?: string;
+    practice_ids?: number[];
+    add_practice?: number;
+    remove_practice?: number;
     portal_access?: boolean;
     mcp_access?: boolean;
     account_type?: "owner" | "admin" | "user";
@@ -95,6 +101,28 @@ export async function PATCH(
 
   if (!updated) return NextResponse.json({ error: "User not found" }, { status: 404 });
 
+  // Practice assignment — full replace, add single, or remove single
+  if (practice_ids !== undefined) {
+    await db`DELETE FROM user_practices WHERE user_id = ${userId}`;
+    if (practice_ids.length > 0) {
+      await db`
+        INSERT INTO user_practices (user_id, practice_id)
+        SELECT ${userId}, unnest(${practice_ids}::int[])
+        ON CONFLICT (user_id, practice_id) DO NOTHING
+      `;
+    }
+  }
+  if (add_practice !== undefined) {
+    await db`
+      INSERT INTO user_practices (user_id, practice_id)
+      VALUES (${userId}, ${add_practice})
+      ON CONFLICT (user_id, practice_id) DO NOTHING
+    `;
+  }
+  if (remove_practice !== undefined) {
+    await db`DELETE FROM user_practices WHERE user_id = ${userId} AND practice_id = ${remove_practice}`;
+  }
+
   // Role assignment
   if (add_role) {
     await db`
@@ -130,8 +158,8 @@ export async function PATCH(
     await db`DELETE FROM user_permissions WHERE user_id = ${userId} AND action = ${remove_permission_action}`;
   }
 
-  // Return updated roles and permissions
-  const [roles, userPermissions] = await Promise.all([
+  // Return updated roles, permissions, and practices
+  const [roles, userPermissions, practices] = await Promise.all([
     db`
       SELECT r.id, r.slug, r.display_name, r.is_system
       FROM user_roles ur
@@ -145,9 +173,16 @@ export async function PATCH(
       WHERE user_id = ${userId}
       ORDER BY action
     `,
+    db`
+      SELECT p.id, p.name, p.slug
+      FROM user_practices up
+      JOIN practices p ON p.id = up.practice_id
+      WHERE up.user_id = ${userId}
+      ORDER BY p.name
+    `,
   ]);
 
-  return NextResponse.json({ user: { ...updated, roles, user_permissions: userPermissions } });
+  return NextResponse.json({ user: { ...updated, roles, user_permissions: userPermissions, practices } });
 }
 
 // DELETE /api/users/[id] — remove a user and all their associated data

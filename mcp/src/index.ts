@@ -214,6 +214,28 @@ async function migrate() {
   // Rename account_type column and add if needed
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'user' CHECK (account_type IN ('owner', 'admin', 'user'))`;
 
+  // Practices — managed lookup table (created by portal, used by MCP for scoping)
+  await sql`
+    CREATE TABLE IF NOT EXISTS practices (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      slug        TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS user_practices (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      practice_id INTEGER NOT NULL REFERENCES practices(id) ON DELETE CASCADE,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, practice_id)
+    )
+  `;
+  await sql`CREATE INDEX IF NOT EXISTS user_practices_user_idx ON user_practices(user_id)`;
+  await sql`CREATE INDEX IF NOT EXISTS user_practices_practice_idx ON user_practices(practice_id)`;
+
   await sql`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
   await sql`CREATE INDEX IF NOT EXISTS role_permissions_role_idx ON role_permissions(role_id)`;
   await sql`CREATE INDEX IF NOT EXISTS user_permissions_user_idx ON user_permissions(user_id)`;
@@ -427,15 +449,25 @@ const sanity = createClient({
 interface AuthResult {
   userId: number;
   accountType: "owner" | "admin" | "user";
-  practice: string | null;
+  practices: string[];
   sessionId: number | null;
   debugRoleId: string | null;
+}
+
+async function loadUserPractices(userId: number): Promise<string[]> {
+  const rows = await sql`
+    SELECT p.name FROM user_practices up
+    JOIN practices p ON p.id = up.practice_id
+    WHERE up.user_id = ${userId}
+    ORDER BY p.name
+  `;
+  return rows.map((r: Record<string, unknown>) => r.name as string);
 }
 
 async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
   const keyHash = createHash("sha256").update(apiKey).digest("hex");
   const [row] = await sql`
-    SELECT k.id AS key_id, u.id AS user_id, u.account_type, u.practice
+    SELECT k.id AS key_id, u.id AS user_id, u.account_type
     FROM api_keys k
     JOIN users u ON u.id = k.user_id
     WHERE k.key_hash = ${keyHash}
@@ -444,10 +476,11 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
 
   await sql`UPDATE api_keys SET last_used_at = NOW() WHERE id = ${row.key_id}`;
 
+  const practices = await loadUserPractices(row.user_id as number);
   return {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
-    practice: row.practice as string | null,
+    practices,
     sessionId: null,
     debugRoleId: null,
   };
@@ -455,7 +488,7 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
 
 async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   const [row] = await sql`
-    SELECT s.id AS session_id, s.debug_role_id, u.id AS user_id, u.account_type, u.practice
+    SELECT s.id AS session_id, s.debug_role_id, u.id AS user_id, u.account_type
     FROM oauth_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ${token}
@@ -465,10 +498,11 @@ async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
 
   await sql`UPDATE oauth_sessions SET last_used_at = NOW() WHERE id = ${row.session_id}`;
 
+  const practices = await loadUserPractices(row.user_id as number);
   return {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
-    practice: row.practice as string | null,
+    practices,
     sessionId: row.session_id as number,
     debugRoleId: (row.debug_role_id as string | null) ?? null,
   };
@@ -642,20 +676,26 @@ function buildServer(auth: AuthResult): McpServer {
     },
     async ({ practice }) => {
       // Apply practice scoping: if user's methodology:read scope is own_practice and they
-      // have a practice assigned, filter to their practice (unless they specified a practice).
+      // have practices assigned, filter to those practices (unless they specified one).
       const methPerm = await checkPermission("methodology:read");
-      const effectivePractice = practice
-        ?? (methPerm.scope === "own_practice" && auth.practice ? auth.practice : undefined);
 
       let query: string;
       let params: Record<string, unknown>;
 
-      if (effectivePractice) {
+      if (practice) {
         query = `*[_type == "productionMethodology" && practice->slug.current == $practice] | order(name asc) {
           _id, name, "slug": slug.current, aiClassification, provenStatus, version,
           "practice": practice->name
         }`;
-        params = { practice: effectivePractice };
+        params = { practice };
+      } else if (methPerm.scope === "own_practice" && auth.practices.length > 0) {
+        query = `*[_type == "productionMethodology" && practice->name in $practices] | order(name asc) {
+          _id, name, "slug": slug.current, aiClassification, provenStatus, version,
+          "practice": practice->name
+        }`;
+        params = { practices: auth.practices };
+      } else if (methPerm.scope === "own_practice" && auth.practices.length === 0) {
+        return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
       } else {
         query = `*[_type == "productionMethodology"] | order(name asc) {
           _id, name, "slug": slug.current, aiClassification, provenStatus, version,
@@ -1621,11 +1661,18 @@ function buildServer(auth: AuthResult): McpServer {
     async ({ practice_area, classification, status }) => {
       // Apply practice scoping if user's capability_record:read scope is own_practice
       const capPerm = await checkPermission("capability_record:read");
-      const effectivePracticeArea = practice_area
-        ?? (capPerm.scope === "own_practice" && auth.practice ? auth.practice : undefined);
+
+      if (!practice_area && capPerm.scope === "own_practice" && auth.practices.length === 0) {
+        return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
+      }
 
       let filter = `_type == "capabilityRecord"`;
-      if (effectivePracticeArea) filter += ` && practiceArea == "${effectivePracticeArea}"`;
+      if (practice_area) {
+        filter += ` && practiceArea == "${practice_area}"`;
+      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
+        const practiceList = auth.practices.map((p) => `"${p}"`).join(", ");
+        filter += ` && practiceArea in [${practiceList}]`;
+      }
       if (classification) filter += ` && aiClassification == "${classification}"`;
       if (status) filter += ` && status == "${status}"`;
 
@@ -1982,7 +2029,7 @@ function buildServer(auth: AuthResult): McpServer {
       lines.push(`Name: ${user.name ?? "—"}`);
       lines.push(`Email: ${user.email ?? "—"}`);
       lines.push(`Account type: ${user.account_type}`);
-      lines.push(`Practice: ${user.practice ?? "All"}`);
+      lines.push(`Practices: ${auth.practices.length > 0 ? auth.practices.join(", ") : "None assigned (all practices)"}`);
 
       if (auth.debugRoleId) {
         const [debugRole] = await sql`SELECT display_name FROM roles WHERE id = ${auth.debugRoleId}`;

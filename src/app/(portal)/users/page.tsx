@@ -19,6 +19,12 @@ interface UserPermission {
   granted_by_name: string | null;
 }
 
+interface Practice {
+  id: number;
+  name: string;
+  slug: string;
+}
+
 interface User {
   id: number;
   object_id: string;
@@ -32,6 +38,7 @@ interface User {
   last_seen_at: string | null;
   roles: Role[];
   user_permissions: UserPermission[];
+  practices: Practice[];
 }
 
 interface RolePermission {
@@ -69,11 +76,10 @@ type OverrideState = "grant" | "deny" | "inherit";
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [allRoles, setAllRoles] = useState<Role[]>([]);
+  const [allPractices, setAllPractices] = useState<Practice[]>([]);
   const [allActions, setAllActions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
-  const [editingPractice, setEditingPractice] = useState<number | null>(null);
-  const [practiceInput, setPracticeInput] = useState("");
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
   const [permEditMode, setPermEditMode] = useState<number | null>(null);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
@@ -90,6 +96,7 @@ export default function UsersPage() {
       const data = await usersRes.json();
       setUsers(data.users ?? []);
       setAllRoles(data.allRoles ?? []);
+      setAllPractices(data.allPractices ?? []);
       setAllActions(data.allActions ?? []);
     }
     if (meRes.ok) {
@@ -133,9 +140,22 @@ export default function UsersPage() {
     return res;
   }
 
-  async function savePractice(userId: number) {
-    await patch(userId, { practice: practiceInput.trim() || null });
-    setEditingPractice(null);
+  async function addPractice(userId: number, practiceId: number) {
+    await patch(userId, { add_practice: practiceId });
+    setUsers((prev) => prev.map((u) => {
+      if (u.id !== userId) return u;
+      const p = allPractices.find((ap) => ap.id === practiceId);
+      if (!p || u.practices.some((up) => up.id === practiceId)) return u;
+      return { ...u, practices: [...u.practices, p].sort((a, b) => a.name.localeCompare(b.name)) };
+    }));
+  }
+
+  async function removePractice(userId: number, practiceId: number) {
+    await patch(userId, { remove_practice: practiceId });
+    setUsers((prev) => prev.map((u) => {
+      if (u.id !== userId) return u;
+      return { ...u, practices: u.practices.filter((p) => p.id !== practiceId) };
+    }));
   }
 
   async function addRole(userId: number, roleId: string) {
@@ -283,7 +303,6 @@ export default function UsersPage() {
         ) : (
           users.map((user, i) => {
             const isSaving = saving === user.id;
-            const isEditingPractice = editingPractice === user.id;
             const isExpanded = expandedUser === user.id;
             const isPermEdit = permEditMode === user.id;
             const unassignedRoles = allRoles.filter((r) => !user.roles.some((ur) => ur.id === r.id));
@@ -376,51 +395,25 @@ export default function UsersPage() {
                     )}
                   </div>
 
-                  {/* Practice */}
-                  <div>
-                    {isEditingPractice ? (
-                      <div className="flex items-center gap-1">
-                        <input
-                          autoFocus
-                          value={practiceInput}
-                          onChange={(e) => setPracticeInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") savePractice(user.id);
-                            if (e.key === "Escape") setEditingPractice(null);
-                          }}
-                          placeholder="Brand"
-                          className="text-xs px-2 py-1 rounded"
-                          style={{
-                            background: "var(--color-jda-bg)",
-                            border: "1px solid var(--color-jda-border)",
-                            color: "var(--color-jda-text)",
-                            outline: "none",
-                            width: 64,
-                          }}
-                        />
-                        <button
-                          onClick={() => savePractice(user.id)}
-                          className="text-xs px-1.5 py-1 rounded font-semibold"
-                          style={{ background: "var(--color-jda-red)", color: "#fff", border: "none", cursor: "pointer" }}
-                        >
-                          ✓
-                        </button>
-                      </div>
+                  {/* Practices */}
+                  <div className="flex flex-wrap gap-1 items-center">
+                    {user.practices.length === 0 ? (
+                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>—</span>
                     ) : (
-                      <button
-                        onClick={() => { setEditingPractice(user.id); setPracticeInput(user.practice ?? ""); }}
-                        className="text-xs px-2 py-1 rounded text-left w-full"
-                        style={{
-                          background: "transparent",
-                          border: "1px solid transparent",
-                          color: user.practice ? "var(--color-jda-text)" : "var(--color-jda-text-muted)",
-                          cursor: "pointer",
-                        }}
-                        onMouseEnter={(e) => (e.currentTarget.style.borderColor = "var(--color-jda-border)")}
-                        onMouseLeave={(e) => (e.currentTarget.style.borderColor = "transparent")}
-                      >
-                        {user.practice ?? "—"}
-                      </button>
+                      user.practices.slice(0, 1).map((p) => (
+                        <span
+                          key={p.id}
+                          className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                          style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}
+                        >
+                          {p.name}
+                        </span>
+                      ))
+                    )}
+                    {user.practices.length > 1 && (
+                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+                        +{user.practices.length - 1}
+                      </span>
                     )}
                   </div>
 
@@ -460,7 +453,54 @@ export default function UsersPage() {
                     className="px-6 pb-6 border-t"
                     style={{ borderColor: "var(--color-jda-border)", background: "rgba(255,255,255,0.02)" }}
                   >
-                    <div className="mt-4 grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
+                    {/* Practices */}
+                    <div className="mt-4 mb-4">
+                      <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                        Practices
+                      </p>
+                      <div className="flex flex-wrap gap-2 mb-2">
+                        {user.practices.length === 0 && (
+                          <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>
+                        )}
+                        {user.practices.map((p) => (
+                          <span
+                            key={p.id}
+                            className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
+                            style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}
+                          >
+                            {p.name}
+                            <button
+                              onClick={() => removePractice(user.id, p.id)}
+                              style={{ background: "none", border: "none", color: "#4ade80", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }}
+                              title="Remove practice"
+                            >
+                              ×
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      {allPractices.filter((p) => !user.practices.some((up) => up.id === p.id)).length > 0 && (
+                        <div className="flex flex-wrap gap-2">
+                          {allPractices.filter((p) => !user.practices.some((up) => up.id === p.id)).map((p) => (
+                            <button
+                              key={p.id}
+                              onClick={() => addPractice(user.id, p.id)}
+                              className="text-xs px-2 py-1 rounded-full"
+                              style={{
+                                background: "rgba(255,255,255,0.05)",
+                                color: "var(--color-jda-text-muted)",
+                                border: "1px dashed var(--color-jda-border)",
+                                cursor: "pointer",
+                              }}
+                            >
+                              + {p.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
 
                       {/* LEFT: Roles */}
                       <div>

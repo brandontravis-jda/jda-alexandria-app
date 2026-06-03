@@ -119,6 +119,56 @@ export async function migrate() {
     )
   `;
 
+  // Practices — managed lookup table replacing the freetext users.practice column
+  await db`
+    CREATE TABLE IF NOT EXISTS practices (
+      id          SERIAL PRIMARY KEY,
+      name        TEXT NOT NULL UNIQUE,
+      slug        TEXT NOT NULL UNIQUE,
+      description TEXT,
+      created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  // Many-to-many: a user can belong to multiple practices
+  await db`
+    CREATE TABLE IF NOT EXISTS user_practices (
+      id          SERIAL PRIMARY KEY,
+      user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      practice_id INTEGER NOT NULL REFERENCES practices(id) ON DELETE CASCADE,
+      assigned_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(user_id, practice_id)
+    )
+  `;
+
+  await db`CREATE INDEX IF NOT EXISTS user_practices_user_idx ON user_practices(user_id)`;
+  await db`CREATE INDEX IF NOT EXISTS user_practices_practice_idx ON user_practices(practice_id)`;
+
+  // Migrate freetext users.practice values into the practices + user_practices tables
+  await db`
+    DO $$
+    BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'practice') THEN
+        -- Create practice records for each distinct non-null value
+        INSERT INTO practices (name, slug)
+          SELECT DISTINCT practice,
+                 LOWER(REGEXP_REPLACE(REGEXP_REPLACE(practice, '[^a-zA-Z0-9\\s-]', '', 'g'), '\\s+', '-', 'g'))
+          FROM users
+          WHERE practice IS NOT NULL AND practice <> ''
+        ON CONFLICT (name) DO NOTHING;
+
+        -- Link users to their practice
+        INSERT INTO user_practices (user_id, practice_id)
+          SELECT u.id, p.id
+          FROM users u
+          JOIN practices p ON p.name = u.practice
+          WHERE u.practice IS NOT NULL AND u.practice <> ''
+        ON CONFLICT (user_id, practice_id) DO NOTHING;
+      END IF;
+    END
+    $$
+  `;
+
   await db`CREATE INDEX IF NOT EXISTS user_roles_user_idx ON user_roles(user_id)`;
   await db`CREATE INDEX IF NOT EXISTS role_permissions_role_idx ON role_permissions(role_id)`;
   await db`CREATE INDEX IF NOT EXISTS user_permissions_user_idx ON user_permissions(user_id)`;
@@ -205,4 +255,18 @@ export async function getUserByObjectId(objectId: string) {
     SELECT * FROM users WHERE object_id = ${objectId}
   `;
   return user ?? null;
+}
+
+export async function getUserPractices(userId: number) {
+  return db`
+    SELECT p.id, p.name, p.slug
+    FROM user_practices up
+    JOIN practices p ON p.id = up.practice_id
+    WHERE up.user_id = ${userId}
+    ORDER BY p.name
+  `;
+}
+
+export async function getAllPractices() {
+  return db`SELECT id, name, slug, description, created_at FROM practices ORDER BY name`;
 }

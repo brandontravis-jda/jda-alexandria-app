@@ -11,7 +11,7 @@ export async function migrate() {
                       CHECK (account_type IN ('owner', 'admin', 'user')),
       practice      TEXT,
       portal_access BOOLEAN NOT NULL DEFAULT FALSE,
-      mcp_access    BOOLEAN NOT NULL DEFAULT TRUE,
+      mcp_access    BOOLEAN NOT NULL DEFAULT FALSE,
       created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       last_seen_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
@@ -20,7 +20,7 @@ export async function migrate() {
   // Rename tier → account_type if table already exists with old column
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS account_type TEXT NOT NULL DEFAULT 'user' CHECK (account_type IN ('owner', 'admin', 'user'))`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE`;
-  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT TRUE`;
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT FALSE`;
 
   // Backfill account_type from legacy tier column if it exists
   await db`

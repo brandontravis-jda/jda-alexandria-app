@@ -137,7 +137,7 @@ async function migrate() {
   await sql`
     ALTER TABLE users
       ADD COLUMN IF NOT EXISTS portal_access BOOLEAN NOT NULL DEFAULT FALSE,
-      ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT TRUE
+      ADD COLUMN IF NOT EXISTS mcp_access BOOLEAN NOT NULL DEFAULT FALSE
   `;
 
   await sql`
@@ -449,6 +449,7 @@ const sanity = createClient({
 interface AuthResult {
   userId: number;
   accountType: "owner" | "admin" | "user";
+  mcpAccess: boolean;
   practices: string[];
   sessionId: number | null;
   debugRoleId: string | null;
@@ -467,7 +468,7 @@ async function loadUserPractices(userId: number): Promise<string[]> {
 async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
   const keyHash = createHash("sha256").update(apiKey).digest("hex");
   const [row] = await sql`
-    SELECT k.id AS key_id, u.id AS user_id, u.account_type
+    SELECT k.id AS key_id, u.id AS user_id, u.account_type, u.mcp_access
     FROM api_keys k
     JOIN users u ON u.id = k.user_id
     WHERE k.key_hash = ${keyHash}
@@ -480,6 +481,7 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
   return {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
+    mcpAccess: row.mcp_access as boolean,
     practices,
     sessionId: null,
     debugRoleId: null,
@@ -488,7 +490,7 @@ async function resolveApiKey(apiKey: string): Promise<AuthResult | null> {
 
 async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   const [row] = await sql`
-    SELECT s.id AS session_id, s.debug_role_id, u.id AS user_id, u.account_type
+    SELECT s.id AS session_id, s.debug_role_id, u.id AS user_id, u.account_type, u.mcp_access
     FROM oauth_sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token = ${token}
@@ -502,6 +504,7 @@ async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   return {
     userId: row.user_id as number,
     accountType: row.account_type as "owner" | "admin" | "user",
+    mcpAccess: row.mcp_access as boolean,
     practices,
     sessionId: row.session_id as number,
     debugRoleId: (row.debug_role_id as string | null) ?? null,
@@ -659,6 +662,36 @@ async function createSessionToken(userId: number): Promise<string> {
 // ── Server factory ────────────────────────────────────────────────────────────
 // One McpServer per request, scoped to the authenticated user's tier.
 
+// Tools that are always available regardless of mcp_access
+const UNGATED_TOOLS = new Set([
+  "alexandria_whoami",
+  "alexandria_help",
+  "alexandria_give_feedback",
+  "alexandria_log_feedback",
+]);
+
+// Permission action required for each gated tool (null = mcp_access only, no additional permission)
+const TOOL_PERMISSIONS: Record<string, string | null> = {
+  alexandria_list_methodologies:  "methodology:read",
+  alexandria_get_methodology:     "methodology:read",
+  alexandria_list_practice_areas: null,
+  alexandria_list_deliverables:   null,
+  alexandria_list_brand_packages: "brand_package:read",
+  alexandria_get_brand_package:   "brand_package:read",
+  alexandria_list_templates:      "template:read",
+  alexandria_get_template:        "template:read",
+  alexandria_submit_intake:       "template:read",
+  alexandria_build_template:      "template:read",
+  alexandria_list_capabilities:   "capability_record:read",
+  alexandria_get_capability:      "capability_record:read",
+  alexandria_log_capability_gap:  "capability_record:read",
+  alexandria_update_capability:   "mcp_tool:alexandria_update_capability",
+  alexandria_save_brand_package:  "mcp_tool:alexandria_save_brand_package",
+  alexandria_save_methodology:    "methodology:write",
+  alexandria_debug_as_role:       null,
+  alexandria_debug_exit:          null,
+};
+
 function buildServer(auth: AuthResult): McpServer {
   const server = new McpServer({
     name: "alexandria",
@@ -666,6 +699,28 @@ function buildServer(auth: AuthResult): McpServer {
   });
 
   const checkPermission = makePermissionResolver(auth);
+
+  // Gate helper: checks mcp_access and optional per-tool permission.
+  // Returns an error message string if blocked, or null if allowed.
+  async function gateCheck(toolName: string): Promise<string | null> {
+    // Owners and admins always pass mcp_access
+    if (auth.accountType !== "owner" && auth.accountType !== "admin") {
+      if (!auth.mcpAccess && !UNGATED_TOOLS.has(toolName)) {
+        return "MCP tool access has not been granted to your account. You can use 'alexandria_whoami' to check your status and 'alexandria_help' for guidance. Contact your administrator to request access.";
+      }
+    }
+
+    // Check per-tool permission if defined
+    const requiredAction = TOOL_PERMISSIONS[toolName];
+    if (requiredAction) {
+      const perm = await checkPermission(requiredAction);
+      if (!perm.allowed) {
+        return `Permission denied. This tool requires the '${requiredAction}' permission. Contact your administrator to request access.`;
+      }
+    }
+
+    return null;
+  }
 
   // ── alexandria_list_methodologies ─────────────────────────────────────────
   server.tool(
@@ -675,8 +730,9 @@ function buildServer(auth: AuthResult): McpServer {
       practice: z.string().optional().describe("Practice area slug to filter by (e.g. 'brand-strategy', 'content-marketing')"),
     },
     async ({ practice }) => {
-      // Apply practice scoping: if user's methodology:read scope is own_practice and they
-      // have practices assigned, filter to those practices (unless they specified one).
+      const blocked = await gateCheck("alexandria_list_methodologies");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const methPerm = await checkPermission("methodology:read");
 
       let query: string;
@@ -726,8 +782,9 @@ function buildServer(auth: AuthResult): McpServer {
       slug: z.string().describe("The methodology slug OR a plain-english name (e.g. 'post discovery brief', 'brand package extraction', 'post_discovery_brief'). Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
-      // Normalize: collapse hyphens/spaces to underscores for slug matching,
-      // and keep original for name matching
+      const blocked = await gateCheck("alexandria_get_methodology");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const normalizedSlug = slug.trim().toLowerCase().replace(/[-\s]+/g, "_");
 
       const query = `*[_type == "productionMethodology" && (
@@ -889,6 +946,9 @@ function buildServer(auth: AuthResult): McpServer {
     "List all JDA practice areas in Alexandria.",
     {},
     async () => {
+      const blocked = await gateCheck("alexandria_list_practice_areas");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const rows = await sanity.fetch(
         `*[_type == "practiceArea"] | order(name asc) { _id, name, "slug": slug.current, activationStatus }`,
         {}
@@ -914,6 +974,9 @@ function buildServer(auth: AuthResult): McpServer {
       practice: z.string().optional().describe("Practice area slug to filter by"),
     },
     async ({ practice }) => {
+      const blocked = await gateCheck("alexandria_list_deliverables");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       let query: string;
       let params: Record<string, unknown>;
 
@@ -949,6 +1012,9 @@ function buildServer(auth: AuthResult): McpServer {
     "List all client brand packages available in Alexandria. Use this during Brand Resolution to check whether a brand package exists for a given client before asking the practitioner for a brand guide.",
     {},
     async () => {
+      const blocked = await gateCheck("alexandria_list_brand_packages");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const rows = await sanity.fetch(
         `*[_type == "clientBrandPackage"] | order(clientName asc) {
           _id, clientName, "slug": slug.current, extractedDate, sourceDocument, extractedBy, gaps
@@ -981,6 +1047,9 @@ function buildServer(auth: AuthResult): McpServer {
       slug: z.string().describe("The client slug OR client name (e.g. 'heartbeat-international', 'Heartbeat International', 'heartbeat_international'). Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
+      const blocked = await gateCheck("alexandria_get_brand_package");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
@@ -1175,6 +1244,9 @@ function buildServer(auth: AuthResult): McpServer {
       format_type: z.enum(["html-deliverable", "word-document", "html-email"]).optional().describe("Filter by format type. Omit to return all active templates."),
     },
     async ({ format_type }) => {
+      const blocked = await gateCheck("alexandria_list_templates");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const filter = format_type
         ? `_type == "template" && status == "active" && formatType == $formatType`
         : `_type == "template" && status == "active"`;
@@ -1225,6 +1297,9 @@ function buildServer(auth: AuthResult): McpServer {
       slug: z.string().describe("The template slug OR plain-english name. Hyphens, underscores, and spaces are all accepted."),
     },
     async ({ slug }) => {
+      const blocked = await gateCheck("alexandria_get_template");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
@@ -1296,6 +1371,9 @@ function buildServer(auth: AuthResult): McpServer {
       anything_else: z.string().optional().describe("Any additional constraints, verbatim language, sections to avoid, etc."),
     },
     async ({ session_id, audience, purpose, layout_mode, navigation, visual_skin, tone, cover_framing, anything_else }) => {
+      const blocked = await gateCheck("alexandria_submit_intake");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       // Validate session exists and is awaiting intake
       const [session] = await sql<{ session_id: string; status: string; template_slug: string }[]>`
         SELECT session_id, status, template_slug FROM intake_sessions WHERE session_id = ${session_id}
@@ -1372,6 +1450,9 @@ function buildServer(auth: AuthResult): McpServer {
       session_id: z.string().describe("The session_id from alexandria_get_template. Must correspond to a completed intake session."),
     },
     async ({ slug, session_id }) => {
+      const blocked = await gateCheck("alexandria_build_template");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       // Gate: verify session is complete
       const [session] = await sql<{ status: string; answers: Record<string, string> }[]>`
         SELECT status, answers FROM intake_sessions WHERE session_id = ${session_id}
@@ -1524,6 +1605,11 @@ function buildServer(auth: AuthResult): McpServer {
 
       const lines: string[] = [];
 
+      // ── MCP access callout for users without tool access ─
+      if (!auth.mcpAccess && auth.accountType !== "owner" && auth.accountType !== "admin") {
+        lines.push(`> **Your account does not have MCP tool access enabled.** You can view this help and use \`alexandria_whoami\`, but all other tools are locked. Contact your administrator or email help@jdaworldwide.com to request access.\n`);
+      }
+
       // ── Elevated access callout — MUST appear first, before all other content ─
       const [canSaveBrand, canUpdateCapability] = await Promise.all([
         checkPermission("mcp_tool:alexandria_save_brand_package"),
@@ -1659,7 +1745,9 @@ function buildServer(auth: AuthResult): McpServer {
       status: z.enum(["not_evaluated", "classified", "methodology_built", "proven_status"]).optional().describe("Filter by transformation status"),
     },
     async ({ practice_area, classification, status }) => {
-      // Apply practice scoping if user's capability_record:read scope is own_practice
+      const blocked = await gateCheck("alexandria_list_capabilities");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const capPerm = await checkPermission("capability_record:read");
 
       if (!practice_area && capPerm.scope === "own_practice" && auth.practices.length === 0) {
@@ -1741,6 +1829,9 @@ function buildServer(auth: AuthResult): McpServer {
       slug: z.string().describe("Deliverable slug (e.g. 'press-release', 'brand-positioning-and-concept-development'). Use alexandria_list_capabilities to find available slugs."),
     },
     async ({ slug }) => {
+      const blocked = await gateCheck("alexandria_get_capability");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
@@ -1855,6 +1946,9 @@ function buildServer(auth: AuthResult): McpServer {
       context: z.string().optional().describe("Brief context — what the practitioner was trying to do."),
     },
     async ({ deliverable_name, practice_area, context }) => {
+      const blocked = await gateCheck("alexandria_log_capability_gap");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       const slug = deliverable_name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
 
       // Check if already exists
@@ -1904,10 +1998,8 @@ function buildServer(auth: AuthResult): McpServer {
       notes: z.string().optional(),
     },
     async ({ slug, ai_classification, status, current_ai_ceiling, ai_support_role, recommended_tool_stack, live_search_enabled, baseline_production_time, ai_native_production_time, notes }) => {
-      const perm = await checkPermission("mcp_tool:alexandria_update_capability");
-      if (!perm.allowed) {
-        return { content: [{ type: "text", text: "Permission denied. Updating capability records requires practice_leader or admin role. Contact your administrator to request access." }], isError: true };
-      }
+      const blocked = await gateCheck("alexandria_update_capability");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const existing = await sanity.fetch<{ _id: string } | null>(
@@ -1955,10 +2047,8 @@ function buildServer(auth: AuthResult): McpServer {
       notes:           z.string().optional().describe("Extraction notes, stale data warnings, gaps, or caveats"),
     },
     async ({ client_name, slug, content, abbreviations, source_document, extracted_by, dropbox_link, notes }) => {
-      const perm = await checkPermission("mcp_tool:alexandria_save_brand_package");
-      if (!perm.allowed) {
-        return { content: [{ type: "text", text: "Permission denied. Saving brand packages requires practice_leader or admin role. Contact your administrator to request access." }], isError: true };
-      }
+      const blocked = await gateCheck("alexandria_save_brand_package");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
       // Normalize slug — lowercase, hyphens only
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
@@ -2016,19 +2106,130 @@ function buildServer(auth: AuthResult): McpServer {
     }
   );
 
+  // ── alexandria_save_methodology ──────────────────────────────────────────
+  server.tool(
+    "alexandria_save_methodology",
+    "Save or update a production methodology in Alexandria. Use this when a practice leader or admin wants to create a new methodology or update an existing one. If a methodology with the given slug already exists, it will be updated. If not, a new record is created. Requires methodology:write permission.",
+    {
+      name:               z.string().describe("Plain-language name practitioners use (e.g. 'Post-Discovery Brief', 'Press Release')"),
+      slug:               z.string().describe("URL-safe slug identifier (e.g. 'post-discovery-brief'). Lowercase, hyphens only."),
+      description:        z.string().describe("One paragraph: what this methodology produces and when to use it."),
+      practice_area_slug: z.string().optional().describe("Practice area slug (e.g. 'brand-strategy'). Leave blank for Agency-Wide."),
+      ai_classification:  z.enum(["ai_led", "ai_assisted", "human_led"]).describe("AI classification for this methodology."),
+      system_instructions: z.string().describe("The core methodology instructions — never shown to the practitioner. This is the IP."),
+      required_inputs:    z.array(z.object({
+        name:        z.string(),
+        inputType:   z.enum(["text", "url", "file", "selection"]).optional(),
+        required:    z.boolean().optional(),
+        description: z.string().optional(),
+        promptText:  z.string().optional(),
+      })).optional().describe("Inputs Claude must collect before executing."),
+      steps:              z.array(z.object({
+        name:                z.string(),
+        instructions:        z.string().optional(),
+        approvalGate:        z.boolean().optional(),
+        gatePrompt:          z.string().optional(),
+        iterationProtocol:   z.string().optional(),
+      })).optional().describe("Ordered steps for multi-step workflows."),
+      output_format:      z.string().optional().describe("What the deliverable looks like (HTML, markdown, Word doc, etc.)"),
+      quality_checks:     z.array(z.object({
+        name:        z.string(),
+        description: z.string().optional(),
+        checkPrompt: z.string().optional(),
+      })).optional().describe("Self-checks Claude runs before delivering."),
+      failure_modes:      z.array(z.object({
+        name:        z.string(),
+        description: z.string().optional(),
+        mitigation:  z.string().optional(),
+      })).optional().describe("Common failure modes loaded as negative constraints."),
+      vision_of_good:     z.string().optional().describe("What excellent looks like — system-level calibration."),
+      tips:               z.string().optional().describe("Operational context, edge cases, things that improve output."),
+      author:             z.string().optional().describe("Who authored this methodology."),
+    },
+    async ({ name, slug, description, practice_area_slug, ai_classification, system_instructions, required_inputs, steps, output_format, quality_checks, failure_modes, vision_of_good, tips, author }) => {
+      const blocked = await gateCheck("alexandria_save_methodology");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
+      const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+
+      // Resolve practice area reference if provided
+      let practiceRef: { _type: string; _ref: string } | undefined;
+      if (practice_area_slug) {
+        const pa = await sanity.fetch<{ _id: string } | null>(
+          `*[_type == "practiceArea" && slug.current == $slug][0]{ _id }`,
+          { slug: practice_area_slug.trim().toLowerCase().replace(/[\s_]+/g, "-") }
+        );
+        if (pa) practiceRef = { _type: "reference", _ref: pa._id };
+      }
+
+      const existing = await sanity.fetch<{ _id: string; version: number } | null>(
+        `*[_type == "productionMethodology" && slug.current == $slug][0]{ _id, version }`,
+        { slug: normalizedSlug }
+      );
+
+      const doc: Record<string, unknown> = {
+        name,
+        description,
+        aiClassification: ai_classification,
+        systemInstructions: system_instructions,
+        outputFormat: output_format ?? "",
+        visionOfGood: vision_of_good ?? "",
+        tips: tips ?? "",
+        author: author ?? "",
+      };
+
+      if (practiceRef) doc.practice = practiceRef;
+      if (required_inputs) doc.requiredInputs = required_inputs.map((i) => ({ ...i, _type: "object", _key: crypto.randomUUID() }));
+      if (steps) doc.steps = steps.map((s) => ({ ...s, _type: "object", _key: crypto.randomUUID() }));
+      if (quality_checks) doc.qualityChecks = quality_checks.map((q) => ({ ...q, _type: "object", _key: crypto.randomUUID() }));
+      if (failure_modes) doc.failureModes = failure_modes.map((f) => ({ ...f, _type: "object", _key: crypto.randomUUID() }));
+
+      if (existing) {
+        const nextVersion = (existing.version ?? 1) + 1;
+        await sanity
+          .patch(existing._id)
+          .set({ ...doc, version: nextVersion })
+          .commit();
+
+        return {
+          content: [{
+            type: "text",
+            text: `Methodology "${name}" updated in Alexandria (v${nextVersion}).\nSlug: ${normalizedSlug}\n\nThe updated methodology is now live. Practitioners will use this version on their next run.`,
+          }],
+        };
+      } else {
+        await sanity.create({
+          _type: "productionMethodology",
+          ...doc,
+          slug: { _type: "slug", current: normalizedSlug },
+          version: 1,
+          provenStatus: false,
+        });
+
+        return {
+          content: [{
+            type: "text",
+            text: `Methodology "${name}" created in Alexandria.\nSlug: ${normalizedSlug}\n\nThe methodology is now live. Practitioners can access it via 'alexandria_get_methodology'.`,
+          }],
+        };
+      }
+    }
+  );
+
   // ── alexandria_whoami ─────────────────────────────────────────────────────
   server.tool(
     "alexandria_whoami",
     "Returns your current identity, account type, assigned roles, and effective permissions in Alexandria.",
     {},
     async () => {
-      const [user] = await sql`SELECT name, email, account_type, practice FROM users WHERE id = ${auth.userId}`;
+      const [user] = await sql`SELECT name, email, account_type, mcp_access FROM users WHERE id = ${auth.userId}`;
       if (!user) return { content: [{ type: "text", text: "User not found." }], isError: true };
 
       const lines: string[] = [];
       lines.push(`Name: ${user.name ?? "—"}`);
       lines.push(`Email: ${user.email ?? "—"}`);
       lines.push(`Account type: ${user.account_type}`);
+      lines.push(`MCP tool access: ${auth.mcpAccess ? "Granted" : "Not granted"}`);
       lines.push(`Practices: ${auth.practices.length > 0 ? auth.practices.join(", ") : "None assigned (all practices)"}`);
 
       if (auth.debugRoleId) {
@@ -2239,6 +2440,9 @@ function buildServer(auth: AuthResult): McpServer {
       role: z.string().describe("Role to impersonate — accepts the role slug (e.g. 'editor', 'practitioner') or UUID"),
     },
     async ({ role: roleInput }) => {
+      const blocked = await gateCheck("alexandria_debug_as_role");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       if (auth.accountType !== "owner") {
         return { content: [{ type: "text", text: "Access denied. Debug mode is only available to owners." }], isError: true };
       }
@@ -2288,6 +2492,9 @@ function buildServer(auth: AuthResult): McpServer {
     "Owner only. Exit debug mode and restore full owner permissions immediately.",
     {},
     async () => {
+      const blocked = await gateCheck("alexandria_debug_exit");
+      if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
+
       if (auth.accountType !== "owner") {
         return { content: [{ type: "text", text: "Access denied." }], isError: true };
       }

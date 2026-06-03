@@ -174,6 +174,10 @@ export default function UsersPage() {
     await patch(userId, { portal_access: !current });
   }
 
+  async function toggleMcpAccess(userId: number, current: boolean) {
+    await patch(userId, { mcp_access: !current });
+  }
+
   async function setPermOverride(userId: number, action: string, state: OverrideState) {
     if (state === "inherit") {
       await patch(userId, { remove_permission_action: action });
@@ -278,7 +282,7 @@ export default function UsersPage() {
         <div
           className="grid px-6 py-3 border-b text-xs font-semibold"
           style={{
-            gridTemplateColumns: "1fr 140px 180px 80px 80px 100px",
+            gridTemplateColumns: "1fr 140px 180px 80px 80px 80px 100px",
             borderColor: "var(--color-jda-border)",
             color: "var(--color-jda-text-muted)",
             fontFamily: "var(--font-display)",
@@ -291,6 +295,7 @@ export default function UsersPage() {
           <span>Roles</span>
           <span>Practice</span>
           <span>Portal</span>
+          <span>MCP</span>
           <span>Last seen</span>
         </div>
 
@@ -307,6 +312,7 @@ export default function UsersPage() {
             const isPermEdit = permEditMode === user.id;
             const unassignedRoles = allRoles.filter((r) => !user.roles.some((ur) => ur.id === r.id));
             const portalBadge = ACCESS_BADGE[String(user.portal_access) as "true" | "false"];
+            const mcpBadge = ACCESS_BADGE[String(user.mcp_access) as "true" | "false"];
             const acctBadge = ACCOUNT_TYPE_BADGE[user.account_type] ?? ACCOUNT_TYPE_BADGE.user;
 
             return (
@@ -322,7 +328,7 @@ export default function UsersPage() {
                     if (next !== null) await loadRolePermissions(user);
                   }}
                   style={{
-                    gridTemplateColumns: "1fr 140px 180px 80px 80px 100px",
+                    gridTemplateColumns: "1fr 140px 180px 80px 80px 80px 100px",
                     borderColor: i === 0 ? "transparent" : "var(--color-jda-border)",
                     opacity: isSaving ? 0.6 : 1,
                     transition: "opacity 0.15s",
@@ -433,6 +439,25 @@ export default function UsersPage() {
                       }}
                     >
                       {portalBadge.label}
+                    </button>
+                  </div>
+
+                  {/* MCP access toggle */}
+                  <div>
+                    <button
+                      onClick={() => toggleMcpAccess(user.id, user.mcp_access)}
+                      disabled={isSaving}
+                      className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                      style={{
+                        background: mcpBadge.bg,
+                        color: mcpBadge.text,
+                        border: "none",
+                        cursor: "pointer",
+                        fontFamily: "var(--font-display)",
+                        letterSpacing: "0.04em",
+                      }}
+                    >
+                      {mcpBadge.label}
                     </button>
                   </div>
 

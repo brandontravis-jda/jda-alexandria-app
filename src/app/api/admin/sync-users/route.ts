@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, migrate } from "@/lib/schema";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -87,6 +87,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    await migrate();
+
     if (!TENANT_ID || !CLIENT_ID || !CLIENT_SECRET) {
       return NextResponse.json(
         { error: "AD sync failed", detail: `Missing env vars: ${!TENANT_ID ? "TENANT_ID " : ""}${!CLIENT_ID ? "CLIENT_ID " : ""}${!CLIENT_SECRET ? "CLIENT_SECRET" : ""}`.trim() },

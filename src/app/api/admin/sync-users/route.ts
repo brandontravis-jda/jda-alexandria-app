@@ -42,7 +42,7 @@ async function getAppToken(): Promise<string> {
 async function fetchGroupMembers(token: string): Promise<GraphMember[]> {
   const members: GraphMember[] = [];
   let url: string | null =
-    `https://graph.microsoft.com/v1.0/groups/${GROUP_ID}/members?$select=id,displayName,mail,userPrincipalName&$top=999`;
+    `https://graph.microsoft.com/v1.0/groups/${GROUP_ID}/members/microsoft.graph.user?$select=id,displayName,mail,userPrincipalName&$top=999`;
 
   while (url) {
     const res = await fetch(url, {
@@ -130,14 +130,15 @@ export async function POST(req: NextRequest) {
         const isFirstUser = !ownerExists && created === 0;
 
         const [newUser] = await db`
-          INSERT INTO users (object_id, email, name, account_type, portal_access, mcp_access)
+          INSERT INTO users (object_id, email, name, account_type, portal_access, mcp_access, last_seen_at)
           VALUES (
             ${member.id},
             ${email},
             ${member.displayName},
             ${isFirstUser ? "owner" : "user"},
             ${isFirstUser},
-            false
+            false,
+            NULL
           )
           RETURNING id
         `;

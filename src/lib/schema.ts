@@ -119,6 +119,8 @@ export async function migrate() {
     )
   `;
 
+  await db`ALTER TABLE org_config ADD COLUMN IF NOT EXISTS last_ad_sync TIMESTAMPTZ`;
+
   // Practices — managed lookup table replacing the freetext users.practice column
   await db`
     CREATE TABLE IF NOT EXISTS practices (
@@ -269,4 +271,9 @@ export async function getUserPractices(userId: number) {
 
 export async function getAllPractices() {
   return db`SELECT id, name, slug, description, created_at FROM practices ORDER BY name`;
+}
+
+export async function getLastAdSync(): Promise<string | null> {
+  const [row] = await db`SELECT last_ad_sync FROM org_config WHERE id = 1`;
+  return (row?.last_ad_sync as string) ?? null;
 }

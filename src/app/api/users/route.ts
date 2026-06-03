@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, getLastAdSync } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -96,10 +96,13 @@ export async function GET() {
     ORDER BY action
   `;
 
+  const lastAdSync = await getLastAdSync();
+
   return NextResponse.json({
     users: enriched,
     allRoles,
     allPractices,
     allActions: allActions.map((r: Record<string, unknown>) => r.action),
+    lastAdSync,
   });
 }

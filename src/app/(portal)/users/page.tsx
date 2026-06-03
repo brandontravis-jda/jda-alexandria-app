@@ -86,6 +86,9 @@ export default function UsersPage() {
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [currentUserAccountType, setCurrentUserAccountType] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [lastAdSync, setLastAdSync] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<string | null>(null);
 
   async function loadUsers() {
     const [usersRes, meRes] = await Promise.all([
@@ -98,6 +101,7 @@ export default function UsersPage() {
       setAllRoles(data.allRoles ?? []);
       setAllPractices(data.allPractices ?? []);
       setAllActions(data.allActions ?? []);
+      setLastAdSync(data.lastAdSync ?? null);
     }
     if (meRes.ok) {
       const me = await meRes.json();
@@ -168,6 +172,25 @@ export default function UsersPage() {
     await patch(userId, { remove_role: roleId });
     const updatedUser = users.find((u) => u.id === userId);
     if (updatedUser) await loadRolePermissions({ ...updatedUser });
+  }
+
+  async function syncUsers() {
+    setSyncing(true);
+    setSyncResult(null);
+    try {
+      const res = await fetch("/api/admin/sync-users", { method: "POST" });
+      const data = await res.json();
+      if (res.ok) {
+        setSyncResult(`Synced: ${data.created} new, ${data.updated} updated, ${data.disabled} disabled (${data.members_in_group} in AD group)`);
+        setLastAdSync(data.synced_at);
+        await loadUsers();
+      } else {
+        setSyncResult(`Error: ${data.error ?? "Sync failed"}`);
+      }
+    } catch {
+      setSyncResult("Error: Network request failed");
+    }
+    setSyncing(false);
   }
 
   async function togglePortalAccess(userId: number, current: boolean) {
@@ -259,19 +282,50 @@ export default function UsersPage() {
 
   return (
     <div>
-      <div className="mb-7">
-        <h1
-          className="text-3xl font-black leading-none"
-          style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
-        >
-          Users
-        </h1>
-        <p
-          className="text-sm mt-1 font-normal"
-          style={{ color: "var(--color-jda-warm-gray)", letterSpacing: "0.03em", fontFamily: "var(--font-body)" }}
-        >
-          Everyone who has authenticated to Alexandria. Assign roles and permission overrides to control what each practitioner can do.
-        </p>
+      <div className="mb-7 flex items-start justify-between">
+        <div>
+          <h1
+            className="text-3xl font-black leading-none"
+            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
+          >
+            Users
+          </h1>
+          <p
+            className="text-sm mt-1 font-normal"
+            style={{ color: "var(--color-jda-warm-gray)", letterSpacing: "0.03em", fontFamily: "var(--font-body)" }}
+          >
+            Everyone in the Alexandria AD group. Assign roles and permission overrides to control what each practitioner can do.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+          <button
+            onClick={syncUsers}
+            disabled={syncing}
+            className="text-xs px-3 py-1.5 rounded-md font-semibold"
+            style={{
+              background: syncing ? "rgba(255,255,255,0.05)" : "rgba(59,130,246,0.15)",
+              color: syncing ? "var(--color-jda-text-muted)" : "#60a5fa",
+              border: `1px solid ${syncing ? "var(--color-jda-border)" : "rgba(59,130,246,0.3)"}`,
+              cursor: syncing ? "wait" : "pointer",
+              fontFamily: "var(--font-display)",
+              letterSpacing: "0.04em",
+            }}
+          >
+            {syncing ? "Syncing…" : "Sync from AD"}
+          </button>
+          <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+            {lastAdSync ? `Last sync: ${formatDate(lastAdSync)}` : "Never synced"}
+          </span>
+          {syncResult && (
+            <span
+              className="text-xs max-w-[280px] text-right"
+              style={{ color: syncResult.startsWith("Error") ? "#f87171" : "#4ade80" }}
+            >
+              {syncResult}
+            </span>
+          )}
+        </div>
       </div>
 
       <div

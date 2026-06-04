@@ -63,25 +63,27 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function TextInput({ value, onChange, placeholder, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; readOnly?: boolean }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none"
       style={inputStyle}
     />
   );
 }
 
-function TextArea({ value, onChange, placeholder, rows = 4 }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+function TextArea({ value, onChange, placeholder, rows = 4, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number; readOnly?: boolean }) {
   return (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none resize-y"
       style={inputStyle}
     />
@@ -93,11 +95,13 @@ function JsonArrayEditor({
   onChange,
   fields,
   label,
+  readOnly,
 }: {
   items: NamedItem[];
   onChange: (items: NamedItem[]) => void;
   fields: { key: string; label: string; type: "text" | "textarea" }[];
   label: string;
+  readOnly?: boolean;
 }) {
   const addItem = () => {
     const blank: Record<string, string> = {};
@@ -120,14 +124,16 @@ function JsonArrayEditor({
         <span className="text-xs font-bold" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.1em", textTransform: "uppercase", ...labelStyle }}>
           {label} ({items.length})
         </span>
-        <button
-          type="button"
-          onClick={addItem}
-          className="text-xs font-semibold px-2 py-1 rounded cursor-pointer"
-          style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
-        >
-          + Add
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={addItem}
+            className="text-xs font-semibold px-2 py-1 rounded cursor-pointer"
+            style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
+          >
+            + Add
+          </button>
+        )}
       </div>
       {items.length === 0 ? (
         <p className="text-xs" style={{ color: "var(--color-jda-warm-gray)" }}>None added yet.</p>
@@ -143,14 +149,16 @@ function JsonArrayEditor({
                 <span className="text-xs font-semibold" style={{ color: "var(--color-jda-cream-muted)" }}>
                   #{idx + 1}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => removeItem(idx)}
-                  className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer"
-                  style={{ color: "var(--color-jda-red)" }}
-                >
-                  Remove
-                </button>
+                {!readOnly && (
+                  <button
+                    type="button"
+                    onClick={() => removeItem(idx)}
+                    className="text-xs font-semibold px-2 py-0.5 rounded cursor-pointer"
+                    style={{ color: "var(--color-jda-red)" }}
+                  >
+                    Remove
+                  </button>
+                )}
               </div>
               <div className="space-y-2">
                 {fields.map((f) => (
@@ -161,11 +169,13 @@ function JsonArrayEditor({
                         value={(item as unknown as Record<string, string>)[f.key] ?? ""}
                         onChange={(v) => updateItem(idx, f.key, v)}
                         rows={3}
+                        readOnly={readOnly}
                       />
                     ) : (
                       <TextInput
                         value={(item as unknown as Record<string, string>)[f.key] ?? ""}
                         onChange={(v) => updateItem(idx, f.key, v)}
+                        readOnly={readOnly}
                       />
                     )}
                   </div>
@@ -179,7 +189,7 @@ function JsonArrayEditor({
   );
 }
 
-function TagPicker({ tags, onChange, placeholder }: { tags: string[]; onChange: (tags: string[]) => void; placeholder?: string }) {
+function TagPicker({ tags, onChange, placeholder, readOnly }: { tags: string[]; onChange: (tags: string[]) => void; placeholder?: string; readOnly?: boolean }) {
   const [input, setInput] = useState("");
 
   const addTag = () => {
@@ -200,35 +210,39 @@ function TagPicker({ tags, onChange, placeholder }: { tags: string[]; onChange: 
             style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
           >
             {t}
-            <button
-              type="button"
-              onClick={() => onChange(tags.filter((_, j) => j !== i))}
-              className="ml-0.5 cursor-pointer"
-              style={{ color: "var(--color-jda-warm-gray)" }}
-            >
-              ×
-            </button>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => onChange(tags.filter((_, j) => j !== i))}
+                className="ml-0.5 cursor-pointer"
+                style={{ color: "var(--color-jda-warm-gray)" }}
+              >
+                ×
+              </button>
+            )}
           </span>
         ))}
       </div>
-      <div className="flex gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
-          placeholder={placeholder ?? "Add tag…"}
-          className="flex-1 text-sm px-3 py-2 rounded-md border outline-none"
-          style={inputStyle}
-        />
-        <button
-          type="button"
-          onClick={addTag}
-          className="text-xs font-semibold px-3 py-2 rounded-md cursor-pointer"
-          style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
-        >
-          Add
-        </button>
-      </div>
+      {!readOnly && (
+        <div className="flex gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addTag(); } }}
+            placeholder={placeholder ?? "Add tag…"}
+            className="flex-1 text-sm px-3 py-2 rounded-md border outline-none"
+            style={inputStyle}
+          />
+          <button
+            type="button"
+            onClick={addTag}
+            className="text-xs font-semibold px-3 py-2 rounded-md cursor-pointer"
+            style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
+          >
+            Add
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -246,6 +260,7 @@ export default function MethodologyDetailPage() {
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   // Form state
   const [form, setForm] = useState<Record<string, unknown>>({});
@@ -298,6 +313,16 @@ export default function MethodologyDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        const tierLevel: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
+        setCanEdit((tierLevel[data.portal_tier] ?? 0) >= 2);
+      })
+      .catch(() => {});
+  }, []);
 
   const setField = (key: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -372,36 +397,45 @@ export default function MethodologyDetailPage() {
           ← Methodologies
         </Link>
         <div className="flex items-start justify-between gap-4 flex-wrap">
-          <h1
-            className="text-3xl font-black leading-none"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
-          >
-            {methodology.name}
-          </h1>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+          <div className="flex items-center gap-3">
+            <h1
+              className="text-3xl font-black leading-none"
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
             >
-              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
-            >
-              Delete
-            </button>
+              {methodology.name}
+            </h1>
+            {!canEdit && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-warm-gray)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Read-only
+              </span>
+            )}
           </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+              >
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
         </div>
         <p className="text-xs mt-2" style={{ color: "var(--color-jda-warm-gray)" }}>
           ID {methodology.id} · slug: {methodology.slug} · updated {new Date(methodology.updated_at).toLocaleDateString()}
         </p>
       </div>
 
-      {confirmDelete && (
+      {canEdit && confirmDelete && (
         <div
           className="rounded-[10px] border p-6 mb-5"
           style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-red)" }}
@@ -441,17 +475,18 @@ export default function MethodologyDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <FieldLabel>Name</FieldLabel>
-              <TextInput value={form.name as string} onChange={(v) => setField("name", v)} />
+              <TextInput value={form.name as string} onChange={(v) => setField("name", v)} readOnly={!canEdit} />
             </div>
             <div className="sm:col-span-2">
               <FieldLabel>Description</FieldLabel>
-              <TextArea value={form.description as string} onChange={(v) => setField("description", v)} rows={3} />
+              <TextArea value={form.description as string} onChange={(v) => setField("description", v)} rows={3} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Practice</FieldLabel>
               <select
                 value={(form.practice_id as string | number) ?? ""}
                 onChange={(e) => setField("practice_id", e.target.value ? Number(e.target.value) : "")}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -464,6 +499,7 @@ export default function MethodologyDetailPage() {
               <select
                 value={(form.ai_classification as string) ?? ""}
                 onChange={(e) => setField("ai_classification", e.target.value)}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -478,6 +514,7 @@ export default function MethodologyDetailPage() {
               <select
                 value={(form.status as string) ?? "draft"}
                 onChange={(e) => setField("status", e.target.value)}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -493,17 +530,18 @@ export default function MethodologyDetailPage() {
                 value={form.version as number}
                 onChange={(e) => setField("version", parseInt(e.target.value) || 1)}
                 min={1}
+                readOnly={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               />
             </div>
             <div>
               <FieldLabel>Author</FieldLabel>
-              <TextInput value={(form.author as string) ?? ""} onChange={(v) => setField("author", v)} />
+              <TextInput value={(form.author as string) ?? ""} onChange={(v) => setField("author", v)} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Validated by</FieldLabel>
-              <TextInput value={(form.validated_by as string) ?? ""} onChange={(v) => setField("validated_by", v)} />
+              <TextInput value={(form.validated_by as string) ?? ""} onChange={(v) => setField("validated_by", v)} readOnly={!canEdit} />
             </div>
             <div className="flex items-center gap-3 sm:col-span-2">
               <label className="flex items-center gap-2 cursor-pointer">
@@ -511,6 +549,7 @@ export default function MethodologyDetailPage() {
                   type="checkbox"
                   checked={form.proven_status as boolean}
                   onChange={(e) => setField("proven_status", e.target.checked)}
+                  disabled={!canEdit}
                   className="accent-[var(--color-jda-red)]"
                 />
                 <span className="text-sm" style={{ color: "var(--color-jda-cream)" }}>Proven status</span>
@@ -520,6 +559,7 @@ export default function MethodologyDetailPage() {
                   type="checkbox"
                   checked={form.include_feedback_prompt as boolean}
                   onChange={(e) => setField("include_feedback_prompt", e.target.checked)}
+                  disabled={!canEdit}
                   className="accent-[var(--color-jda-red)]"
                 />
                 <span className="text-sm" style={{ color: "var(--color-jda-cream)" }}>Include feedback prompt</span>
@@ -539,11 +579,11 @@ export default function MethodologyDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <FieldLabel>Baseline production time</FieldLabel>
-              <TextInput value={(form.baseline_production_time as string) ?? ""} onChange={(v) => setField("baseline_production_time", v)} placeholder="e.g. 4 hours" />
+              <TextInput value={(form.baseline_production_time as string) ?? ""} onChange={(v) => setField("baseline_production_time", v)} placeholder="e.g. 4 hours" readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>AI-native production time</FieldLabel>
-              <TextInput value={(form.ai_native_production_time as string) ?? ""} onChange={(v) => setField("ai_native_production_time", v)} placeholder="e.g. 45 minutes" />
+              <TextInput value={(form.ai_native_production_time as string) ?? ""} onChange={(v) => setField("ai_native_production_time", v)} placeholder="e.g. 45 minutes" readOnly={!canEdit} />
             </div>
           </div>
         </div>
@@ -560,6 +600,7 @@ export default function MethodologyDetailPage() {
             tags={(form.tools_involved as string[]) ?? []}
             onChange={(v) => setField("tools_involved", v)}
             placeholder="Add tool name…"
+            readOnly={!canEdit}
           />
         </div>
 
@@ -576,6 +617,7 @@ export default function MethodologyDetailPage() {
             onChange={(v) => setField("system_instructions", v)}
             rows={10}
             placeholder="Full system prompt for Claude…"
+            readOnly={!canEdit}
           />
         </div>
 
@@ -591,6 +633,7 @@ export default function MethodologyDetailPage() {
             value={(form.output_format as string) ?? ""}
             onChange={(v) => setField("output_format", v)}
             rows={4}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -607,6 +650,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Step name", type: "text" },
               { key: "instructions", label: "Instructions", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -623,6 +667,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Input name", type: "text" },
               { key: "description", label: "Description", type: "text" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -639,6 +684,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Check name", type: "text" },
               { key: "description", label: "Description", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -655,6 +701,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Failure mode", type: "text" },
               { key: "description", label: "Description", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -671,6 +718,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Refinement", type: "text" },
               { key: "description", label: "Details", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -687,6 +735,7 @@ export default function MethodologyDetailPage() {
               { key: "name", label: "Checklist item", type: "text" },
               { key: "description", label: "Details", type: "text" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -701,26 +750,27 @@ export default function MethodologyDetailPage() {
           <div className="space-y-4">
             <div>
               <FieldLabel>Vision of good</FieldLabel>
-              <TextArea value={(form.vision_of_good as string) ?? ""} onChange={(v) => setField("vision_of_good", v)} rows={3} />
+              <TextArea value={(form.vision_of_good as string) ?? ""} onChange={(v) => setField("vision_of_good", v)} rows={3} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Tips</FieldLabel>
-              <TextArea value={(form.tips as string) ?? ""} onChange={(v) => setField("tips", v)} rows={3} />
+              <TextArea value={(form.tips as string) ?? ""} onChange={(v) => setField("tips", v)} rows={3} readOnly={!canEdit} />
             </div>
           </div>
         </div>
 
-        {/* Bottom save */}
-        <div className="flex gap-3 pt-2 pb-8">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-          >
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex gap-3 pt-2 pb-8">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+            >
+              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

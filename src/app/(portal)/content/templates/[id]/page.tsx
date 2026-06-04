@@ -50,33 +50,36 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="block text-xs mb-1 font-semibold" style={labelStyle}>{children}</label>;
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function TextInput({ value, onChange, placeholder, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; readOnly?: boolean }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none"
       style={inputStyle}
     />
   );
 }
 
-function TextArea({ value, onChange, placeholder, rows = 4 }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+function TextArea({ value, onChange, placeholder, rows = 4, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number; readOnly?: boolean }) {
   return (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none resize-y"
       style={inputStyle}
     />
   );
 }
 
-function MultiSelect({ options, selected, onChange, label }: { options: { id: number; name: string }[]; selected: number[]; onChange: (ids: number[]) => void; label: string }) {
+function MultiSelect({ options, selected, onChange, label, readOnly }: { options: { id: number; name: string }[]; selected: number[]; onChange: (ids: number[]) => void; label: string; readOnly?: boolean }) {
   const toggle = (id: number) => {
+    if (readOnly) return;
     onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
   };
 
@@ -94,7 +97,8 @@ function MultiSelect({ options, selected, onChange, label }: { options: { id: nu
               key={o.id}
               type="button"
               onClick={() => toggle(o.id)}
-              className="text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors"
+              disabled={readOnly}
+              className="text-xs px-3 py-1.5 rounded-full border cursor-pointer transition-colors disabled:cursor-default"
               style={{
                 background: active ? "var(--color-jda-red-muted)" : "var(--color-jda-bg-surface)",
                 borderColor: active ? "var(--color-jda-red)" : "var(--color-jda-border)",
@@ -125,6 +129,7 @@ export default function TemplateDetailPage() {
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   const [form, setForm] = useState<Record<string, unknown>>({});
 
@@ -175,6 +180,16 @@ export default function TemplateDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        const tierLevel: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
+        setCanEdit((tierLevel[data.portal_tier] ?? 0) >= 2);
+      })
+      .catch(() => {});
+  }, []);
 
   const setField = (key: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -258,33 +273,42 @@ export default function TemplateDetailPage() {
           ← Templates
         </Link>
         <div className="flex items-start justify-between gap-4 flex-wrap">
-          <h1 className="text-3xl font-black leading-none" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>
-            {template.title}
-          </h1>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-            >
-              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
-            >
-              Delete
-            </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-black leading-none" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>
+              {template.title}
+            </h1>
+            {!canEdit && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-warm-gray)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Read-only
+              </span>
+            )}
           </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+              >
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
         </div>
         <p className="text-xs mt-2" style={{ color: "var(--color-jda-warm-gray)" }}>
           ID {template.id} · slug: {template.slug} · updated {new Date(template.updated_at).toLocaleDateString()}
         </p>
       </div>
 
-      {confirmDelete && (
+      {canEdit && confirmDelete && (
         <div className="rounded-[10px] border p-6 mb-5" style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-red)" }}>
           <p className="text-sm mb-4" style={{ color: "var(--color-jda-cream)" }}>
             Are you sure you want to delete <strong>{template.title}</strong>? This cannot be undone.
@@ -318,13 +342,14 @@ export default function TemplateDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <FieldLabel>Title</FieldLabel>
-              <TextInput value={form.title as string} onChange={(v) => setField("title", v)} />
+              <TextInput value={form.title as string} onChange={(v) => setField("title", v)} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Format type</FieldLabel>
               <select
                 value={(form.format_type as string) ?? ""}
                 onChange={(e) => setField("format_type", e.target.value)}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -339,6 +364,7 @@ export default function TemplateDetailPage() {
               <select
                 value={(form.status as string) ?? "draft"}
                 onChange={(e) => setField("status", e.target.value)}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -353,6 +379,7 @@ export default function TemplateDetailPage() {
                   type="checkbox"
                   checked={form.include_feedback_prompt as boolean}
                   onChange={(e) => setField("include_feedback_prompt", e.target.checked)}
+                  disabled={!canEdit}
                   className="accent-[var(--color-jda-red)]"
                 />
                 <span className="text-sm" style={{ color: "var(--color-jda-cream)" }}>Include feedback prompt</span>
@@ -369,15 +396,15 @@ export default function TemplateDetailPage() {
           <div className="grid gap-4">
             <div>
               <FieldLabel>Preview URL</FieldLabel>
-              <TextInput value={(form.preview_url as string) ?? ""} onChange={(v) => setField("preview_url", v)} placeholder="https://…" />
+              <TextInput value={(form.preview_url as string) ?? ""} onChange={(v) => setField("preview_url", v)} placeholder="https://…" readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>GitHub raw URL</FieldLabel>
-              <TextInput value={(form.github_raw_url as string) ?? ""} onChange={(v) => setField("github_raw_url", v)} placeholder="https://raw.githubusercontent.com/…" />
+              <TextInput value={(form.github_raw_url as string) ?? ""} onChange={(v) => setField("github_raw_url", v)} placeholder="https://raw.githubusercontent.com/…" readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Dropbox link</FieldLabel>
-              <TextInput value={(form.dropbox_link as string) ?? ""} onChange={(v) => setField("dropbox_link", v)} placeholder="https://…" />
+              <TextInput value={(form.dropbox_link as string) ?? ""} onChange={(v) => setField("dropbox_link", v)} placeholder="https://…" readOnly={!canEdit} />
             </div>
           </div>
         </div>
@@ -393,12 +420,14 @@ export default function TemplateDetailPage() {
               options={practices}
               selected={(form.practice_ids as number[]) ?? []}
               onChange={(v) => setField("practice_ids", v)}
+              readOnly={!canEdit}
             />
             <MultiSelect
               label="Linked methodologies"
               options={methodologies}
               selected={(form.methodology_ids as number[]) ?? []}
               onChange={(v) => setField("methodology_ids", v)}
+              readOnly={!canEdit}
             />
           </div>
         </div>
@@ -413,21 +442,23 @@ export default function TemplateDetailPage() {
               value={(form[tf.key] as string) ?? ""}
               onChange={(v) => setField(tf.key, v)}
               rows={tf.rows}
+              readOnly={!canEdit}
             />
           </div>
         ))}
 
-        {/* Bottom save */}
-        <div className="flex gap-3 pt-2 pb-8">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-          >
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex gap-3 pt-2 pb-8">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+            >
+              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -41,6 +41,17 @@ export default function DeliverablesListPage() {
   const [newName, setNewName] = useState("");
   const [newPractice, setNewPractice] = useState<number | "">("");
   const [newClassification, setNewClassification] = useState("");
+  const [canEdit, setCanEdit] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => {
+        const tierLevel: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
+        setCanEdit((tierLevel[d.portal_tier] ?? 0) >= 2);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -204,17 +215,19 @@ export default function DeliverablesListPage() {
               <Link href="/capabilities" className="underline" style={{ color: "var(--color-jda-red)" }}>capabilities matrix</Link>.
             </p>
           </div>
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="text-xs font-bold px-4 py-2 rounded-md transition-colors cursor-pointer"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-          >
-            + New classification
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              className="text-xs font-bold px-4 py-2 rounded-md transition-colors cursor-pointer"
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+            >
+              + New classification
+            </button>
+          )}
         </div>
       </div>
 
-      {showCreate && (
+      {canEdit && showCreate && (
         <div className="rounded-[10px] p-6 border mb-5" style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}>
           <div className="text-sm font-bold mb-4" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-jda-cream)" }}>
             New deliverable classification
@@ -325,12 +338,16 @@ export default function DeliverablesListPage() {
                       <td className="px-4 py-3" style={{ color: "var(--color-jda-cream-muted)" }}>{classLabel(d.ai_classification)}</td>
                       <td className="px-4 py-3">{statusBadge(d.status)}</td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <button onClick={() => startEdit(d)} className="text-xs font-semibold mr-3 cursor-pointer" style={{ color: "var(--color-jda-blue)" }}>
-                          Edit
-                        </button>
-                        <button onClick={() => deleteRow(d.id, d.name)} className="text-xs font-semibold cursor-pointer" style={{ color: "var(--color-jda-red)" }}>
-                          Delete
-                        </button>
+                        {canEdit && (
+                          <>
+                            <button onClick={() => startEdit(d)} className="text-xs font-semibold mr-3 cursor-pointer" style={{ color: "var(--color-jda-blue)" }}>
+                              Edit
+                            </button>
+                            <button onClick={() => deleteRow(d.id, d.name)} className="text-xs font-semibold cursor-pointer" style={{ color: "var(--color-jda-red)" }}>
+                              Delete
+                            </button>
+                          </>
+                        )}
                       </td>
                     </tr>
                   )

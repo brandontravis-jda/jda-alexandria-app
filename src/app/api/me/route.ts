@@ -18,6 +18,7 @@ export async function GET() {
     email: user.email,
     account_type: user.account_type,
     practice: user.practice,
-    portal_access: user.portal_access,
+    portal_tier: user.portal_tier,
+    mcp_access: user.mcp_access,
   });
 }

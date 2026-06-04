@@ -34,6 +34,17 @@ export default function MethodologiesListPage() {
   const [newName, setNewName] = useState("");
   const [newPractice, setNewPractice] = useState<number | "">("");
   const [newClassification, setNewClassification] = useState("");
+  const [canEdit, setCanEdit] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((d) => {
+        const tierLevel: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
+        setCanEdit((tierLevel[d.portal_tier] ?? 0) >= 2);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -153,23 +164,25 @@ export default function MethodologiesListPage() {
               {rows.length} methodology{rows.length === 1 ? "" : " records"}
             </p>
           </div>
-          <button
-            onClick={() => setShowCreate(!showCreate)}
-            className="text-xs font-bold px-4 py-2 rounded-md transition-colors cursor-pointer"
-            style={{
-              fontFamily: "var(--font-display)",
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              background: "var(--color-jda-red)",
-              color: "#fff",
-            }}
-          >
-            + New methodology
-          </button>
+          {canEdit && (
+            <button
+              onClick={() => setShowCreate(!showCreate)}
+              className="text-xs font-bold px-4 py-2 rounded-md transition-colors cursor-pointer"
+              style={{
+                fontFamily: "var(--font-display)",
+                letterSpacing: "0.06em",
+                textTransform: "uppercase",
+                background: "var(--color-jda-red)",
+                color: "#fff",
+              }}
+            >
+              + New methodology
+            </button>
+          )}
         </div>
       </div>
 
-      {showCreate && (
+      {canEdit && showCreate && (
         <div
           className="rounded-[10px] p-6 border mb-5"
           style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}

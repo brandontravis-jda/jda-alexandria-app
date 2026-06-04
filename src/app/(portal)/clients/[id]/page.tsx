@@ -48,35 +48,38 @@ function FieldLabel({ children }: { children: React.ReactNode }) {
   return <label className="block text-xs mb-1 font-semibold" style={labelStyle}>{children}</label>;
 }
 
-function TextInput({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder?: string }) {
+function TextInput({ value, onChange, placeholder, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; readOnly?: boolean }) {
   return (
     <input
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none"
       style={inputStyle}
     />
   );
 }
 
-function TextArea({ value, onChange, placeholder, rows = 4 }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number }) {
+function TextArea({ value, onChange, placeholder, rows = 4, readOnly }: { value: string; onChange: (v: string) => void; placeholder?: string; rows?: number; readOnly?: boolean }) {
   return (
     <textarea
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
       rows={rows}
+      readOnly={readOnly}
       className="w-full text-sm px-3 py-2 rounded-md border outline-none resize-y"
       style={inputStyle}
     />
   );
 }
 
-function JsonObjectEditor({ obj, onChange, fields }: {
+function JsonObjectEditor({ obj, onChange, fields, readOnly }: {
   obj: Record<string, string>;
   onChange: (obj: Record<string, string>) => void;
   fields: { key: string; label: string; type: "text" | "textarea" }[];
+  readOnly?: boolean;
 }) {
   return (
     <div className="grid gap-3">
@@ -88,11 +91,13 @@ function JsonObjectEditor({ obj, onChange, fields }: {
               value={obj[f.key] ?? ""}
               onChange={(v) => onChange({ ...obj, [f.key]: v })}
               rows={3}
+              readOnly={readOnly}
             />
           ) : (
             <TextInput
               value={obj[f.key] ?? ""}
               onChange={(v) => onChange({ ...obj, [f.key]: v })}
+              readOnly={readOnly}
             />
           )}
         </div>
@@ -113,6 +118,7 @@ export default function ClientBrandDetailPage() {
   const [saved, setSaved] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [canEdit, setCanEdit] = useState(false);
 
   const [form, setForm] = useState<Record<string, unknown>>({});
 
@@ -151,6 +157,16 @@ export default function ClientBrandDetailPage() {
   }, [id]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    fetch("/api/me")
+      .then((r) => r.json())
+      .then((data) => {
+        const tierLevel: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
+        setCanEdit((tierLevel[data.portal_tier] ?? 0) >= 2);
+      })
+      .catch(() => {});
+  }, []);
 
   const setField = (key: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -221,33 +237,42 @@ export default function ClientBrandDetailPage() {
           ← Clients
         </Link>
         <div className="flex items-start justify-between gap-4 flex-wrap">
-          <h1 className="text-3xl font-black leading-none" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>
-            {brand.client_name}
-          </h1>
-          <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-            >
-              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-            </button>
-            <button
-              onClick={() => setConfirmDelete(true)}
-              className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
-              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
-            >
-              Delete
-            </button>
+          <div className="flex items-center gap-3">
+            <h1 className="text-3xl font-black leading-none" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>
+              {brand.client_name}
+            </h1>
+            {!canEdit && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-warm-gray)", letterSpacing: "0.08em", textTransform: "uppercase" }}>
+                Read-only
+              </span>
+            )}
           </div>
+          {canEdit && (
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer disabled:opacity-50"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+              >
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+              </button>
+              <button
+                onClick={() => setConfirmDelete(true)}
+                className="text-xs font-bold px-4 py-2 rounded-md cursor-pointer"
+                style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-bg-surface)", color: "var(--color-jda-red)" }}
+              >
+                Delete
+              </button>
+            </div>
+          )}
         </div>
         <p className="text-xs mt-2" style={{ color: "var(--color-jda-warm-gray)" }}>
           ID {brand.id} · slug: {brand.slug} · updated {new Date(brand.updated_at).toLocaleDateString()}
         </p>
       </div>
 
-      {confirmDelete && (
+      {canEdit && confirmDelete && (
         <div className="rounded-[10px] border p-6 mb-5" style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-red)" }}>
           <p className="text-sm mb-4" style={{ color: "var(--color-jda-cream)" }}>
             Are you sure you want to delete <strong>{brand.client_name}</strong>? This cannot be undone.
@@ -272,17 +297,18 @@ export default function ClientBrandDetailPage() {
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <FieldLabel>Client name</FieldLabel>
-              <TextInput value={form.client_name as string} onChange={(v) => setField("client_name", v)} />
+              <TextInput value={form.client_name as string} onChange={(v) => setField("client_name", v)} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Abbreviations</FieldLabel>
-              <TextInput value={form.abbreviations as string} onChange={(v) => setField("abbreviations", v)} placeholder="e.g. ACME, AC" />
+              <TextInput value={form.abbreviations as string} onChange={(v) => setField("abbreviations", v)} placeholder="e.g. ACME, AC" readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Status</FieldLabel>
               <select
                 value={(form.status as string) ?? "active"}
                 onChange={(e) => setField("status", e.target.value)}
+                disabled={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               >
@@ -293,11 +319,11 @@ export default function ClientBrandDetailPage() {
             </div>
             <div>
               <FieldLabel>Source document</FieldLabel>
-              <TextInput value={form.source_document as string} onChange={(v) => setField("source_document", v)} />
+              <TextInput value={form.source_document as string} onChange={(v) => setField("source_document", v)} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Extracted by</FieldLabel>
-              <TextInput value={form.extracted_by as string} onChange={(v) => setField("extracted_by", v)} />
+              <TextInput value={form.extracted_by as string} onChange={(v) => setField("extracted_by", v)} readOnly={!canEdit} />
             </div>
             <div>
               <FieldLabel>Extracted date</FieldLabel>
@@ -305,6 +331,7 @@ export default function ClientBrandDetailPage() {
                 type="date"
                 value={(form.extracted_date as string)?.substring(0, 10) ?? ""}
                 onChange={(e) => setField("extracted_date", e.target.value || null)}
+                readOnly={!canEdit}
                 className="w-full text-sm px-3 py-2 rounded-md border outline-none"
                 style={inputStyle}
               />
@@ -326,6 +353,7 @@ export default function ClientBrandDetailPage() {
               { key: "brandVoice", label: "Brand voice", type: "textarea" },
               { key: "brandExperience", label: "Brand experience", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -343,6 +371,7 @@ export default function ClientBrandDetailPage() {
               { key: "avoidThis", label: "Avoid this", type: "textarea" },
               { key: "writingStyle", label: "Writing style", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -352,14 +381,16 @@ export default function ClientBrandDetailPage() {
             <span className="text-sm font-bold" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-jda-cream)" }}>
               Color palette ({colorPalette.length})
             </span>
-            <button
-              type="button"
-              onClick={() => setField("color_palette", [...colorPalette, { colorName: "", hex: "", role: "", usageNotes: "" }])}
-              className="text-xs font-semibold px-2 py-1 rounded cursor-pointer"
-              style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
-            >
-              + Add
-            </button>
+            {canEdit && (
+              <button
+                type="button"
+                onClick={() => setField("color_palette", [...colorPalette, { colorName: "", hex: "", role: "", usageNotes: "" }])}
+                className="text-xs font-semibold px-2 py-1 rounded cursor-pointer"
+                style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream-muted)" }}
+              >
+                + Add
+              </button>
+            )}
           </div>
           {colorPalette.length === 0 ? (
             <p className="text-xs" style={labelStyle}>No colors added yet.</p>
@@ -376,44 +407,46 @@ export default function ClientBrandDetailPage() {
                         {c.colorName || `Color #${i + 1}`}
                       </span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setField("color_palette", colorPalette.filter((_, j) => j !== i))}
-                      className="text-xs font-semibold cursor-pointer"
-                      style={{ color: "var(--color-jda-red)" }}
-                    >
-                      Remove
-                    </button>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setField("color_palette", colorPalette.filter((_, j) => j !== i))}
+                        className="text-xs font-semibold cursor-pointer"
+                        style={{ color: "var(--color-jda-red)" }}
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
                       <label className="block text-xs mb-0.5" style={labelStyle}>Color name</label>
                       <TextInput value={c.colorName} onChange={(v) => {
                         const updated = [...colorPalette]; updated[i] = { ...updated[i], colorName: v }; setField("color_palette", updated);
-                      }} />
+                      }} readOnly={!canEdit} />
                     </div>
                     <div>
                       <label className="block text-xs mb-0.5" style={labelStyle}>Hex</label>
                       <div className="flex gap-2">
                         <input type="color" value={c.hex || "#000000"} onChange={(e) => {
                           const updated = [...colorPalette]; updated[i] = { ...updated[i], hex: e.target.value }; setField("color_palette", updated);
-                        }} className="w-10 h-9 rounded border cursor-pointer" style={{ borderColor: "var(--color-jda-border)" }} />
+                        }} disabled={!canEdit} className="w-10 h-9 rounded border cursor-pointer" style={{ borderColor: "var(--color-jda-border)" }} />
                         <TextInput value={c.hex} onChange={(v) => {
                           const updated = [...colorPalette]; updated[i] = { ...updated[i], hex: v }; setField("color_palette", updated);
-                        }} placeholder="#000000" />
+                        }} placeholder="#000000" readOnly={!canEdit} />
                       </div>
                     </div>
                     <div>
                       <label className="block text-xs mb-0.5" style={labelStyle}>Role</label>
                       <TextInput value={c.role} onChange={(v) => {
                         const updated = [...colorPalette]; updated[i] = { ...updated[i], role: v }; setField("color_palette", updated);
-                      }} placeholder="e.g. primary, accent" />
+                      }} placeholder="e.g. primary, accent" readOnly={!canEdit} />
                     </div>
                     <div>
                       <label className="block text-xs mb-0.5" style={labelStyle}>Usage notes</label>
                       <TextInput value={c.usageNotes} onChange={(v) => {
                         const updated = [...colorPalette]; updated[i] = { ...updated[i], usageNotes: v }; setField("color_palette", updated);
-                      }} />
+                      }} readOnly={!canEdit} />
                     </div>
                   </div>
                 </div>
@@ -422,7 +455,7 @@ export default function ClientBrandDetailPage() {
           )}
           <div className="mt-4">
             <FieldLabel>Color usage rules</FieldLabel>
-            <TextArea value={form.color_usage_rules as string} onChange={(v) => setField("color_usage_rules", v)} rows={3} />
+            <TextArea value={form.color_usage_rules as string} onChange={(v) => setField("color_usage_rules", v)} rows={3} readOnly={!canEdit} />
           </div>
         </div>
 
@@ -440,6 +473,7 @@ export default function ClientBrandDetailPage() {
               { key: "accentFont", label: "Accent font", type: "text" },
               { key: "pairingRules", label: "Pairing rules", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -456,6 +490,7 @@ export default function ClientBrandDetailPage() {
               { key: "subBrands", label: "Sub-brands", type: "textarea" },
               { key: "hierarchy", label: "Hierarchy", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -472,6 +507,7 @@ export default function ClientBrandDetailPage() {
               { key: "illustrationStyle", label: "Illustration style", type: "textarea" },
               { key: "iconography", label: "Iconography", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -488,6 +524,7 @@ export default function ClientBrandDetailPage() {
               { key: "elevatorPitch", label: "Elevator pitch", type: "textarea" },
               { key: "keyMessages", label: "Key messages", type: "textarea" },
             ]}
+            readOnly={!canEdit}
           />
         </div>
 
@@ -496,7 +533,7 @@ export default function ClientBrandDetailPage() {
           <div className="text-sm font-bold mb-4" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-jda-cream)" }}>
             Logo usage rules
           </div>
-          <TextArea value={form.logo_usage_rules as string} onChange={(v) => setField("logo_usage_rules", v)} rows={4} />
+          <TextArea value={form.logo_usage_rules as string} onChange={(v) => setField("logo_usage_rules", v)} rows={4} readOnly={!canEdit} />
         </div>
 
         {/* Template overrides */}
@@ -504,7 +541,7 @@ export default function ClientBrandDetailPage() {
           <div className="text-sm font-bold mb-4" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-jda-cream)" }}>
             Template overrides
           </div>
-          <TextArea value={form.template_overrides as string} onChange={(v) => setField("template_overrides", v)} rows={3} />
+          <TextArea value={form.template_overrides as string} onChange={(v) => setField("template_overrides", v)} rows={3} readOnly={!canEdit} />
         </div>
 
         {/* Gaps */}
@@ -512,7 +549,7 @@ export default function ClientBrandDetailPage() {
           <div className="text-sm font-bold mb-4" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.12em", textTransform: "uppercase", color: "var(--color-jda-amber)" }}>
             Extraction gaps
           </div>
-          <TextArea value={form.gaps as string} onChange={(v) => setField("gaps", v)} rows={3} />
+          <TextArea value={form.gaps as string} onChange={(v) => setField("gaps", v)} rows={3} readOnly={!canEdit} />
         </div>
 
         {/* Raw markdown */}
@@ -523,20 +560,21 @@ export default function ClientBrandDetailPage() {
           <p className="text-xs mb-3" style={{ color: "var(--color-jda-warm-gray)" }}>
             As served to Claude for rich context. This is the primary content field.
           </p>
-          <TextArea value={form.raw_markdown as string} onChange={(v) => setField("raw_markdown", v)} rows={16} />
+          <TextArea value={form.raw_markdown as string} onChange={(v) => setField("raw_markdown", v)} rows={16} readOnly={!canEdit} />
         </div>
 
-        {/* Bottom save */}
-        <div className="flex gap-3 pt-2 pb-8">
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
-          >
-            {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex gap-3 pt-2 pb-8">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="text-xs font-bold px-6 py-2.5 rounded-md cursor-pointer disabled:opacity-50"
+              style={{ fontFamily: "var(--font-display)", letterSpacing: "0.06em", textTransform: "uppercase", background: "var(--color-jda-red)", color: "#fff" }}
+            >
+              {saving ? "Saving…" : saved ? "Saved ✓" : "Save changes"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

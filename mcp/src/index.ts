@@ -63,6 +63,9 @@ async function migrate() {
     ALTER TABLE oauth_sessions ADD COLUMN IF NOT EXISTS debug_role_id UUID REFERENCES roles(id) ON DELETE SET NULL
   `;
 
+  // Purge expired sessions on startup
+  await sql`DELETE FROM oauth_sessions WHERE expires_at <= NOW()`;
+
   await sql`
     CREATE TABLE IF NOT EXISTS intake_sessions (
       session_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -499,7 +502,12 @@ async function resolveOAuthSession(token: string): Promise<AuthResult | null> {
   `;
   if (!row) return null;
 
-  await sql`UPDATE oauth_sessions SET last_used_at = NOW() WHERE id = ${row.session_id}`;
+  await sql`
+    UPDATE oauth_sessions
+    SET last_used_at = NOW(),
+        expires_at = NOW() + INTERVAL '90 days'
+    WHERE id = ${row.session_id}
+  `;
 
   const practices = await loadUserPractices(row.user_id as number);
   return {
@@ -2723,4 +2731,16 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
 httpServer.listen(PORT, () => {
   console.log(`Alexandria MCP server v0.2.0 running on port ${PORT}`);
+
+  // Purge expired MCP sessions every 24 hours
+  setInterval(async () => {
+    try {
+      const result = await sql`DELETE FROM oauth_sessions WHERE expires_at <= NOW()`;
+      if (result.count > 0) {
+        console.log(`Purged ${result.count} expired OAuth session(s)`);
+      }
+    } catch (err) {
+      console.error("Session cleanup failed:", err);
+    }
+  }, 24 * 60 * 60 * 1000);
 });

@@ -104,6 +104,7 @@ export default function UsersPage() {
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [currentUserAccountType, setCurrentUserAccountType] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [revokeResult, setRevokeResult] = useState<Record<number, string>>({});
   const [lastAdSync, setLastAdSync] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
@@ -209,6 +210,18 @@ export default function UsersPage() {
       setSyncResult(`Error: ${e instanceof Error ? e.message : "Network request failed"}`);
     }
     setSyncing(false);
+  }
+
+  async function revokeMcpSessions(userId: number) {
+    setSaving(userId);
+    const res = await fetch(`/api/users/${userId}/sessions`, { method: "DELETE" });
+    if (res.ok) {
+      const data = await res.json();
+      setRevokeResult((prev) => ({ ...prev, [userId]: `${data.revoked} session(s) revoked` }));
+    } else {
+      setRevokeResult((prev) => ({ ...prev, [userId]: "Failed to revoke sessions" }));
+    }
+    setSaving(null);
   }
 
   async function toggleMcpAccess(userId: number, current: boolean) {
@@ -753,18 +766,35 @@ export default function UsersPage() {
                       </div>
                     </div>
 
-                    {/* Bottom actions — delete + transfer ownership */}
+                    {/* Bottom actions — revoke sessions, delete, transfer ownership */}
                     {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" && (
                       <div className="mt-4 pt-4 border-t flex items-start justify-between" style={{ borderColor: "var(--color-jda-border)" }}>
 
-                        {/* Delete user */}
-                        <button
-                          onClick={() => setDeleteTarget(user)}
-                          className="text-xs font-semibold"
-                          style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                        >
-                          Delete user…
-                        </button>
+                        <div className="flex items-center gap-4">
+                          {/* Delete user */}
+                          <button
+                            onClick={() => setDeleteTarget(user)}
+                            className="text-xs font-semibold"
+                            style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
+                          >
+                            Delete user…
+                          </button>
+
+                          {/* Revoke MCP sessions */}
+                          <button
+                            onClick={() => revokeMcpSessions(user.id)}
+                            disabled={saving === user.id}
+                            className="text-xs font-semibold"
+                            style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}
+                          >
+                            Revoke MCP sessions
+                          </button>
+                          {revokeResult[user.id] && (
+                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+                              {revokeResult[user.id]}
+                            </span>
+                          )}
+                        </div>
 
                     {/* Transfer Ownership — owner only */}
                     {(currentUserAccountType as string) === "owner" && (

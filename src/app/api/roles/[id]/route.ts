@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -73,6 +73,16 @@ export async function PATCH(
     SELECT id, action, scope FROM role_permissions WHERE role_id = ${roleId} ORDER BY action
   `;
 
+  if (display_name !== undefined || description !== undefined) {
+    writeAuditLog({ actorId: admin.id as number, action: "role.update", targetType: "role", targetId: roleId, details: { display_name, description } });
+  }
+  if (add_permission) {
+    writeAuditLog({ actorId: admin.id as number, action: "role.permission.add", targetType: "role", targetId: roleId, details: add_permission });
+  }
+  if (remove_permission_id) {
+    writeAuditLog({ actorId: admin.id as number, action: "role.permission.remove", targetType: "role", targetId: roleId, details: { permission_id: remove_permission_id } });
+  }
+
   return NextResponse.json({ role: updatedRole, permissions });
 }
 
@@ -91,5 +101,6 @@ export async function DELETE(
   if (role.is_system) return NextResponse.json({ error: "System roles cannot be deleted" }, { status: 403 });
 
   await db`DELETE FROM roles WHERE id = ${roleId}`;
+  writeAuditLog({ actorId: admin.id as number, action: "role.delete", targetType: "role", targetId: roleId });
   return NextResponse.json({ deleted: true });
 }

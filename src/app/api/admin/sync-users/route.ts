@@ -1,5 +1,5 @@
 import { auth } from "@/lib/auth";
-import { getUserByObjectId, migrate } from "@/lib/schema";
+import { getUserByObjectId, migrate, writeAuditLog } from "@/lib/schema";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -184,14 +184,23 @@ export async function POST(req: NextRequest) {
       ON CONFLICT (id) DO UPDATE SET last_ad_sync = NOW()
     `;
 
-    return NextResponse.json({
+    const syncResult = {
       ok: true,
       members_in_group: members.length,
       created,
       updated,
       disabled,
       synced_at: new Date().toISOString(),
+    };
+
+    const actorId = isCron ? null : (await requireAdmin())?.id as number | null;
+    writeAuditLog({
+      actorId: actorId ?? null,
+      action: "ad.sync",
+      details: { ...syncResult, triggered_by: isCron ? "cron" : "manual" },
     });
+
+    return NextResponse.json(syncResult);
   } catch (err) {
     console.error("AD sync failed:", err);
     return NextResponse.json(

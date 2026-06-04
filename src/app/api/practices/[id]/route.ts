@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -39,6 +39,7 @@ export async function PATCH(
       RETURNING id, name, slug, description, created_at
     `;
     if (!updated) return NextResponse.json({ error: "Practice not found" }, { status: 404 });
+    writeAuditLog({ actorId: admin.id as number, action: "practice.update", targetType: "practice", targetId: practiceId, details: { name, description } });
     return NextResponse.json({ practice: updated });
   } catch (err: unknown) {
     const pgErr = err as { code?: string };
@@ -75,5 +76,6 @@ export async function DELETE(
   const result = await db`DELETE FROM practices WHERE id = ${practiceId}`;
   if (result.count === 0) return NextResponse.json({ error: "Practice not found" }, { status: 404 });
 
+  writeAuditLog({ actorId: admin.id as number, action: "practice.delete", targetType: "practice", targetId: practiceId });
   return NextResponse.json({ ok: true });
 }

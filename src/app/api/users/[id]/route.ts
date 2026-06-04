@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -94,6 +94,7 @@ export async function PATCH(
       RETURNING id, email, name, account_type, practice, portal_access, mcp_access
     `;
     updated = row ?? null;
+    writeAuditLog({ actorId: admin.id as number, action: "user.update", targetType: "user", targetId: userId, details: updates });
   } else {
     const [row] = await db`SELECT id, email, name, account_type, practice, portal_access, mcp_access FROM users WHERE id = ${userId}`;
     updated = row ?? null;
@@ -130,9 +131,11 @@ export async function PATCH(
       VALUES (${userId}, ${add_role}, ${admin.id as number})
       ON CONFLICT (user_id, role_id) DO NOTHING
     `;
+    writeAuditLog({ actorId: admin.id as number, action: "user.role.add", targetType: "user", targetId: userId, details: { role_id: add_role } });
   }
   if (remove_role) {
     await db`DELETE FROM user_roles WHERE user_id = ${userId} AND role_id = ${remove_role}`;
+    writeAuditLog({ actorId: admin.id as number, action: "user.role.remove", targetType: "user", targetId: userId, details: { role_id: remove_role } });
   }
 
   // User-level permission overrides
@@ -153,9 +156,11 @@ export async function PATCH(
         granted_by = EXCLUDED.granted_by,
         created_at = NOW()
     `;
+    writeAuditLog({ actorId: admin.id as number, action: "user.permission.set", targetType: "user", targetId: userId, details: { permission: add_permission.action.trim(), type: add_permission.type, scope } });
   }
   if (remove_permission_action) {
     await db`DELETE FROM user_permissions WHERE user_id = ${userId} AND action = ${remove_permission_action}`;
+    writeAuditLog({ actorId: admin.id as number, action: "user.permission.remove", targetType: "user", targetId: userId, details: { permission: remove_permission_action } });
   }
 
   // Return updated roles, permissions, and practices
@@ -211,6 +216,7 @@ export async function DELETE(
 
   // Cascade: user_roles, user_permissions, oauth_sessions deleted via ON DELETE CASCADE
   await db`DELETE FROM users WHERE id = ${userId}`;
+  writeAuditLog({ actorId: admin.id as number, action: "user.delete", targetType: "user", targetId: userId, details: { account_type: target.account_type } });
 
   return NextResponse.json({ ok: true });
 }

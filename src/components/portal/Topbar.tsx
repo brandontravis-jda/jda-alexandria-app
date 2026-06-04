@@ -13,6 +13,7 @@ const navItems: { label: string; href: string; requires?: string }[] = [
   { label: "Roles", href: "/roles",             requires: "portal:admin" },
   { label: "Practices", href: "/practices",     requires: "portal:admin" },
   { label: "Tools", href: "/tools",             requires: "portal:performance" },
+  { label: "Audit Log", href: "/audit-log",     requires: "portal:admin" },
   { label: "Settings", href: "/settings",       requires: "portal:admin" },
 ];
 

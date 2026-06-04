@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -68,5 +68,6 @@ export async function POST(request: Request) {
 
   if (!role) return NextResponse.json({ error: "A role with that name already exists" }, { status: 409 });
 
+  writeAuditLog({ actorId: admin.id as number, action: "role.create", targetType: "role", targetId: role.id as string, details: { display_name: display_name.trim(), slug } });
   return NextResponse.json({ role: { ...role, permissions: [], user_count: 0 } });
 }

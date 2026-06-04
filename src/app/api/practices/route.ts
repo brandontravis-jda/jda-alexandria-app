@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 async function requireAdmin() {
@@ -60,6 +60,7 @@ export async function POST(request: Request) {
       VALUES (${name.trim()}, ${slug}, ${description?.trim() ?? null})
       RETURNING id, name, slug, description, created_at
     `;
+    writeAuditLog({ actorId: admin.id as number, action: "practice.create", targetType: "practice", targetId: practice.id as number, details: { name: name.trim(), slug } });
     return NextResponse.json({ practice }, { status: 201 });
   } catch (err: unknown) {
     const pgErr = err as { code?: string };

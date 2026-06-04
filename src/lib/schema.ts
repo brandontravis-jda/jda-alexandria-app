@@ -123,6 +123,21 @@ export async function migrate() {
 
   await db`ALTER TABLE org_config ADD COLUMN IF NOT EXISTS last_ad_sync TIMESTAMPTZ`;
 
+  // Audit log — records admin actions for traceability
+  await db`
+    CREATE TABLE IF NOT EXISTS audit_log (
+      id         SERIAL PRIMARY KEY,
+      actor_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      action     TEXT NOT NULL,
+      target_type TEXT,
+      target_id  TEXT,
+      details    JSONB,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await db`CREATE INDEX IF NOT EXISTS audit_log_created_idx ON audit_log(created_at DESC)`;
+  await db`CREATE INDEX IF NOT EXISTS audit_log_actor_idx ON audit_log(actor_id)`;
+
   // Practices — managed lookup table replacing the freetext users.practice column
   await db`
     CREATE TABLE IF NOT EXISTS practices (
@@ -355,4 +370,31 @@ export async function resolvePortalPermissions(
   }
 
   return perms;
+}
+
+/**
+ * Write an entry to the audit log.
+ * Fire-and-forget — failures are logged but don't block the caller.
+ */
+export async function writeAuditLog(entry: {
+  actorId: number | null;
+  action: string;
+  targetType?: string;
+  targetId?: string | number;
+  details?: Record<string, unknown>;
+}) {
+  try {
+    await db`
+      INSERT INTO audit_log (actor_id, action, target_type, target_id, details)
+      VALUES (
+        ${entry.actorId},
+        ${entry.action},
+        ${entry.targetType ?? null},
+        ${entry.targetId != null ? String(entry.targetId) : null},
+        ${entry.details ? JSON.stringify(entry.details) : null}
+      )
+    `;
+  } catch (err) {
+    console.error("Audit log write failed:", err);
+  }
 }

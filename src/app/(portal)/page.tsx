@@ -262,7 +262,7 @@ export default async function DashboardPage() {
           title="Practice areas"
           action={
             <Link
-              href="/practices"
+              href="/admin/practices"
               className="text-xs font-semibold no-underline"
               style={{
                 fontFamily: "var(--font-display)",

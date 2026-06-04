@@ -1,3 +1,4 @@
+import { unstable_noStore as noStore } from "next/cache";
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { getUserByObjectId } from "@/lib/schema";
@@ -21,6 +22,8 @@ export default async function PortalLayout({
 }: {
   children: React.ReactNode;
 }) {
+  noStore();
+
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 

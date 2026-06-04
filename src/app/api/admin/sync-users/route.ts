@@ -1,5 +1,5 @@
-import { auth } from "@/lib/auth";
-import { getUserByObjectId, migrate, writeAuditLog } from "@/lib/schema";
+import { migrate, writeAuditLog } from "@/lib/schema";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
@@ -63,27 +63,20 @@ async function fetchGroupMembers(token: string): Promise<GraphMember[]> {
   return members;
 }
 
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user) return null;
-  if (!["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
-
 // POST /api/admin/sync-users — manual trigger or cron
 export async function POST(req: NextRequest) {
-  // Allow cron calls via secret header, or authenticated admin calls
   const cronSecret = req.headers.get("authorization");
   const isCron =
     cronSecret === `Bearer ${process.env.CRON_SECRET}` && process.env.CRON_SECRET;
 
+  let actorId: number | null = null;
+
   if (!isCron) {
-    const admin = await requireAdmin();
+    const admin = await apiRequireTier("admin");
     if (!admin) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 });
     }
+    actorId = admin.id as number;
   }
 
   try {
@@ -104,17 +97,14 @@ export async function POST(req: NextRequest) {
     let updated = 0;
     let disabled = 0;
 
-    // Check if any owner exists (first-user logic)
     const [ownerCheck] = await db`SELECT id FROM users WHERE account_type = 'owner' LIMIT 1`;
     const ownerExists = !!ownerCheck;
 
-    // Upsert each AD group member
     for (const member of members) {
-      const email =
-        member.mail ?? member.userPrincipalName ?? null;
+      const email = member.mail ?? member.userPrincipalName ?? null;
 
       const [existing] = await db`
-        SELECT id, portal_access, mcp_access FROM users WHERE object_id = ${member.id}
+        SELECT id FROM users WHERE object_id = ${member.id}
       `;
 
       if (existing) {
@@ -130,20 +120,20 @@ export async function POST(req: NextRequest) {
         const isFirstUser = !ownerExists && created === 0;
 
         const [newUser] = await db`
-          INSERT INTO users (object_id, email, name, account_type, portal_access, mcp_access, last_seen_at)
+          INSERT INTO users (object_id, email, name, account_type, portal_access, portal_tier, mcp_access, last_seen_at)
           VALUES (
             ${member.id},
             ${email},
             ${member.displayName},
             ${isFirstUser ? "owner" : "user"},
             ${isFirstUser},
+            ${isFirstUser ? "admin" : "none"},
             false,
             NULL
           )
           RETURNING id
         `;
 
-        // Assign default role
         await db`
           INSERT INTO user_roles (user_id, role_id)
           SELECT ${newUser.id as number}, oc.default_role_id
@@ -157,19 +147,18 @@ export async function POST(req: NextRequest) {
     }
 
     // Soft-disable users no longer in the AD group
-    // (skip owners/admins — they're never auto-disabled)
     const allUsers = await db`
-      SELECT id, object_id, account_type, portal_access, mcp_access
+      SELECT id, object_id, account_type, portal_tier, mcp_access
       FROM users
       WHERE account_type = 'user'
     `;
 
     for (const user of allUsers) {
       if (!memberObjectIds.has(user.object_id as string)) {
-        if (user.portal_access || user.mcp_access) {
+        if (user.portal_tier !== "none" || user.mcp_access) {
           await db`
             UPDATE users
-            SET portal_access = false, mcp_access = false
+            SET portal_tier = 'none', mcp_access = false, portal_access = false
             WHERE id = ${user.id as number}
           `;
           disabled++;
@@ -177,7 +166,6 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Record sync timestamp
     await db`
       INSERT INTO org_config (id, last_ad_sync)
       VALUES (1, NOW())
@@ -193,9 +181,8 @@ export async function POST(req: NextRequest) {
       synced_at: new Date().toISOString(),
     };
 
-    const actorId = isCron ? null : (await requireAdmin())?.id as number | null;
     writeAuditLog({
-      actorId: actorId ?? null,
+      actorId,
       action: "ad.sync",
       details: { ...syncResult, triggered_by: isCron ? "cron" : "manual" },
     });

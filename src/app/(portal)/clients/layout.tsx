@@ -1,6 +1,6 @@
-import { requirePortalPermission } from "@/lib/portal-auth";
+import { requireTier } from "@/lib/portal-auth";
 
 export default async function ClientsLayout({ children }: { children: React.ReactNode }) {
-  await requirePortalPermission("portal:content");
+  await requireTier("viewer");
   return <>{children}</>;
 }

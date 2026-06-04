@@ -4,30 +4,38 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/sign-out/actions";
 
-const navItems: { label: string; href: string; requires?: string }[] = [
-  { label: "Dashboard", href: "/",              requires: "portal:performance" },
-  { label: "Capabilities", href: "/capabilities", requires: "portal:content" },
-  { label: "Content", href: "/content",         requires: "portal:content" },
-  { label: "Clients", href: "/clients",         requires: "portal:content" },
-  { label: "Users", href: "/users",             requires: "portal:admin" },
-  { label: "Roles", href: "/roles",             requires: "portal:admin" },
-  { label: "Practices", href: "/practices",     requires: "portal:admin" },
-  { label: "Tools", href: "/tools",             requires: "portal:performance" },
-  { label: "Audit Log", href: "/audit-log",     requires: "portal:admin" },
-  { label: "Settings", href: "/settings",       requires: "portal:admin" },
+const TIER_LEVEL: Record<string, number> = {
+  none: 0,
+  viewer: 1,
+  editor: 2,
+  leadership: 3,
+  admin: 4,
+};
+
+const navItems: { label: string; href: string; minTier: string }[] = [
+  { label: "Dashboard", href: "/",              minTier: "viewer" },
+  { label: "Capabilities", href: "/capabilities", minTier: "viewer" },
+  { label: "Content", href: "/content",         minTier: "viewer" },
+  { label: "Clients", href: "/clients",         minTier: "viewer" },
+  { label: "Tools", href: "/tools",             minTier: "leadership" },
+  { label: "Users", href: "/users",             minTier: "admin" },
+  { label: "Roles", href: "/roles",             minTier: "admin" },
+  { label: "Practices", href: "/practices",     minTier: "admin" },
+  { label: "Audit Log", href: "/audit-log",     minTier: "admin" },
+  { label: "Settings", href: "/settings",       minTier: "admin" },
 ];
 
 interface TopbarProps {
   userName?: string | null;
   userInitials?: string;
-  permissions?: string[];
+  portalTier?: string;
 }
 
-export function Topbar({ userName, userInitials, permissions = [] }: TopbarProps) {
+export function Topbar({ userName, userInitials, portalTier = "none" }: TopbarProps) {
   const pathname = usePathname();
-  const permSet = new Set(permissions);
+  const userLevel = TIER_LEVEL[portalTier] ?? 0;
   const visibleNav = navItems.filter(
-    (item) => !item.requires || permSet.has(item.requires)
+    (item) => userLevel >= (TIER_LEVEL[item.minTier] ?? 0)
   );
 
   return (

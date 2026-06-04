@@ -1,23 +1,15 @@
-import { auth } from "@/lib/auth";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId, getLastAdSync } from "@/lib/schema";
+import { getLastAdSync } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
-
-// GET /api/users — list all users with their roles and user-level permission overrides (admin only)
+// GET /api/users — list all users with their roles and practices (admin only)
 export async function GET() {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const users = await db`
-    SELECT id, object_id, email, name, account_type, practice, portal_access, mcp_access, created_at, last_seen_at, last_mcp_seen_at
+    SELECT id, object_id, email, name, account_type, practice, portal_tier, mcp_access, created_at, last_seen_at, last_mcp_seen_at
     FROM users
     ORDER BY last_mcp_seen_at DESC NULLS LAST, last_seen_at DESC NULLS LAST
   `;
@@ -58,7 +50,6 @@ export async function GET() {
     permsByUser[row.user_id].push({ id: row.id, action: row.action, type: row.type, scope: row.scope, created_at: row.created_at, granted_by_name: row.granted_by_name });
   }
 
-  // Load practices for each user
   const userPractices = userIds.length > 0
     ? await db`
         SELECT up.user_id, p.id, p.name, p.slug
@@ -75,50 +66,15 @@ export async function GET() {
     practicesByUser[row.user_id].push({ id: row.id, name: row.name, slug: row.slug });
   }
 
-  // Compute portal permissions per user from roles + overrides
-  const portalRolePerms = userIds.length > 0
-    ? await db`
-        SELECT ur.user_id, rp.action
-        FROM user_roles ur
-        JOIN role_permissions rp ON rp.role_id = ur.role_id
-        WHERE ur.user_id = ANY(${userIds})
-          AND rp.action LIKE 'portal:%'
-          AND rp.scope != 'none'
-      `
-    : [];
-
-  function computePortalPerms(userId: number, accountType: string): string[] {
-    const ALL = ["portal:access", "portal:admin", "portal:performance", "portal:content"];
-    if (accountType === "owner" || accountType === "admin") return ALL;
-
-    const perms = new Set<string>();
-    for (const rp of portalRolePerms) {
-      if (rp.user_id === userId) perms.add(rp.action as string);
-    }
-    const overrides = permsByUser[userId] ?? [];
-    for (const o of overrides) {
-      if (!(o.action as string).startsWith("portal:")) continue;
-      if (o.type === "grant") perms.add(o.action as string);
-      if (o.type === "deny") perms.delete(o.action as string);
-    }
-    return [...perms].sort();
-  }
-
   const enriched = users.map((u: Record<string, unknown>) => ({
     ...u,
     roles: rolesByUser[u.id as number] ?? [],
     user_permissions: permsByUser[u.id as number] ?? [],
     practices: practicesByUser[u.id as number] ?? [],
-    portal_permissions: computePortalPerms(u.id as number, u.account_type as string),
   }));
 
-  // All available roles for the assignment UI
   const allRoles = await db`SELECT id, slug, display_name, description, is_system FROM roles ORDER BY display_name`;
-
-  // All available practices for the assignment UI
   const allPractices = await db`SELECT id, name, slug FROM practices ORDER BY name`;
-
-  // All known permission actions (union of all role_permissions + user_permissions)
   const allActions = await db`
     SELECT DISTINCT action FROM role_permissions
     UNION

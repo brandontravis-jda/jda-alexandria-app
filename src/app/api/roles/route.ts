@@ -1,19 +1,11 @@
-import { auth } from "@/lib/auth";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
+import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
 
 // GET /api/roles — list all roles with their permissions and user counts (admin only)
 export async function GET() {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const roles = await db`
@@ -47,7 +39,7 @@ export async function GET() {
 
 // POST /api/roles — create a new role (admin only)
 export async function POST(request: Request) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));

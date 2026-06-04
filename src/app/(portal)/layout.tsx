@@ -1,9 +1,10 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getUserByObjectId, resolvePortalPermissions } from "@/lib/schema";
+import { getUserByObjectId } from "@/lib/schema";
 import { Topbar } from "@/components/portal/Topbar";
 import DebugBanner from "@/components/ui/DebugBanner";
 import { DebugProvider } from "@/components/ui/DebugBanner/context";
+import type { PortalTier } from "@/lib/portal-auth";
 
 function getInitials(name?: string | null): string {
   if (!name) return "?";
@@ -26,12 +27,9 @@ export default async function PortalLayout({
   const user = await getUserByObjectId(session.user.id);
   if (!user) redirect("/sign-in");
 
-  const portalPerms = await resolvePortalPermissions(
-    user.id as number,
-    user.account_type as string
-  );
+  const portalTier = (user.portal_tier as PortalTier) ?? "none";
 
-  if (!portalPerms.has("portal:access")) {
+  if (portalTier === "none") {
     redirect("/no-access");
   }
 
@@ -45,7 +43,7 @@ export default async function PortalLayout({
         <Topbar
           userName={userName}
           userInitials={userInitials}
-          permissions={[...portalPerms]}
+          portalTier={portalTier}
         />
         <main id="main-content" className="p-7">
           {children}

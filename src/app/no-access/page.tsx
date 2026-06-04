@@ -18,7 +18,7 @@ export default async function NoAccessPage() {
     }}>
       <div style={{
         width: "100%",
-        maxWidth: "440px",
+        maxWidth: "520px",
         background: "var(--color-jda-bg-card)",
         border: "1px solid var(--color-jda-border)",
         borderRadius: "10px",
@@ -71,47 +71,81 @@ export default async function NoAccessPage() {
         <div style={{
           fontFamily: "var(--font-display)",
           fontWeight: 900,
-          fontSize: "24px",
+          fontSize: "22px",
           color: "var(--color-jda-cream)",
           textTransform: "uppercase",
           letterSpacing: "0.05em",
-          marginBottom: "12px",
+          marginBottom: "20px",
         }}>
-          Portal Access Required
+          Welcome to Alexandria, {firstName}
         </div>
 
         <p style={{
           fontSize: "14px",
           color: "var(--color-jda-cream-muted)",
-          lineHeight: 1.6,
-          marginBottom: "8px",
+          lineHeight: 1.7,
+          marginBottom: "16px",
           fontFamily: "var(--font-body)",
         }}>
-          Hi {firstName} — you&apos;re signed into Alexandria, but you do not have
-          portal access. Most JDA practitioners use Alexandria through Claude
-          and don&apos;t need portal access.
-        </p>
-
-        <p style={{
-          fontSize: "14px",
-          color: "var(--color-jda-cream-muted)",
-          lineHeight: 1.6,
-          marginBottom: "28px",
-          fontFamily: "var(--font-body)",
-        }}>
-          If you believe this is an error, please reach out to{" "}
-          <a href="mailto:help@jdaworldwide.com" style={{ color: "var(--color-jda-red)", textDecoration: "underline" }}>
-            help@jdaworldwide.com
-          </a>{" "}
-          for assistance or speak to your supervisor.
+          Alexandria is JDA&apos;s AI intelligence layer that practitioners access
+          through Claude. Through Claude, you have full access to your practice&apos;s
+          methodologies, JDA templates, brand packages, and more.
         </p>
 
         <div style={{
           background: "var(--color-jda-bg-surface)",
           border: "1px solid var(--color-jda-border)",
           borderRadius: "8px",
-          padding: "14px 16px",
+          padding: "16px 18px",
+          marginBottom: "16px",
+        }}>
+          <div style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 700,
+            fontSize: "13px",
+            color: "var(--color-jda-cream)",
+            textTransform: "uppercase",
+            letterSpacing: "0.06em",
+            marginBottom: "10px",
+          }}>
+            Getting started
+          </div>
+          <ol style={{
+            fontSize: "13px",
+            color: "var(--color-jda-cream-muted)",
+            lineHeight: 1.7,
+            fontFamily: "var(--font-body)",
+            paddingLeft: "20px",
+            margin: 0,
+          }}>
+            <li>Open <strong style={{ color: "var(--color-jda-cream)" }}>Claude</strong> (claude.ai or the desktop app)</li>
+            <li>Connect to the <strong style={{ color: "var(--color-jda-cream)" }}>Alexandria MCP server</strong> through your team workspace</li>
+            <li>Ask Claude to run <code style={{ background: "rgba(255,255,255,0.06)", padding: "2px 6px", borderRadius: "4px", fontSize: "12px" }}>alexandria_help</code> to see what&apos;s available</li>
+          </ol>
+        </div>
+
+        <p style={{
+          fontSize: "13px",
+          color: "var(--color-jda-warm-gray)",
+          lineHeight: 1.6,
           marginBottom: "24px",
+          fontFamily: "var(--font-body)",
+        }}>
+          The Alexandria Portal is used by content editors and administrators.
+          If you need portal access, contact{" "}
+          <a href="mailto:help@jdaworldwide.com" style={{ color: "var(--color-jda-red)", textDecoration: "underline" }}>
+            help@jdaworldwide.com
+          </a>{" "}
+          or speak to your supervisor.
+        </p>
+
+        {/* Signed-in user info */}
+        <div style={{
+          background: "var(--color-jda-bg-surface)",
+          border: "1px solid var(--color-jda-border)",
+          borderRadius: "8px",
+          padding: "14px 16px",
+          marginBottom: "16px",
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",

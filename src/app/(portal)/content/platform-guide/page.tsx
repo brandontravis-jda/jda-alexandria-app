@@ -1,120 +1,143 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import Link from "next/link";
-import EditInStudioLink from "@/components/portal/EditInStudioLink";
-import PortalPanel from "@/components/portal/PortalPanel";
-import { sanityFetch } from "@/sanity/lib/client";
-import { platformGuideBrowseQuery } from "@/sanity/lib/queries";
 
 interface CanonicalEntry {
-  label?: string;
-  prompt?: string;
+  label: string;
+  prompt: string;
 }
 
 interface ExamplePrompt {
-  useCase?: string;
-  prompt?: string;
+  useCase: string;
+  prompt: string;
 }
 
-interface PlatformGuideDoc {
-  _id: string;
-  platformIntro?: string;
-  canonicalEntryPrompts?: CanonicalEntry[];
-  examplePrompts?: ExamplePrompt[];
-  feedbackPrompt?: string;
+interface PlatformGuide {
+  platform_intro: string;
+  canonical_entry_prompts: CanonicalEntry[];
+  feedback_prompt: string;
+  example_prompts: ExamplePrompt[];
 }
 
-export default async function PlatformGuidePage() {
-  const doc = await sanityFetch<PlatformGuideDoc | null>({ query: platformGuideBrowseQuery });
+export default function PlatformGuidePage() {
+  const [data, setData] = useState<PlatformGuide>({ platform_intro: "", canonical_entry_prompts: [], feedback_prompt: "", example_prompts: [] });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/content/platform-guide")
+      .then((r) => r.json())
+      .then((d) => setData(d))
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    await fetch("/api/content/platform-guide", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    setSaving(false);
+  }
+
+  if (loading) return <p className="text-sm p-7" style={{ color: "var(--color-jda-text-muted)" }}>Loading…</p>;
 
   return (
-    <div>
-      <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <Link
-            href="/content"
-            className="text-xs font-semibold no-underline mb-2 inline-block"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.08em", color: "var(--color-jda-warm-gray)" }}
-          >
-            ← Content library
-          </Link>
-          <h1
-            className="text-3xl font-black leading-none"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
-          >
-            Platform guide
-          </h1>
-          <p className="text-sm mt-1 max-w-2xl" style={{ color: "var(--color-jda-warm-gray)" }}>
-            Copy surfaced to practitioners via <code className="text-xs">alexandria_help</code> and related MCP flows.
-          </p>
+    <div className="max-w-3xl">
+      <div className="mb-5">
+        <Link href="/content" className="text-xs font-semibold no-underline mb-2 inline-block"
+          style={{ fontFamily: "var(--font-display)", letterSpacing: "0.08em", color: "var(--color-jda-warm-gray)" }}>
+          ← Content library
+        </Link>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-black" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>Platform Guide</h1>
+          <button onClick={save} disabled={saving} className="text-xs px-3 py-1.5 rounded-md font-semibold"
+            style={{ background: "rgba(59,130,246,0.15)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.3)", cursor: "pointer" }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
         </div>
-        {doc ? <EditInStudioLink documentId={doc._id} schemaType="platformGuide" /> : null}
+        <p className="text-sm mt-1" style={{ color: "var(--color-jda-warm-gray)" }}>
+          Copy surfaced to practitioners via <code className="text-xs">alexandria_help</code>.
+        </p>
       </div>
 
-      {!doc ? (
-        <PortalPanel title="Not found">
-          <p className="text-sm" style={{ color: "var(--color-jda-warm-gray)" }}>
-            No platform guide document exists in this dataset yet. Create it in Sanity Studio (singleton).
-          </p>
-        </PortalPanel>
-      ) : (
-        <div className="flex flex-col gap-5">
-          {doc.platformIntro ? (
-            <PortalPanel title="Platform introduction">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-jda-cream-muted)" }}>
-                {doc.platformIntro}
-              </p>
-            </PortalPanel>
-          ) : null}
-
-          {doc.canonicalEntryPrompts && doc.canonicalEntryPrompts.length > 0 ? (
-            <PortalPanel title="Canonical entry prompts">
-              <ul className="space-y-4 text-sm" style={{ color: "var(--color-jda-cream-muted)" }}>
-                {doc.canonicalEntryPrompts.map((c, i) => (
-                  <li key={i}>
-                    <div className="font-semibold" style={{ color: "var(--color-jda-cream)" }}>
-                      {c.label}
-                    </div>
-                    {c.prompt ? (
-                      <pre
-                        className="mt-2 text-xs p-3 rounded-lg border whitespace-pre-wrap"
-                        style={{
-                          background: "var(--color-jda-bg)",
-                          borderColor: "var(--color-jda-border)",
-                          fontFamily: "var(--font-body)",
-                        }}
-                      >
-                        {c.prompt}
-                      </pre>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </PortalPanel>
-          ) : null}
-
-          {doc.examplePrompts && doc.examplePrompts.length > 0 ? (
-            <PortalPanel title="Example prompts">
-              <ul className="space-y-4 text-sm" style={{ color: "var(--color-jda-cream-muted)" }}>
-                {doc.examplePrompts.map((e, i) => (
-                  <li key={i}>
-                    <div className="font-semibold" style={{ color: "var(--color-jda-cream)" }}>
-                      {e.useCase}
-                    </div>
-                    {e.prompt ? <p className="mt-2 whitespace-pre-wrap leading-relaxed">{e.prompt}</p> : null}
-                  </li>
-                ))}
-              </ul>
-            </PortalPanel>
-          ) : null}
-
-          {doc.feedbackPrompt ? (
-            <PortalPanel title="Feedback prompt (rate this tool)">
-              <p className="text-sm leading-relaxed whitespace-pre-wrap" style={{ color: "var(--color-jda-cream-muted)" }}>
-                {doc.feedbackPrompt}
-              </p>
-            </PortalPanel>
-          ) : null}
+      <div className="flex flex-col gap-5">
+        <div>
+          <label className="text-xs font-semibold mb-1 block" style={{ color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Platform Introduction</label>
+          <textarea value={data.platform_intro} onChange={(e) => setData({ ...data, platform_intro: e.target.value })} rows={4}
+            className="text-sm px-3 py-1.5 rounded-md w-full" style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)", resize: "vertical" }} />
         </div>
-      )}
+
+        <div>
+          <label className="text-xs font-semibold mb-1 block" style={{ color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Feedback Prompt</label>
+          <textarea value={data.feedback_prompt} onChange={(e) => setData({ ...data, feedback_prompt: e.target.value })} rows={4}
+            className="text-sm px-3 py-1.5 rounded-md w-full" style={{ background: "var(--color-jda-bg-surface)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)", resize: "vertical" }} />
+        </div>
+
+        {/* Canonical Entry Prompts */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold" style={{ color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Canonical Entry Prompts</label>
+            <button onClick={() => setData({ ...data, canonical_entry_prompts: [...data.canonical_entry_prompts, { label: "", prompt: "" }] })}
+              className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px dashed var(--color-jda-border)", cursor: "pointer" }}>
+              + Add
+            </button>
+          </div>
+          <div className="flex flex-col gap-3">
+            {data.canonical_entry_prompts.map((entry, i) => (
+              <div key={i} className="p-3 rounded-lg" style={{ background: "var(--color-jda-bg-surface)", border: "1px solid var(--color-jda-border)" }}>
+                <div className="flex gap-2 mb-2">
+                  <input type="text" placeholder="Label" value={entry.label} onChange={(e) => {
+                    const updated = [...data.canonical_entry_prompts];
+                    updated[i] = { ...updated[i], label: e.target.value };
+                    setData({ ...data, canonical_entry_prompts: updated });
+                  }} className="text-sm px-2 py-1 rounded flex-1" style={{ background: "var(--color-jda-bg)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)" }} />
+                  <button onClick={() => setData({ ...data, canonical_entry_prompts: data.canonical_entry_prompts.filter((_, j) => j !== i) })}
+                    className="text-xs px-2" style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer" }}>×</button>
+                </div>
+                <textarea placeholder="Prompt" value={entry.prompt} onChange={(e) => {
+                  const updated = [...data.canonical_entry_prompts];
+                  updated[i] = { ...updated[i], prompt: e.target.value };
+                  setData({ ...data, canonical_entry_prompts: updated });
+                }} rows={2} className="text-sm px-2 py-1 rounded w-full" style={{ background: "var(--color-jda-bg)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)", resize: "vertical" }} />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Example Prompts */}
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <label className="text-xs font-semibold" style={{ color: "var(--color-jda-text-muted)", textTransform: "uppercase", letterSpacing: "0.06em" }}>Example Prompts</label>
+            <button onClick={() => setData({ ...data, example_prompts: [...data.example_prompts, { useCase: "", prompt: "" }] })}
+              className="text-xs px-2 py-1 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px dashed var(--color-jda-border)", cursor: "pointer" }}>
+              + Add
+            </button>
+          </div>
+          <div className="flex flex-col gap-3">
+            {data.example_prompts.map((entry, i) => (
+              <div key={i} className="p-3 rounded-lg" style={{ background: "var(--color-jda-bg-surface)", border: "1px solid var(--color-jda-border)" }}>
+                <div className="flex gap-2 mb-2">
+                  <input type="text" placeholder="Use Case" value={entry.useCase} onChange={(e) => {
+                    const updated = [...data.example_prompts];
+                    updated[i] = { ...updated[i], useCase: e.target.value };
+                    setData({ ...data, example_prompts: updated });
+                  }} className="text-sm px-2 py-1 rounded flex-1" style={{ background: "var(--color-jda-bg)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)" }} />
+                  <button onClick={() => setData({ ...data, example_prompts: data.example_prompts.filter((_, j) => j !== i) })}
+                    className="text-xs px-2" style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer" }}>×</button>
+                </div>
+                <textarea placeholder="Prompt" value={entry.prompt} onChange={(e) => {
+                  const updated = [...data.example_prompts];
+                  updated[i] = { ...updated[i], prompt: e.target.value };
+                  setData({ ...data, example_prompts: updated });
+                }} rows={2} className="text-sm px-2 py-1 rounded w-full" style={{ background: "var(--color-jda-bg)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)", resize: "vertical" }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

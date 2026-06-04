@@ -1,23 +1,52 @@
+"use client";
+
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import PortalPanel from "@/components/portal/PortalPanel";
 import BrowseListRow from "@/components/portal/BrowseListRow";
-import { sanityFetch } from "@/sanity/lib/client";
-import {
-  allMethodologiesQuery,
-  allTemplatesQuery,
-  allBrandPackagesQuery,
-  allDeliverablesQuery,
-} from "@/sanity/lib/queries";
 
-export default async function ContentHubPage() {
-  const [methodologies, templates, brands, deliverables] = await Promise.all([
-    sanityFetch<Array<{ name: string; slug: string; practice?: string | null }>>({
-      query: allMethodologiesQuery,
-    }),
-    sanityFetch<Array<{ title: string; slug: string; status?: string }>>({ query: allTemplatesQuery }),
-    sanityFetch<Array<{ clientName: string; slug: string }>>({ query: allBrandPackagesQuery }),
-    sanityFetch<Array<{ name: string; slug: string }>>({ query: allDeliverablesQuery }),
-  ]);
+interface Counts {
+  methodologies: number;
+  templates: number;
+  brands: number;
+  deliverables: number;
+}
+
+export default function ContentHubPage() {
+  const [counts, setCounts] = useState<Counts>({ methodologies: 0, templates: 0, brands: 0, deliverables: 0 });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [mRes, tRes, bRes, dRes] = await Promise.allSettled([
+          fetch("/api/content/methodologies"),
+          fetch("/api/content/templates"),
+          fetch("/api/content/brand-packages"),
+          fetch("/api/content/deliverables"),
+        ]);
+
+        const mData = mRes.status === "fulfilled" && mRes.value.ok ? await mRes.value.json() : null;
+        const tData = tRes.status === "fulfilled" && tRes.value.ok ? await tRes.value.json() : null;
+        const bData = bRes.status === "fulfilled" && bRes.value.ok ? await bRes.value.json() : null;
+        const dData = dRes.status === "fulfilled" && dRes.value.ok ? await dRes.value.json() : null;
+
+        setCounts({
+          methodologies: mData?.methodologies?.length ?? 0,
+          templates: tData?.templates?.length ?? 0,
+          brands: bData?.brand_packages?.length ?? 0,
+          deliverables: dData?.deliverables?.length ?? 0,
+        });
+      } catch {
+        // counts stay at 0
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  const countLabel = (n: number) => (loading ? "…" : String(n));
 
   return (
     <div>
@@ -29,11 +58,7 @@ export default async function ContentHubPage() {
           Content library
         </h1>
         <p className="text-sm mt-1 font-normal max-w-3xl" style={{ color: "var(--color-jda-warm-gray)" }}>
-          Browse everything Alexandria serves through MCP. Authoring and edits happen in{" "}
-          <Link href="/studio" className="underline" style={{ color: "var(--color-jda-red)" }}>
-            Sanity Studio
-          </Link>
-          .
+          Browse everything Alexandria serves through MCP. Authoring and editing is done directly in the portal.
         </p>
       </div>
 
@@ -44,25 +69,25 @@ export default async function ContentHubPage() {
               href="/content/methodologies"
               title="Production methodologies"
               subtitle="Step-by-step production workflows"
-              right={`${methodologies.length}`}
+              right={countLabel(counts.methodologies)}
             />
             <BrowseListRow
               href="/content/templates"
               title="Templates"
               subtitle="HTML, Word, and email production templates"
-              right={`${templates.length}`}
+              right={countLabel(counts.templates)}
             />
             <BrowseListRow
               href="/clients"
               title="Client brand packages"
               subtitle="Voice, color, typography, and markdown context"
-              right={`${brands.length}`}
+              right={countLabel(counts.brands)}
             />
             <BrowseListRow
               href="/content/deliverables"
               title="Deliverable classifications"
               subtitle="Taxonomy aligned to the capabilities matrix"
-              right={`${deliverables.length}`}
+              right={countLabel(counts.deliverables)}
             />
             <BrowseListRow
               href="/content/platform-guide"

@@ -1,19 +1,10 @@
-import { auth } from "@/lib/auth";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
 import { NextResponse } from "next/server";
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
 
 // GET /api/org-config — return current org config (admin only)
 export async function GET() {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const [config] = await db`
@@ -28,7 +19,7 @@ export async function GET() {
 
 // PATCH /api/org-config — update default_role_id (admin only)
 export async function PATCH(request: Request) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const body = await request.json().catch(() => ({}));

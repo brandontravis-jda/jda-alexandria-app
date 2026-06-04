@@ -1,22 +1,14 @@
-import { auth } from "@/lib/auth";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
+import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
 
 // PATCH /api/users/[id] — update practice, portal_access, role assignment, or user-level permission overrides
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -36,7 +28,7 @@ export async function PATCH(
     practice_ids,
     add_practice,
     remove_practice,
-    portal_access,
+    portal_tier,
     mcp_access,
     account_type,
     add_role,
@@ -48,7 +40,7 @@ export async function PATCH(
     practice_ids?: number[];
     add_practice?: number;
     remove_practice?: number;
-    portal_access?: boolean;
+    portal_tier?: string;
     mcp_access?: boolean;
     account_type?: "owner" | "admin" | "user";
     add_role?: string;
@@ -57,29 +49,23 @@ export async function PATCH(
     remove_permission_action?: string;
   };
 
-  // Validate account_type changes — cannot assign or remove owner via this route
   if (account_type !== undefined && account_type === "owner") {
     return NextResponse.json({ error: "Use the transfer-ownership route to assign owner" }, { status: 400 });
   }
 
-  // Build SET clause for user fields
+  const validTiers = ["none", "viewer", "editor", "leadership", "admin"];
+  if (portal_tier !== undefined && !validTiers.includes(portal_tier)) {
+    return NextResponse.json({ error: "Invalid portal_tier" }, { status: 400 });
+  }
+
   const updates: Record<string, unknown> = {};
   if (practice !== undefined) updates.practice = practice ?? null;
   if (mcp_access !== undefined) updates.mcp_access = mcp_access;
   if (account_type !== undefined) updates.account_type = account_type;
+  if (portal_tier !== undefined) updates.portal_tier = portal_tier;
 
-  // Admins always have portal access — silently ignore attempts to revoke it.
-  // If this PATCH promotes someone to admin, grant portal access automatically.
-  const effectiveAccountType = account_type ?? (target.account_type as string);
-  if (portal_access !== undefined) {
-    if (!portal_access && ["admin"].includes(effectiveAccountType)) {
-      // Silently ignore — admins must keep portal access
-    } else {
-      updates.portal_access = portal_access;
-    }
-  }
-  // When promoting to admin, always grant portal access
-  if (account_type === "admin") updates.portal_access = true;
+  // When promoting to admin account_type, auto-set tier to admin
+  if (account_type === "admin" && !portal_tier) updates.portal_tier = "admin";
 
   let updated: Record<string, unknown> | null = null;
 
@@ -87,16 +73,16 @@ export async function PATCH(
     const [row] = await db`
       UPDATE users SET
         practice      = COALESCE(${updates.practice as string ?? null}, practice),
-        portal_access = COALESCE(${updates.portal_access as boolean ?? null}, portal_access),
+        portal_tier   = COALESCE(${updates.portal_tier as string ?? null}, portal_tier),
         mcp_access    = COALESCE(${updates.mcp_access as boolean ?? null}, mcp_access),
         account_type  = COALESCE(${updates.account_type as string ?? null}, account_type)
       WHERE id = ${userId}
-      RETURNING id, email, name, account_type, practice, portal_access, mcp_access
+      RETURNING id, email, name, account_type, practice, portal_tier, mcp_access
     `;
     updated = row ?? null;
     writeAuditLog({ actorId: admin.id as number, action: "user.update", targetType: "user", targetId: userId, details: updates });
   } else {
-    const [row] = await db`SELECT id, email, name, account_type, practice, portal_access, mcp_access FROM users WHERE id = ${userId}`;
+    const [row] = await db`SELECT id, email, name, account_type, practice, portal_tier, mcp_access FROM users WHERE id = ${userId}`;
     updated = row ?? null;
   }
 
@@ -195,7 +181,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;

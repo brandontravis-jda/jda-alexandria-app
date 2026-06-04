@@ -24,6 +24,18 @@ export async function migrate() {
   await db`ALTER TABLE users ALTER COLUMN last_seen_at DROP NOT NULL`;
   await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS last_mcp_seen_at TIMESTAMPTZ`;
 
+  // portal_tier — single hierarchical tier replacing portal_access boolean + portal:* RBAC
+  await db`ALTER TABLE users ADD COLUMN IF NOT EXISTS portal_tier TEXT NOT NULL DEFAULT 'none' CHECK (portal_tier IN ('none','viewer','editor','leadership','admin'))`;
+  // One-time migration: backfill portal_tier from legacy fields
+  await db`
+    UPDATE users SET portal_tier = 'admin'
+    WHERE account_type IN ('owner', 'admin') AND portal_tier = 'none'
+  `;
+  await db`
+    UPDATE users SET portal_tier = 'viewer'
+    WHERE portal_access = TRUE AND account_type = 'user' AND portal_tier = 'none'
+  `;
+
   // Backfill account_type from legacy tier column if it exists
   await db`
     DO $$
@@ -207,40 +219,179 @@ export async function migrate() {
     ON CONFLICT (id) DO NOTHING
   `;
 
-  // Owners and admins always have portal_access — backfill existing rows
+  // Clean up legacy portal:* permission data — portal access is now driven by portal_tier
+  await db`DELETE FROM role_permissions WHERE action LIKE 'portal:%'`;
+  await db`DELETE FROM user_permissions WHERE action LIKE 'portal:%'`;
+
+  // ============================================================
+  // Content tables (migrated from Sanity)
+  // ============================================================
+
+  // Unify Sanity practiceArea content taxonomy with existing `practices` table
+  await db`ALTER TABLE practices ADD COLUMN IF NOT EXISTS sanity_id TEXT`;
+  await db`ALTER TABLE practices ADD COLUMN IF NOT EXISTS activation_status TEXT NOT NULL DEFAULT 'not_started' CHECK (activation_status IN ('not_started','in_discovery','activating','active'))`;
+
   await db`
-    UPDATE users SET portal_access = TRUE
-    WHERE account_type IN ('owner', 'admin') AND portal_access = FALSE
+    CREATE TABLE IF NOT EXISTS methodologies (
+      id                      SERIAL PRIMARY KEY,
+      sanity_id               TEXT,
+      name                    TEXT NOT NULL,
+      slug                    TEXT NOT NULL UNIQUE,
+      description             TEXT NOT NULL DEFAULT '',
+      practice_id             INTEGER REFERENCES practices(id) ON DELETE SET NULL,
+      ai_classification       TEXT CHECK (ai_classification IN ('ai_led','ai_assisted','human_led')),
+      tools_involved          TEXT[] DEFAULT '{}',
+      required_inputs         JSONB DEFAULT '[]',
+      system_instructions     TEXT DEFAULT '',
+      steps                   JSONB DEFAULT '[]',
+      output_format           TEXT DEFAULT '',
+      quality_checks          JSONB DEFAULT '[]',
+      failure_modes           JSONB DEFAULT '[]',
+      vision_of_good          TEXT DEFAULT '',
+      tips                    TEXT DEFAULT '',
+      client_refinements      JSONB DEFAULT '[]',
+      quality_checklist       JSONB DEFAULT '[]',
+      baseline_production_time TEXT,
+      ai_native_production_time TEXT,
+      proven_status           BOOLEAN NOT NULL DEFAULT FALSE,
+      proven_date             DATE,
+      version                 INTEGER NOT NULL DEFAULT 1,
+      author                  TEXT,
+      validated_by            TEXT,
+      include_feedback_prompt BOOLEAN NOT NULL DEFAULT FALSE,
+      status                  TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','archived')),
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `;
 
-  // Seed portal permission actions for the Editor system role
   await db`
-    INSERT INTO role_permissions (role_id, action, scope)
-    SELECT r.id, a.action, 'all'
-    FROM roles r
-    CROSS JOIN (VALUES ('portal:access'), ('portal:content')) AS a(action)
-    WHERE r.slug = 'editor'
-    ON CONFLICT (role_id, action) DO NOTHING
+    CREATE TABLE IF NOT EXISTS templates (
+      id                      SERIAL PRIMARY KEY,
+      sanity_id               TEXT,
+      title                   TEXT NOT NULL,
+      slug                    TEXT NOT NULL UNIQUE,
+      format_type             TEXT CHECK (format_type IN ('html-deliverable','word-document','html-email')),
+      preview_url             TEXT,
+      github_raw_url          TEXT,
+      dropbox_link            TEXT,
+      use_cases               TEXT DEFAULT '',
+      feature_list            TEXT DEFAULT '',
+      fixed_elements          TEXT DEFAULT '',
+      variable_elements       TEXT DEFAULT '',
+      brand_injection_rules   TEXT DEFAULT '',
+      client_adaptation_notes TEXT DEFAULT '',
+      output_spec             TEXT DEFAULT '',
+      quality_checks          TEXT DEFAULT '',
+      include_feedback_prompt BOOLEAN NOT NULL DEFAULT FALSE,
+      status                  TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','active','deprecated')),
+      created_at              TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
   `;
 
-  // Migrate: grant portal:access to any user who currently has portal_access = true
-  // (one-time bridge from the boolean to RBAC)
   await db`
-    INSERT INTO user_permissions (user_id, action, type, scope)
-    SELECT u.id, 'portal:access', 'grant', 'all'
-    FROM users u
-    WHERE u.portal_access = TRUE
-      AND u.account_type NOT IN ('owner', 'admin')
-      AND NOT EXISTS (
-        SELECT 1 FROM user_permissions up
-        WHERE up.user_id = u.id AND up.action = 'portal:access'
-      )
-      AND NOT EXISTS (
-        SELECT 1 FROM user_roles ur
-        JOIN role_permissions rp ON rp.role_id = ur.role_id
-        WHERE ur.user_id = u.id AND rp.action = 'portal:access'
-      )
+    CREATE TABLE IF NOT EXISTS template_practices (
+      template_id  INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      practice_id  INTEGER NOT NULL REFERENCES practices(id) ON DELETE CASCADE,
+      PRIMARY KEY (template_id, practice_id)
+    )
   `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS template_methodologies (
+      template_id     INTEGER NOT NULL REFERENCES templates(id) ON DELETE CASCADE,
+      methodology_id  INTEGER NOT NULL REFERENCES methodologies(id) ON DELETE CASCADE,
+      PRIMARY KEY (template_id, methodology_id)
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS brand_packages (
+      id                  SERIAL PRIMARY KEY,
+      sanity_id           TEXT,
+      client_name         TEXT NOT NULL,
+      slug                TEXT NOT NULL UNIQUE,
+      abbreviations       TEXT,
+      logos               JSONB DEFAULT '[]',
+      logo_usage_rules    TEXT DEFAULT '',
+      extracted_date      DATE,
+      source_document     TEXT,
+      extracted_by        TEXT,
+      gaps                TEXT DEFAULT '',
+      raw_markdown        TEXT NOT NULL DEFAULT '',
+      identity            JSONB DEFAULT '{}',
+      color_palette       JSONB DEFAULT '[]',
+      color_usage_rules   TEXT DEFAULT '',
+      typography          JSONB DEFAULT '{}',
+      web_fonts           JSONB DEFAULT '[]',
+      template_overrides  TEXT DEFAULT '',
+      voice_and_tone      JSONB DEFAULT '{}',
+      brand_architecture  JSONB DEFAULT '{}',
+      visual_direction    JSONB DEFAULT '{}',
+      key_messaging       JSONB DEFAULT '{}',
+      status              TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','archived')),
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS deliverable_classifications (
+      id                SERIAL PRIMARY KEY,
+      sanity_id         TEXT,
+      name              TEXT NOT NULL,
+      slug              TEXT NOT NULL UNIQUE,
+      practice_id       INTEGER REFERENCES practices(id) ON DELETE SET NULL,
+      ai_classification TEXT CHECK (ai_classification IN ('ai_led','ai_assisted','human_led')),
+      description       TEXT DEFAULT '',
+      status            TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('draft','active','archived')),
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS capability_records (
+      id                       SERIAL PRIMARY KEY,
+      sanity_id                TEXT,
+      deliverable_name         TEXT NOT NULL,
+      slug                     TEXT NOT NULL UNIQUE,
+      practice_id              INTEGER REFERENCES practices(id) ON DELETE SET NULL,
+      status                   TEXT NOT NULL DEFAULT 'not_evaluated' CHECK (status IN ('not_evaluated','classified','methodology_built','proven_status')),
+      ai_classification        TEXT CHECK (ai_classification IN ('ai_led','ai_assisted','human_led')),
+      linked_methodology_id    INTEGER REFERENCES methodologies(id) ON DELETE SET NULL,
+      current_ai_ceiling       TEXT DEFAULT '',
+      ai_support_role          TEXT DEFAULT '',
+      recommended_tool_stack   TEXT[] DEFAULT '{}',
+      ceiling_last_reviewed    TIMESTAMPTZ,
+      live_search_enabled      BOOLEAN NOT NULL DEFAULT FALSE,
+      baseline_production_time TEXT,
+      ai_native_production_time TEXT,
+      proven_status_achieved_at TIMESTAMPTZ,
+      source                   TEXT,
+      notes                    TEXT DEFAULT '',
+      created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await db`
+    CREATE TABLE IF NOT EXISTS platform_guide (
+      id                      INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      platform_intro          TEXT NOT NULL DEFAULT '',
+      canonical_entry_prompts JSONB DEFAULT '[]',
+      feedback_prompt         TEXT DEFAULT '',
+      example_prompts         JSONB DEFAULT '[]',
+      updated_at              TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await db`CREATE INDEX IF NOT EXISTS methodologies_practice_idx ON methodologies(practice_id)`;
+  await db`CREATE INDEX IF NOT EXISTS methodologies_status_idx ON methodologies(status)`;
+  await db`CREATE INDEX IF NOT EXISTS capability_records_practice_idx ON capability_records(practice_id)`;
+  await db`CREATE INDEX IF NOT EXISTS capability_records_status_idx ON capability_records(status)`;
+  await db`CREATE INDEX IF NOT EXISTS brand_packages_slug_idx ON brand_packages(slug)`;
 }
 
 export async function upsertUser({
@@ -257,24 +408,20 @@ export async function upsertUser({
   const isFirstUser = !ownerCheck;
 
   const [user] = await db`
-    INSERT INTO users (object_id, email, name, account_type, portal_access, last_seen_at)
+    INSERT INTO users (object_id, email, name, account_type, portal_access, portal_tier, last_seen_at)
     VALUES (
       ${objectId},
       ${email ?? null},
       ${name ?? null},
       ${isFirstUser ? "owner" : "user"},
       ${isFirstUser},
+      ${isFirstUser ? "admin" : "none"},
       NOW()
     )
     ON CONFLICT (object_id) DO UPDATE SET
       email        = EXCLUDED.email,
       name         = EXCLUDED.name,
-      last_seen_at = NOW(),
-      -- Owners and admins always get portal access reinstated on login
-      portal_access = CASE
-        WHEN users.account_type IN ('owner', 'admin') THEN TRUE
-        ELSE users.portal_access
-      END
+      last_seen_at = NOW()
     RETURNING *
   `;
 
@@ -324,53 +471,13 @@ export async function getLastAdSync(): Promise<string | null> {
   return (row?.last_ad_sync as string) ?? null;
 }
 
-/**
- * Resolve all portal:* permissions for a user by combining role grants
- * and user-level overrides (grants add, denials remove).
- * Owners and admins receive all portal permissions unconditionally.
- */
-export async function resolvePortalPermissions(
-  userId: number,
-  accountType: string
-): Promise<Set<string>> {
-  const ALL_PORTAL_PERMS = new Set([
-    "portal:access",
-    "portal:admin",
-    "portal:performance",
-    "portal:content",
-  ]);
-
-  if (accountType === "owner" || accountType === "admin") {
-    return ALL_PORTAL_PERMS;
-  }
-
-  // Role-granted portal permissions
-  const rolePerms = await db`
-    SELECT DISTINCT rp.action
-    FROM user_roles ur
-    JOIN role_permissions rp ON rp.role_id = ur.role_id
-    WHERE ur.user_id = ${userId}
-      AND rp.action LIKE 'portal:%'
-      AND rp.scope != 'none'
-  `;
-
-  const perms = new Set(rolePerms.map((r: Record<string, unknown>) => r.action as string));
-
-  // User-level overrides
-  const overrides = await db`
-    SELECT action, type
-    FROM user_permissions
-    WHERE user_id = ${userId}
-      AND action LIKE 'portal:%'
-  `;
-
-  for (const o of overrides) {
-    if (o.type === "grant") perms.add(o.action as string);
-    if (o.type === "deny") perms.delete(o.action as string);
-  }
-
-  return perms;
-}
+export const TIER_LEVEL: Record<string, number> = {
+  none: 0,
+  viewer: 1,
+  editor: 2,
+  leadership: 3,
+  admin: 4,
+};
 
 /**
  * Write an entry to the audit log.

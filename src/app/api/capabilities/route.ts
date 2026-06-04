@@ -1,19 +1,9 @@
-import { auth } from "@/lib/auth";
-import { getUserByObjectId } from "@/lib/schema";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { client } from "@/sanity/lib/client";
 import { NextResponse } from "next/server";
 
-async function requirePortalAccess() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  // Gate on portal_access column — set by permissions migration, not hardcoded tier
-  if (!user || !user.portal_access) return null;
-  return user;
-}
-
 export async function GET(req: Request) {
-  const user = await requirePortalAccess();
+  const user = await apiRequireTier("viewer");
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { searchParams } = new URL(req.url);

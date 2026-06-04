@@ -1,22 +1,14 @@
-import { auth } from "@/lib/auth";
+import { apiRequireTier } from "@/lib/portal-auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
+import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
-
-async function requireAdmin() {
-  const session = await auth();
-  if (!session?.user?.id) return null;
-  const user = await getUserByObjectId(session.user.id);
-  if (!user || !["owner", "admin"].includes(user.account_type as string)) return null;
-  return user;
-}
 
 // PATCH /api/practices/[id] — update a practice (admin only)
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;
@@ -55,7 +47,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const admin = await requireAdmin();
+  const admin = await apiRequireTier("admin");
   if (!admin) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const { id } = await params;

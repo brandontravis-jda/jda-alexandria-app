@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 
 interface Role {
@@ -32,7 +32,7 @@ interface User {
   name: string | null;
   account_type: "owner" | "admin" | "user";
   practice: string | null;
-  portal_access: boolean;
+  portal_tier: string;
   mcp_access: boolean;
   created_at: string;
   last_seen_at: string | null;
@@ -40,7 +40,6 @@ interface User {
   roles: Role[];
   user_permissions: UserPermission[];
   practices: Practice[];
-  portal_permissions: string[];
 }
 
 interface RolePermission {
@@ -62,10 +61,13 @@ function formatDate(ts: string | null) {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-const ACCOUNT_TYPE_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  owner:  { label: "Owner", bg: "rgba(251,191,36,0.15)", text: "#fbbf24" },
-  admin:  { label: "Admin", bg: "rgba(139,92,246,0.15)", text: "#a78bfa" },
-  user:   { label: "User",  bg: "rgba(255,255,255,0.06)", text: "var(--color-jda-text-muted)" },
+const TIER_OPTIONS = ["none", "viewer", "editor", "leadership", "admin"] as const;
+const TIER_BADGE: Record<string, { label: string; bg: string; text: string }> = {
+  admin:      { label: "Admin",      bg: "rgba(139,92,246,0.15)", text: "#a78bfa" },
+  leadership: { label: "Leadership", bg: "rgba(59,130,246,0.12)", text: "#60a5fa" },
+  editor:     { label: "Editor",     bg: "rgba(251,191,36,0.12)", text: "#fbbf24" },
+  viewer:     { label: "Viewer",     bg: "rgba(34,197,94,0.12)",  text: "#4ade80" },
+  none:       { label: "None",       bg: "rgba(255,255,255,0.04)", text: "var(--color-jda-text-muted)" },
 };
 
 const ACCESS_BADGE = {
@@ -73,33 +75,17 @@ const ACCESS_BADGE = {
   false: { label: "No",  bg: "rgba(255,255,255,0.06)", text: "var(--color-jda-text-muted)" },
 };
 
-const PORTAL_TIER_BADGE: Record<string, { label: string; bg: string; text: string }> = {
-  admin:       { label: "Admin",       bg: "rgba(139,92,246,0.15)", text: "#a78bfa" },
-  performance: { label: "Performance", bg: "rgba(59,130,246,0.12)", text: "#60a5fa" },
-  content:     { label: "Content",     bg: "rgba(34,197,94,0.12)", text: "#4ade80" },
-  access:      { label: "Access",      bg: "rgba(255,255,255,0.08)", text: "var(--color-jda-cream-muted)" },
-  none:        { label: "None",        bg: "rgba(255,255,255,0.04)", text: "var(--color-jda-text-muted)" },
-};
-
-function getPortalTier(perms: string[]): string {
-  if (perms.includes("portal:admin")) return "admin";
-  if (perms.includes("portal:performance")) return "performance";
-  if (perms.includes("portal:content")) return "content";
-  if (perms.includes("portal:access")) return "access";
-  return "none";
-}
-
-type OverrideState = "grant" | "deny" | "inherit";
+type SortKey = "name" | "email" | "portal_tier" | "last_mcp_seen_at";
+type SortDir = "asc" | "desc";
+const TIER_LEVEL: Record<string, number> = { none: 0, viewer: 1, editor: 2, leadership: 3, admin: 4 };
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [allRoles, setAllRoles] = useState<Role[]>([]);
   const [allPractices, setAllPractices] = useState<Practice[]>([]);
-  const [allActions, setAllActions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<number | null>(null);
   const [expandedUser, setExpandedUser] = useState<number | null>(null);
-  const [permEditMode, setPermEditMode] = useState<number | null>(null);
   const [rolePermissions, setRolePermissions] = useState<RolePermission[]>([]);
   const [transferTarget, setTransferTarget] = useState<number | null>(null);
   const [currentUserAccountType, setCurrentUserAccountType] = useState<string | null>(null);
@@ -109,7 +95,18 @@ export default function UsersPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<string | null>(null);
 
-  async function loadUsers() {
+  // Search, sort, filter state
+  const [search, setSearch] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("name");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+  const [tierFilter, setTierFilter] = useState<string | null>(null);
+  const [mcpFilter, setMcpFilter] = useState<boolean | null>(null);
+
+  // Bulk select
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [bulkTier, setBulkTier] = useState<string>("");
+
+  const loadUsers = useCallback(async () => {
     const [usersRes, meRes] = await Promise.all([
       fetch("/api/users"),
       fetch("/api/me"),
@@ -119,7 +116,6 @@ export default function UsersPage() {
       setUsers(data.users ?? []);
       setAllRoles(data.allRoles ?? []);
       setAllPractices(data.allPractices ?? []);
-      setAllActions(data.allActions ?? []);
       setLastAdSync(data.lastAdSync ?? null);
     }
     if (meRes.ok) {
@@ -127,11 +123,52 @@ export default function UsersPage() {
       setCurrentUserAccountType(me.account_type ?? null);
     }
     setLoading(false);
-  }
+  }, []);
 
-  useEffect(() => { loadUsers(); }, []);
+  useEffect(() => { loadUsers(); }, [loadUsers]);
 
-  // Load role permissions for expanded user's roles (needed for permission status indicators)
+  // Filtered + sorted users
+  const filteredUsers = useMemo(() => {
+    let list = users;
+
+    if (search) {
+      const q = search.toLowerCase();
+      list = list.filter((u) =>
+        (u.name ?? "").toLowerCase().includes(q) ||
+        (u.email ?? "").toLowerCase().includes(q)
+      );
+    }
+
+    if (tierFilter) {
+      list = list.filter((u) => u.portal_tier === tierFilter);
+    }
+
+    if (mcpFilter !== null) {
+      list = list.filter((u) => u.mcp_access === mcpFilter);
+    }
+
+    list = [...list].sort((a, b) => {
+      const dir = sortDir === "asc" ? 1 : -1;
+      switch (sortKey) {
+        case "name":
+          return ((a.name ?? "").localeCompare(b.name ?? "")) * dir;
+        case "email":
+          return ((a.email ?? "").localeCompare(b.email ?? "")) * dir;
+        case "portal_tier":
+          return ((TIER_LEVEL[a.portal_tier] ?? 0) - (TIER_LEVEL[b.portal_tier] ?? 0)) * dir;
+        case "last_mcp_seen_at": {
+          const aT = a.last_mcp_seen_at ? new Date(a.last_mcp_seen_at).getTime() : 0;
+          const bT = b.last_mcp_seen_at ? new Date(b.last_mcp_seen_at).getTime() : 0;
+          return (aT - bT) * dir;
+        }
+        default:
+          return 0;
+      }
+    });
+
+    return list;
+  }, [users, search, tierFilter, mcpFilter, sortKey, sortDir]);
+
   async function loadRolePermissions(user: User) {
     if (user.roles.length === 0) { setRolePermissions([]); return; }
     const res = await fetch("/api/roles");
@@ -161,6 +198,15 @@ export default function UsersPage() {
     }
     setSaving(null);
     return res;
+  }
+
+  async function setPortalTier(userId: number, tier: string) {
+    await patch(userId, { portal_tier: tier });
+    setUsers((prev) => prev.map((u) => u.id === userId ? { ...u, portal_tier: tier } : u));
+  }
+
+  async function toggleMcpAccess(userId: number, current: boolean) {
+    await patch(userId, { mcp_access: !current });
   }
 
   async function addPractice(userId: number, practiceId: number) {
@@ -224,18 +270,6 @@ export default function UsersPage() {
     setSaving(null);
   }
 
-  async function toggleMcpAccess(userId: number, current: boolean) {
-    await patch(userId, { mcp_access: !current });
-  }
-
-  async function setPermOverride(userId: number, action: string, state: OverrideState) {
-    if (state === "inherit") {
-      await patch(userId, { remove_permission_action: action });
-    } else {
-      await patch(userId, { add_permission: { action, type: state, scope: "all" } });
-    }
-  }
-
   async function deleteUser(userId: number) {
     const res = await fetch(`/api/users/${userId}`, { method: "DELETE" });
     setDeleteTarget(null);
@@ -261,67 +295,60 @@ export default function UsersPage() {
     }
   }
 
-  function getPermOverrideState(user: User, action: string): OverrideState {
-    const override = user.user_permissions.find((p) => p.action === action);
-    if (!override) return "inherit";
-    return override.type;
-  }
-
-  function getRoleGrantingAction(user: User, action: string): string | null {
-    const rp = rolePermissions.find((p) => p.action === action);
-    if (!rp) return null;
-    const role = user.roles.find((r) => r.id === rp.role_id);
-    return role?.display_name ?? null;
-  }
-
-  function getPermStatusLabel(user: User, action: string): { text: string; color: string } | null {
-    const override = user.user_permissions.find((p) => p.action === action);
-    const roleGrantingRole = getRoleGrantingAction(user, action);
-
-    if (!override) {
-      if (roleGrantingRole) return null; // normal active-via-role state
-      return null; // normal not-granted state
+  async function applyBulkTier() {
+    if (!bulkTier || selected.size === 0) return;
+    setSaving(-1);
+    for (const userId of selected) {
+      await fetch(`/api/users/${userId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ portal_tier: bulkTier }),
+      });
     }
+    setSelected(new Set());
+    setBulkTier("");
+    setSaving(null);
+    await loadUsers();
+  }
 
-    if (override.type === "deny") {
-      if (roleGrantingRole) return { text: `Denied — overrides ${roleGrantingRole}`, color: "#f87171" };
-      return { text: "Denial has no effect — role doesn't grant this", color: "var(--color-jda-text-muted)" };
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
     }
-
-    // grant
-    if (roleGrantingRole) return { text: `Redundant — already granted by ${roleGrantingRole}`, color: "#fbbf24" };
-    return { text: "Custom grant — not from any assigned role", color: "#60a5fa" };
   }
 
-  // Compute the effective active permissions for a user (for view mode display)
-  function getEffectivePermissions(user: User): string[] {
-    const roleGranted = new Set(rolePermissions.filter((p) => p.scope !== "none").map((p) => p.action));
-    const grants = user.user_permissions.filter((p) => p.type === "grant").map((p) => p.action);
-    const denials = new Set(user.user_permissions.filter((p) => p.type === "deny").map((p) => p.action));
-    const effective = new Set([...roleGranted, ...grants]);
-    for (const d of denials) effective.delete(d);
-    return [...effective].sort();
+  function toggleSelect(userId: number) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
   }
 
-  const allKnownActions = allActions.length > 0
-    ? allActions
-    : [...new Set(rolePermissions.map((p) => p.action))].sort();
+  function toggleSelectAll() {
+    if (selected.size === filteredUsers.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(filteredUsers.map((u) => u.id)));
+    }
+  }
+
+  const sortArrow = (key: SortKey) => sortKey === key ? (sortDir === "asc" ? " ↑" : " ↓") : "";
 
   return (
     <div>
-      <div className="mb-7 flex items-start justify-between">
+      {/* Header */}
+      <div className="mb-5 flex items-start justify-between">
         <div>
-          <h1
-            className="text-3xl font-black leading-none"
-            style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}
-          >
+          <h1 className="text-3xl font-black leading-none" style={{ fontFamily: "var(--font-display)", letterSpacing: "0.05em" }}>
             Users
           </h1>
-          <p
-            className="text-sm mt-1 font-normal"
-            style={{ color: "var(--color-jda-warm-gray)", letterSpacing: "0.03em", fontFamily: "var(--font-body)" }}
-          >
-            Everyone in the Alexandria AD group. Assign roles and permission overrides to control what each practitioner can do.
+          <p className="text-sm mt-1" style={{ color: "var(--color-jda-warm-gray)", fontFamily: "var(--font-body)" }}>
+            Manage portal access, MCP permissions, and role assignments.
           </p>
         </div>
 
@@ -345,25 +372,104 @@ export default function UsersPage() {
             {lastAdSync ? `Last sync: ${formatDate(lastAdSync)}` : "Never synced"}
           </span>
           {syncResult && (
-            <span
-              className="text-xs max-w-[280px] text-right"
-              style={{ color: syncResult.startsWith("Error") ? "#f87171" : "#4ade80" }}
-            >
+            <span className="text-xs max-w-[280px] text-right" style={{ color: syncResult.startsWith("Error") ? "#f87171" : "#4ade80" }}>
               {syncResult}
             </span>
           )}
         </div>
       </div>
 
-      <div
-        className="rounded-[10px] border overflow-hidden"
-        style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}
-      >
+      {/* Search + Filter bar */}
+      <div className="flex items-center gap-3 mb-4">
+        <input
+          type="text"
+          placeholder="Search by name or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="text-sm px-3 py-1.5 rounded-md flex-1"
+          style={{
+            background: "var(--color-jda-card)",
+            color: "var(--color-jda-cream)",
+            border: "1px solid var(--color-jda-border)",
+            maxWidth: 320,
+          }}
+        />
+
+        <select
+          value={tierFilter ?? ""}
+          onChange={(e) => setTierFilter(e.target.value || null)}
+          className="text-xs px-2 py-1.5 rounded-md"
+          style={{ background: "var(--color-jda-card)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)" }}
+        >
+          <option value="">All tiers</option>
+          {TIER_OPTIONS.map((t) => (
+            <option key={t} value={t}>{TIER_BADGE[t].label}</option>
+          ))}
+        </select>
+
+        <select
+          value={mcpFilter === null ? "" : String(mcpFilter)}
+          onChange={(e) => setMcpFilter(e.target.value === "" ? null : e.target.value === "true")}
+          className="text-xs px-2 py-1.5 rounded-md"
+          style={{ background: "var(--color-jda-card)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)" }}
+        >
+          <option value="">MCP: All</option>
+          <option value="true">MCP: Enabled</option>
+          <option value="false">MCP: Disabled</option>
+        </select>
+
+        <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
+          {filteredUsers.length} of {users.length} users
+        </span>
+      </div>
+
+      {/* Bulk actions bar */}
+      {selected.size > 0 && (
+        <div className="flex items-center gap-3 mb-3 px-4 py-2.5 rounded-lg" style={{ background: "rgba(59,130,246,0.08)", border: "1px solid rgba(59,130,246,0.2)" }}>
+          <span className="text-xs font-semibold" style={{ color: "#60a5fa" }}>
+            {selected.size} selected
+          </span>
+          <select
+            value={bulkTier}
+            onChange={(e) => setBulkTier(e.target.value)}
+            className="text-xs px-2 py-1 rounded"
+            style={{ background: "var(--color-jda-card)", color: "var(--color-jda-cream)", border: "1px solid var(--color-jda-border)" }}
+          >
+            <option value="">Set portal tier…</option>
+            {TIER_OPTIONS.map((t) => (
+              <option key={t} value={t}>{TIER_BADGE[t].label}</option>
+            ))}
+          </select>
+          <button
+            onClick={applyBulkTier}
+            disabled={!bulkTier || saving === -1}
+            className="text-xs px-3 py-1 rounded font-semibold"
+            style={{
+              background: bulkTier ? "rgba(59,130,246,0.2)" : "rgba(255,255,255,0.05)",
+              color: bulkTier ? "#60a5fa" : "var(--color-jda-text-muted)",
+              border: "none",
+              cursor: bulkTier ? "pointer" : "default",
+            }}
+          >
+            {saving === -1 ? "Applying…" : "Apply"}
+          </button>
+          <button
+            onClick={() => setSelected(new Set())}
+            className="text-xs"
+            style={{ background: "none", border: "none", color: "var(--color-jda-text-muted)", cursor: "pointer" }}
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
+      {/* User table */}
+      <div className="rounded-[10px] border overflow-hidden" style={{ background: "var(--color-jda-bg-card)", borderColor: "var(--color-jda-border)" }}>
         {/* Table header */}
         <div
-          className="grid px-6 py-3 border-b text-xs font-semibold"
+          className="grid px-6 py-3 border-b text-xs font-semibold items-center"
           style={{
-            gridTemplateColumns: "1fr 140px 180px 80px 100px 80px 100px",
+            gridTemplateColumns: "32px 1fr 120px 160px 100px 70px 100px",
             borderColor: "var(--color-jda-border)",
             color: "var(--color-jda-text-muted)",
             fontFamily: "var(--font-display)",
@@ -371,73 +477,93 @@ export default function UsersPage() {
             textTransform: "uppercase",
           }}
         >
-          <span>User</span>
-          <span>Account</span>
+          <span>
+            <input
+              type="checkbox"
+              checked={filteredUsers.length > 0 && selected.size === filteredUsers.length}
+              onChange={toggleSelectAll}
+              style={{ accentColor: "#60a5fa" }}
+            />
+          </span>
+          <span onClick={() => toggleSort("name")} style={{ cursor: "pointer" }}>User{sortArrow("name")}</span>
+          <span onClick={() => toggleSort("portal_tier")} style={{ cursor: "pointer" }}>Portal tier{sortArrow("portal_tier")}</span>
           <span>Roles</span>
           <span>Practice</span>
-          <span>Portal tier</span>
           <span>MCP</span>
-          <span>Last MCP use</span>
+          <span onClick={() => toggleSort("last_mcp_seen_at")} style={{ cursor: "pointer" }}>Last MCP{sortArrow("last_mcp_seen_at")}</span>
         </div>
 
         {loading ? (
           <p className="px-6 py-5 text-sm" style={{ color: "var(--color-jda-text-muted)" }}>Loading…</p>
-        ) : users.length === 0 ? (
+        ) : filteredUsers.length === 0 ? (
           <p className="px-6 py-5 text-sm" style={{ color: "var(--color-jda-text-muted)" }}>
-            No users have connected yet. Once a practitioner authenticates via Claude, they&apos;ll appear here.
+            {search || tierFilter || mcpFilter !== null ? "No users match the current filters." : "No users found."}
           </p>
         ) : (
-          users.map((user, i) => {
+          filteredUsers.map((user, i) => {
             const isSaving = saving === user.id;
             const isExpanded = expandedUser === user.id;
-            const isPermEdit = permEditMode === user.id;
             const unassignedRoles = allRoles.filter((r) => !user.roles.some((ur) => ur.id === r.id));
-            const portalTier = getPortalTier(user.portal_permissions);
-            const portalBadge = PORTAL_TIER_BADGE[portalTier];
+            const tierBadge = TIER_BADGE[user.portal_tier] ?? TIER_BADGE.none;
             const mcpBadge = ACCESS_BADGE[String(user.mcp_access) as "true" | "false"];
-            const acctBadge = ACCOUNT_TYPE_BADGE[user.account_type] ?? ACCOUNT_TYPE_BADGE.user;
 
             return (
               <div key={user.id}>
                 <div
-                  className="grid items-center px-6 py-4 border-t cursor-pointer"
+                  className="grid items-center px-6 py-3.5 border-t cursor-pointer"
                   onClick={async (e) => {
-                    // Don't expand if clicking an interactive child (select, button, input)
                     if ((e.target as HTMLElement).closest("button, select, input, a")) return;
                     const next = isExpanded ? null : user.id;
                     setExpandedUser(next);
-                    setPermEditMode(null);
                     if (next !== null) await loadRolePermissions(user);
                   }}
                   style={{
-                    gridTemplateColumns: "1fr 140px 180px 80px 100px 80px 100px",
+                    gridTemplateColumns: "32px 1fr 120px 160px 100px 70px 100px",
                     borderColor: i === 0 ? "transparent" : "var(--color-jda-border)",
                     opacity: isSaving ? 0.6 : 1,
                     transition: "opacity 0.15s",
+                    background: selected.has(user.id) ? "rgba(59,130,246,0.04)" : "transparent",
                   }}
                 >
+                  {/* Checkbox */}
+                  <span>
+                    <input
+                      type="checkbox"
+                      checked={selected.has(user.id)}
+                      onChange={() => toggleSelect(user.id)}
+                      style={{ accentColor: "#60a5fa" }}
+                    />
+                  </span>
+
                   {/* Name + email */}
                   <div>
                     <p className="text-sm font-medium" style={{ color: "var(--color-jda-cream)" }}>
                       {user.name ?? "Unknown"}
+                      {user.account_type === "owner" && (
+                        <span className="ml-1.5 text-xs font-semibold" style={{ color: "#fbbf24" }}>OWNER</span>
+                      )}
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: "var(--color-jda-text-muted)", fontFamily: "monospace" }}>
                       {user.email ?? user.object_id}
                     </p>
                   </div>
 
-                  {/* Account type — dropdown for owner/admin acting on non-owner users */}
-                  <div className="flex items-center gap-1.5">
-                    {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" ? (
+                  {/* Portal tier dropdown */}
+                  <div>
+                    {user.account_type === "owner" ? (
+                      <span className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                        style={{ background: TIER_BADGE.admin.bg, color: TIER_BADGE.admin.text, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}>
+                        Admin
+                      </span>
+                    ) : (
                       <select
-                        value={user.account_type}
+                        value={user.portal_tier}
                         disabled={isSaving}
-                        onChange={(e) => patch(user.id, { account_type: e.target.value })}
-                        title="Change account type"
+                        onChange={(e) => setPortalTier(user.id, e.target.value)}
                         style={{
-                          background: acctBadge.bg,
-                          color: acctBadge.text,
-                          border: `1px solid ${acctBadge.text}40`,
+                          background: tierBadge.bg,
+                          color: tierBadge.text,
+                          border: `1px solid ${tierBadge.text}40`,
                           borderRadius: 99,
                           padding: "2px 8px",
                           fontSize: 12,
@@ -448,16 +574,10 @@ export default function UsersPage() {
                           outline: "none",
                         }}
                       >
-                        <option value="user">User</option>
-                        <option value="admin">Admin</option>
+                        {TIER_OPTIONS.map((t) => (
+                          <option key={t} value={t}>{TIER_BADGE[t].label}</option>
+                        ))}
                       </select>
-                    ) : (
-                      <span
-                        className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                        style={{ background: acctBadge.bg, color: acctBadge.text, fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
-                      >
-                        {acctBadge.label}
-                      </span>
                     )}
                   </div>
 
@@ -466,20 +586,17 @@ export default function UsersPage() {
                     {user.roles.length === 0 ? (
                       <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No roles</span>
                     ) : (
-                      user.roles.slice(0, 1).map((r) => (
-                        <span
-                          key={r.id}
-                          className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                          style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}
-                        >
-                          {r.display_name}
-                        </span>
-                      ))
-                    )}
-                    {user.roles.length > 1 && (
-                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                        +{user.roles.length - 1}
-                      </span>
+                      <>
+                        {user.roles.slice(0, 1).map((r) => (
+                          <span key={r.id} className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                            style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>
+                            {r.display_name}
+                          </span>
+                        ))}
+                        {user.roles.length > 1 && (
+                          <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>+{user.roles.length - 1}</span>
+                        )}
+                      </>
                     )}
                   </div>
 
@@ -488,114 +605,59 @@ export default function UsersPage() {
                     {user.practices.length === 0 ? (
                       <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>—</span>
                     ) : (
-                      user.practices.slice(0, 1).map((p) => (
-                        <span
-                          key={p.id}
-                          className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                          style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}
-                        >
-                          {p.name}
-                        </span>
-                      ))
-                    )}
-                    {user.practices.length > 1 && (
-                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                        +{user.practices.length - 1}
-                      </span>
+                      <>
+                        {user.practices.slice(0, 1).map((p) => (
+                          <span key={p.id} className="text-xs px-2 py-0.5 rounded-full font-semibold"
+                            style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}>
+                            {p.name}
+                          </span>
+                        ))}
+                        {user.practices.length > 1 && (
+                          <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>+{user.practices.length - 1}</span>
+                        )}
+                      </>
                     )}
                   </div>
 
-                  {/* Portal tier badge */}
-                  <div>
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                      style={{
-                        background: portalBadge.bg,
-                        color: portalBadge.text,
-                        fontFamily: "var(--font-display)",
-                        letterSpacing: "0.04em",
-                      }}
-                    >
-                      {portalBadge.label}
-                    </span>
-                  </div>
-
-                  {/* MCP access toggle */}
+                  {/* MCP toggle */}
                   <div>
                     <button
                       onClick={() => toggleMcpAccess(user.id, user.mcp_access)}
                       disabled={isSaving}
                       className="text-xs px-2 py-0.5 rounded-full font-semibold"
-                      style={{
-                        background: mcpBadge.bg,
-                        color: mcpBadge.text,
-                        border: "none",
-                        cursor: "pointer",
-                        fontFamily: "var(--font-display)",
-                        letterSpacing: "0.04em",
-                      }}
+                      style={{ background: mcpBadge.bg, color: mcpBadge.text, border: "none", cursor: "pointer", fontFamily: "var(--font-display)", letterSpacing: "0.04em" }}
                     >
                       {mcpBadge.label}
                     </button>
                   </div>
 
-                  {/* Last MCP use + expand chevron */}
+                  {/* Last MCP use + chevron */}
                   <div className="flex items-center justify-between">
-                    <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                      {formatDate(user.last_mcp_seen_at)}
-                    </p>
-                    <span style={{ color: "var(--color-jda-text-muted)", fontSize: 10, marginLeft: 8 }}>
-                      {isExpanded ? "▲" : "▼"}
-                    </span>
+                    <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{formatDate(user.last_mcp_seen_at)}</p>
+                    <span style={{ color: "var(--color-jda-text-muted)", fontSize: 10, marginLeft: 8 }}>{isExpanded ? "▲" : "▼"}</span>
                   </div>
                 </div>
 
                 {/* Expanded panel */}
                 {isExpanded && (
-                  <div
-                    className="px-6 pb-6 border-t"
-                    style={{ borderColor: "var(--color-jda-border)", background: "rgba(255,255,255,0.02)" }}
-                  >
+                  <div className="px-6 pb-6 border-t" style={{ borderColor: "var(--color-jda-border)", background: "rgba(255,255,255,0.02)" }}>
                     {/* Practices */}
                     <div className="mt-4 mb-4">
-                      <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                        Practices
-                      </p>
+                      <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Practices</p>
                       <div className="flex flex-wrap gap-2 mb-2">
-                        {user.practices.length === 0 && (
-                          <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>
-                        )}
+                        {user.practices.length === 0 && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>}
                         {user.practices.map((p) => (
-                          <span
-                            key={p.id}
-                            className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
-                            style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}
-                          >
+                          <span key={p.id} className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full" style={{ background: "rgba(34,197,94,0.12)", color: "#4ade80" }}>
                             {p.name}
-                            <button
-                              onClick={() => removePractice(user.id, p.id)}
-                              style={{ background: "none", border: "none", color: "#4ade80", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }}
-                              title="Remove practice"
-                            >
-                              ×
-                            </button>
+                            <button onClick={() => removePractice(user.id, p.id)} style={{ background: "none", border: "none", color: "#4ade80", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }} title="Remove">×</button>
                           </span>
                         ))}
                       </div>
                       {allPractices.filter((p) => !user.practices.some((up) => up.id === p.id)).length > 0 && (
                         <div className="flex flex-wrap gap-2">
                           {allPractices.filter((p) => !user.practices.some((up) => up.id === p.id)).map((p) => (
-                            <button
-                              key={p.id}
-                              onClick={() => addPractice(user.id, p.id)}
-                              className="text-xs px-2 py-1 rounded-full"
-                              style={{
-                                background: "rgba(255,255,255,0.05)",
-                                color: "var(--color-jda-text-muted)",
-                                border: "1px dashed var(--color-jda-border)",
-                                cursor: "pointer",
-                              }}
-                            >
+                            <button key={p.id} onClick={() => addPractice(user.id, p.id)} className="text-xs px-2 py-1 rounded-full"
+                              style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px dashed var(--color-jda-border)", cursor: "pointer" }}>
                               + {p.name}
                             </button>
                           ))}
@@ -604,47 +666,23 @@ export default function UsersPage() {
                     </div>
 
                     <div className="grid gap-6" style={{ gridTemplateColumns: "1fr 1fr" }}>
-
-                      {/* LEFT: Roles */}
+                      {/* Roles */}
                       <div>
-                        <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                          Roles
-                        </p>
+                        <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Roles (MCP permissions)</p>
                         <div className="flex flex-wrap gap-2 mb-2">
-                          {user.roles.length === 0 && (
-                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>
-                          )}
+                          {user.roles.length === 0 && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>None assigned</span>}
                           {user.roles.map((r) => (
-                            <span
-                              key={r.id}
-                              className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full"
-                              style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}
-                            >
+                            <span key={r.id} className="flex items-center gap-1.5 text-xs px-2 py-1 rounded-full" style={{ background: "rgba(59,130,246,0.12)", color: "#60a5fa" }}>
                               {r.display_name}
-                              <button
-                                onClick={() => removeRole(user.id, r.id)}
-                                style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }}
-                                title="Remove role"
-                              >
-                                ×
-                              </button>
+                              <button onClick={() => removeRole(user.id, r.id)} style={{ background: "none", border: "none", color: "#60a5fa", cursor: "pointer", padding: 0, lineHeight: 1, opacity: 0.7 }} title="Remove">×</button>
                             </span>
                           ))}
                         </div>
                         {unassignedRoles.length > 0 && (
                           <div className="flex flex-wrap gap-2">
                             {unassignedRoles.map((r) => (
-                              <button
-                                key={r.id}
-                                onClick={() => addRole(user.id, r.id)}
-                                className="text-xs px-2 py-1 rounded-full"
-                                style={{
-                                  background: "rgba(255,255,255,0.05)",
-                                  color: "var(--color-jda-text-muted)",
-                                  border: "1px dashed var(--color-jda-border)",
-                                  cursor: "pointer",
-                                }}
-                              >
+                              <button key={r.id} onClick={() => addRole(user.id, r.id)} className="text-xs px-2 py-1 rounded-full"
+                                style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px dashed var(--color-jda-border)", cursor: "pointer" }}>
                                 + {r.display_name}
                               </button>
                             ))}
@@ -652,192 +690,74 @@ export default function UsersPage() {
                         )}
                       </div>
 
-                      {/* RIGHT: Permissions */}
+                      {/* Effective permissions (read-only) */}
                       <div>
-                        <div className="flex items-center justify-between mb-2">
-                          <p className="text-xs font-semibold" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-                            Permissions
-                          </p>
-                          <button
-                            onClick={() => setPermEditMode(isPermEdit ? null : user.id)}
-                            className="text-xs px-2 py-0.5 rounded font-semibold"
-                            style={{
-                              background: isPermEdit ? "rgba(255,255,255,0.1)" : "rgba(255,255,255,0.05)",
-                              border: "1px solid var(--color-jda-border)",
-                              color: isPermEdit ? "var(--color-jda-cream)" : "var(--color-jda-text-muted)",
-                              cursor: "pointer",
-                            }}
-                          >
-                            {isPermEdit ? "Done" : "Edit"}
-                          </button>
+                        <p className="text-xs font-semibold mb-2" style={{ color: "var(--color-jda-text-muted)", letterSpacing: "0.06em", textTransform: "uppercase" }}>Effective MCP permissions</p>
+                        <div className="flex flex-col gap-1">
+                          {rolePermissions.length === 0 ? (
+                            <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions from assigned roles.</p>
+                          ) : (
+                            rolePermissions.map((rp) => {
+                              const role = user.roles.find((r) => r.id === rp.role_id);
+                              return (
+                                <div key={`${rp.role_id}-${rp.action}`} className="flex items-center gap-2">
+                                  <span className="text-xs font-mono" style={{ color: "var(--color-jda-text)" }}>{rp.action}</span>
+                                  <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{rp.scope}</span>
+                                  {role && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {role.display_name}</span>}
+                                </div>
+                              );
+                            })
+                          )}
                         </div>
-
-                        {!isPermEdit ? (
-                          /* View mode */
-                          <div className="flex flex-col gap-1">
-                            {rolePermissions.length === 0 && user.user_permissions.length === 0 ? (
-                              <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions from assigned roles.</p>
-                            ) : (
-                              <>
-                                {rolePermissions.map((rp) => {
-                                  const role = user.roles.find((r) => r.id === rp.role_id);
-                                  const denied = user.user_permissions.find((p) => p.action === rp.action && p.type === "deny");
-                                  return (
-                                    <div key={`${rp.role_id}-${rp.action}`} className="flex items-center gap-2">
-                                      <span
-                                        className="text-xs font-mono"
-                                        style={{ color: denied ? "#f87171" : "var(--color-jda-text)", textDecoration: denied ? "line-through" : "none" }}
-                                      >
-                                        {rp.action}
-                                      </span>
-                                      <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{rp.scope}</span>
-                                      {role && !denied && <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {role.display_name}</span>}
-                                      {denied && <span className="text-xs" style={{ color: "#f87171" }}>denied</span>}
-                                    </div>
-                                  );
-                                })}
-                                {user.user_permissions.filter((p) => p.type === "grant").map((p) => (
-                                  <div key={p.id} className="flex items-center gap-2">
-                                    <span className="text-xs font-mono" style={{ color: "#60a5fa" }}>+ {p.action}</span>
-                                    <span className="text-xs px-1.5 py-0.5 rounded" style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)" }}>{p.scope}</span>
-                                    <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>custom grant</span>
-                                  </div>
-                                ))}
-                              </>
-                            )}
-                          </div>
-                        ) : (
-                          /* Edit mode — full toggle list */
-                          <div className="flex flex-col gap-1">
-                            {allKnownActions.length === 0 ? (
-                              <p className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>No permissions defined on any role yet.</p>
-                            ) : (
-                              allKnownActions.map((action) => {
-                                const state = getPermOverrideState(user, action);
-                                const roleGrantingRole = getRoleGrantingAction(user, action);
-                                const statusLabel = getPermStatusLabel(user, action);
-
-                                return (
-                                  <div
-                                    key={action}
-                                    className="flex items-center gap-2 py-1 px-2 rounded"
-                                    style={{ background: "rgba(255,255,255,0.02)" }}
-                                  >
-                                    <span className="text-xs font-mono flex-1" style={{ color: "var(--color-jda-text)" }}>{action}</span>
-                                    {statusLabel ? (
-                                      <span className="text-xs" style={{ color: statusLabel.color }}>{statusLabel.text}</span>
-                                    ) : roleGrantingRole ? (
-                                      <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>via {roleGrantingRole}</span>
-                                    ) : null}
-                                    <div className="flex rounded overflow-hidden" style={{ border: "1px solid var(--color-jda-border)", flexShrink: 0 }}>
-                                      {(["grant", "inherit", "deny"] as OverrideState[]).map((opt) => (
-                                        <button
-                                          key={opt}
-                                          onClick={() => setPermOverride(user.id, action, opt)}
-                                          disabled={saving === user.id}
-                                          className="text-xs px-2 py-0.5 font-semibold"
-                                          style={{
-                                            background: state === opt
-                                              ? opt === "grant" ? "rgba(96,165,250,0.2)"
-                                                : opt === "deny" ? "rgba(248,113,113,0.2)"
-                                                : "rgba(255,255,255,0.1)"
-                                              : "transparent",
-                                            color: state === opt
-                                              ? opt === "grant" ? "#60a5fa"
-                                                : opt === "deny" ? "#f87171"
-                                                : "var(--color-jda-cream)"
-                                              : "var(--color-jda-text-muted)",
-                                            border: "none",
-                                            cursor: "pointer",
-                                            textTransform: "capitalize",
-                                            transition: "all 0.1s",
-                                          }}
-                                        >
-                                          {opt}
-                                        </button>
-                                      ))}
-                                    </div>
-                                  </div>
-                                );
-                              })
-                            )}
-                          </div>
-                        )}
                       </div>
                     </div>
 
-                    {/* Bottom actions — revoke sessions, delete, transfer ownership */}
-                    {currentUserAccountType && ["owner", "admin"].includes(currentUserAccountType) && user.account_type !== "owner" && (
+                    {/* Bottom actions */}
+                    {user.account_type !== "owner" && (
                       <div className="mt-4 pt-4 border-t flex items-start justify-between" style={{ borderColor: "var(--color-jda-border)" }}>
-
                         <div className="flex items-center gap-4">
-                          {/* Delete user */}
-                          <button
-                            onClick={() => setDeleteTarget(user)}
-                            className="text-xs font-semibold"
-                            style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}
-                          >
+                          <button onClick={() => setDeleteTarget(user)} className="text-xs font-semibold"
+                            style={{ background: "none", border: "none", color: "#f87171", cursor: "pointer", padding: 0 }}>
                             Delete user…
                           </button>
-
-                          {/* Revoke MCP sessions */}
-                          <button
-                            onClick={() => revokeMcpSessions(user.id)}
-                            disabled={saving === user.id}
-                            className="text-xs font-semibold"
-                            style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}
-                          >
+                          <button onClick={() => revokeMcpSessions(user.id)} disabled={saving === user.id} className="text-xs font-semibold"
+                            style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}>
                             Revoke MCP sessions
                           </button>
                           {revokeResult[user.id] && (
-                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>
-                              {revokeResult[user.id]}
-                            </span>
+                            <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>{revokeResult[user.id]}</span>
                           )}
                         </div>
 
-                    {/* Transfer Ownership — owner only */}
-                    {(currentUserAccountType as string) === "owner" && (
-                      <div>
-                        {transferTarget !== user.id ? (
-                          <button
-                            onClick={() => setTransferTarget(user.id)}
-                            className="text-xs font-semibold"
-                            style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}
-                          >
-                            Transfer Ownership to this user…
-                          </button>
-                        ) : (
-                          <div
-                            className="p-3 rounded-lg"
-                            style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}
-                          >
-                            <p className="text-sm font-semibold mb-1" style={{ color: "#fbbf24" }}>
-                              Transfer ownership to {user.name ?? user.email}?
-                            </p>
-                            <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>
-                              You will become an Admin. Exactly one Owner exists at all times. This cannot be undone without DB access.
-                            </p>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => transferOwnership(user.id)}
-                                className="text-xs px-3 py-1.5 rounded font-semibold"
-                                style={{ background: "#fbbf24", color: "#000", border: "none", cursor: "pointer" }}
-                              >
-                                Confirm Transfer
+                        {(currentUserAccountType as string) === "owner" && (
+                          <div>
+                            {transferTarget !== user.id ? (
+                              <button onClick={() => setTransferTarget(user.id)} className="text-xs font-semibold"
+                                style={{ background: "none", border: "none", color: "#fbbf24", cursor: "pointer", padding: 0 }}>
+                                Transfer Ownership to this user…
                               </button>
-                              <button
-                                onClick={() => setTransferTarget(null)}
-                                className="text-xs px-3 py-1.5 rounded"
-                                style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px solid var(--color-jda-border)", cursor: "pointer" }}
-                              >
-                                Cancel
-                              </button>
-                            </div>
+                            ) : (
+                              <div className="p-3 rounded-lg" style={{ background: "rgba(251,191,36,0.08)", border: "1px solid rgba(251,191,36,0.3)" }}>
+                                <p className="text-sm font-semibold mb-1" style={{ color: "#fbbf24" }}>
+                                  Transfer ownership to {user.name ?? user.email}?
+                                </p>
+                                <p className="text-xs mb-3" style={{ color: "var(--color-jda-text-muted)" }}>
+                                  You will become an Admin. This cannot be undone without DB access.
+                                </p>
+                                <div className="flex gap-2">
+                                  <button onClick={() => transferOwnership(user.id)} className="text-xs px-3 py-1.5 rounded font-semibold"
+                                    style={{ background: "#fbbf24", color: "#000", border: "none", cursor: "pointer" }}>
+                                    Confirm Transfer
+                                  </button>
+                                  <button onClick={() => setTransferTarget(null)} className="text-xs px-3 py-1.5 rounded"
+                                    style={{ background: "rgba(255,255,255,0.05)", color: "var(--color-jda-text-muted)", border: "1px solid var(--color-jda-border)", cursor: "pointer" }}>
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                         )}
-                      </div>
-                    )}
                       </div>
                     )}
                   </div>
@@ -849,13 +769,13 @@ export default function UsersPage() {
       </div>
 
       <p className="text-xs mt-4" style={{ color: "var(--color-jda-text-muted)" }}>
-        Role and permission changes take effect immediately on the next MCP request. Users are created when they first authenticate via Claude.
+        Portal tier changes take effect on the user&apos;s next page load. MCP role changes take effect on the next MCP request.
       </p>
 
       <ConfirmModal
         open={deleteTarget !== null}
         title="Delete user"
-        message={`Remove ${deleteTarget?.name ?? deleteTarget?.email ?? "this user"} from Alexandria? Their roles, permissions, and MCP sessions will be deleted. They can re-authenticate via Claude to create a new account.`}
+        message={`Remove ${deleteTarget?.name ?? deleteTarget?.email ?? "this user"} from Alexandria? Their roles, permissions, and MCP sessions will be deleted.`}
         confirmLabel="Delete"
         confirmDanger
         onConfirm={() => deleteTarget && deleteUser(deleteTarget.id)}

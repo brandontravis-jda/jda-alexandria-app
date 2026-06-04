@@ -75,11 +75,41 @@ export async function GET() {
     practicesByUser[row.user_id].push({ id: row.id, name: row.name, slug: row.slug });
   }
 
+  // Compute portal permissions per user from roles + overrides
+  const portalRolePerms = userIds.length > 0
+    ? await db`
+        SELECT ur.user_id, rp.action
+        FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        WHERE ur.user_id = ANY(${userIds})
+          AND rp.action LIKE 'portal:%'
+          AND rp.scope != 'none'
+      `
+    : [];
+
+  function computePortalPerms(userId: number, accountType: string): string[] {
+    const ALL = ["portal:access", "portal:admin", "portal:performance", "portal:content"];
+    if (accountType === "owner" || accountType === "admin") return ALL;
+
+    const perms = new Set<string>();
+    for (const rp of portalRolePerms) {
+      if (rp.user_id === userId) perms.add(rp.action as string);
+    }
+    const overrides = permsByUser[userId] ?? [];
+    for (const o of overrides) {
+      if (!(o.action as string).startsWith("portal:")) continue;
+      if (o.type === "grant") perms.add(o.action as string);
+      if (o.type === "deny") perms.delete(o.action as string);
+    }
+    return [...perms].sort();
+  }
+
   const enriched = users.map((u: Record<string, unknown>) => ({
     ...u,
     roles: rolesByUser[u.id as number] ?? [],
     user_permissions: permsByUser[u.id as number] ?? [],
     practices: practicesByUser[u.id as number] ?? [],
+    portal_permissions: computePortalPerms(u.id as number, u.account_type as string),
   }));
 
   // All available roles for the assignment UI

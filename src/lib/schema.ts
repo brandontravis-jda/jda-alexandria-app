@@ -197,6 +197,35 @@ export async function migrate() {
     UPDATE users SET portal_access = TRUE
     WHERE account_type IN ('owner', 'admin') AND portal_access = FALSE
   `;
+
+  // Seed portal permission actions for the Editor system role
+  await db`
+    INSERT INTO role_permissions (role_id, action, scope)
+    SELECT r.id, a.action, 'all'
+    FROM roles r
+    CROSS JOIN (VALUES ('portal:access'), ('portal:content')) AS a(action)
+    WHERE r.slug = 'editor'
+    ON CONFLICT (role_id, action) DO NOTHING
+  `;
+
+  // Migrate: grant portal:access to any user who currently has portal_access = true
+  // (one-time bridge from the boolean to RBAC)
+  await db`
+    INSERT INTO user_permissions (user_id, action, type, scope)
+    SELECT u.id, 'portal:access', 'grant', 'all'
+    FROM users u
+    WHERE u.portal_access = TRUE
+      AND u.account_type NOT IN ('owner', 'admin')
+      AND NOT EXISTS (
+        SELECT 1 FROM user_permissions up
+        WHERE up.user_id = u.id AND up.action = 'portal:access'
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM user_roles ur
+        JOIN role_permissions rp ON rp.role_id = ur.role_id
+        WHERE ur.user_id = u.id AND rp.action = 'portal:access'
+      )
+  `;
 }
 
 export async function upsertUser({
@@ -278,4 +307,52 @@ export async function getAllPractices() {
 export async function getLastAdSync(): Promise<string | null> {
   const [row] = await db`SELECT last_ad_sync FROM org_config WHERE id = 1`;
   return (row?.last_ad_sync as string) ?? null;
+}
+
+/**
+ * Resolve all portal:* permissions for a user by combining role grants
+ * and user-level overrides (grants add, denials remove).
+ * Owners and admins receive all portal permissions unconditionally.
+ */
+export async function resolvePortalPermissions(
+  userId: number,
+  accountType: string
+): Promise<Set<string>> {
+  const ALL_PORTAL_PERMS = new Set([
+    "portal:access",
+    "portal:admin",
+    "portal:performance",
+    "portal:content",
+  ]);
+
+  if (accountType === "owner" || accountType === "admin") {
+    return ALL_PORTAL_PERMS;
+  }
+
+  // Role-granted portal permissions
+  const rolePerms = await db`
+    SELECT DISTINCT rp.action
+    FROM user_roles ur
+    JOIN role_permissions rp ON rp.role_id = ur.role_id
+    WHERE ur.user_id = ${userId}
+      AND rp.action LIKE 'portal:%'
+      AND rp.scope != 'none'
+  `;
+
+  const perms = new Set(rolePerms.map((r: Record<string, unknown>) => r.action as string));
+
+  // User-level overrides
+  const overrides = await db`
+    SELECT action, type
+    FROM user_permissions
+    WHERE user_id = ${userId}
+      AND action LIKE 'portal:%'
+  `;
+
+  for (const o of overrides) {
+    if (o.type === "grant") perms.add(o.action as string);
+    if (o.type === "deny") perms.delete(o.action as string);
+  }
+
+  return perms;
 }

@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, resolvePortalPermissions } from "@/lib/schema";
 import { Topbar } from "@/components/portal/Topbar";
 import DebugBanner from "@/components/ui/DebugBanner";
 import { DebugProvider } from "@/components/ui/DebugBanner/context";
@@ -23,12 +23,15 @@ export default async function PortalLayout({
   const session = await auth();
   if (!session?.user?.id) redirect("/sign-in");
 
-  // Authoritative DB check — every page navigation verifies the user's
-  // portal_access flag directly from Postgres. This is the single gate.
   const user = await getUserByObjectId(session.user.id);
   if (!user) redirect("/sign-in");
-  const accountType = user.account_type as string;
-  if (accountType !== "owner" && accountType !== "admin" && !user.portal_access) {
+
+  const portalPerms = await resolvePortalPermissions(
+    user.id as number,
+    user.account_type as string
+  );
+
+  if (!portalPerms.has("portal:access")) {
     redirect("/no-access");
   }
 
@@ -39,7 +42,11 @@ export default async function PortalLayout({
     <DebugProvider>
       <div className="min-h-screen" style={{ background: "var(--color-jda-bg)" }}>
         <DebugBanner />
-        <Topbar userName={userName} userInitials={userInitials} />
+        <Topbar
+          userName={userName}
+          userInitials={userInitials}
+          permissions={[...portalPerms]}
+        />
         <main id="main-content" className="p-7">
           {children}
         </main>

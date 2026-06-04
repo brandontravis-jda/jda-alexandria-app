@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
+import { requirePortalPermission } from "@/lib/portal-auth";
 import { practiceActivationLabel } from "@/lib/portal-labels";
 import { sanityFetch } from "@/sanity/lib/client";
 import {
@@ -103,6 +104,7 @@ async function getRecentUsers(): Promise<{ name: string | null; last_seen_at: st
 }
 
 export default async function DashboardPage() {
+  await requirePortalPermission("portal:performance");
   const session = await auth();
   const firstName = session?.user?.name?.split(/\s+/)[0] ?? "there";
   const hour = new Date().getHours();

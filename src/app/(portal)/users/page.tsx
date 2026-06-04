@@ -40,6 +40,7 @@ interface User {
   roles: Role[];
   user_permissions: UserPermission[];
   practices: Practice[];
+  portal_permissions: string[];
 }
 
 interface RolePermission {
@@ -71,6 +72,22 @@ const ACCESS_BADGE = {
   true:  { label: "Yes", bg: "rgba(34,197,94,0.12)", text: "#4ade80" },
   false: { label: "No",  bg: "rgba(255,255,255,0.06)", text: "var(--color-jda-text-muted)" },
 };
+
+const PORTAL_TIER_BADGE: Record<string, { label: string; bg: string; text: string }> = {
+  admin:       { label: "Admin",       bg: "rgba(139,92,246,0.15)", text: "#a78bfa" },
+  performance: { label: "Performance", bg: "rgba(59,130,246,0.12)", text: "#60a5fa" },
+  content:     { label: "Content",     bg: "rgba(34,197,94,0.12)", text: "#4ade80" },
+  access:      { label: "Access",      bg: "rgba(255,255,255,0.08)", text: "var(--color-jda-cream-muted)" },
+  none:        { label: "None",        bg: "rgba(255,255,255,0.04)", text: "var(--color-jda-text-muted)" },
+};
+
+function getPortalTier(perms: string[]): string {
+  if (perms.includes("portal:admin")) return "admin";
+  if (perms.includes("portal:performance")) return "performance";
+  if (perms.includes("portal:content")) return "content";
+  if (perms.includes("portal:access")) return "access";
+  return "none";
+}
 
 type OverrideState = "grant" | "deny" | "inherit";
 
@@ -192,10 +209,6 @@ export default function UsersPage() {
       setSyncResult(`Error: ${e instanceof Error ? e.message : "Network request failed"}`);
     }
     setSyncing(false);
-  }
-
-  async function togglePortalAccess(userId: number, current: boolean) {
-    await patch(userId, { portal_access: !current });
   }
 
   async function toggleMcpAccess(userId: number, current: boolean) {
@@ -337,7 +350,7 @@ export default function UsersPage() {
         <div
           className="grid px-6 py-3 border-b text-xs font-semibold"
           style={{
-            gridTemplateColumns: "1fr 140px 180px 80px 80px 80px 100px",
+            gridTemplateColumns: "1fr 140px 180px 80px 100px 80px 100px",
             borderColor: "var(--color-jda-border)",
             color: "var(--color-jda-text-muted)",
             fontFamily: "var(--font-display)",
@@ -349,7 +362,7 @@ export default function UsersPage() {
           <span>Account</span>
           <span>Roles</span>
           <span>Practice</span>
-          <span>Portal</span>
+          <span>Portal tier</span>
           <span>MCP</span>
           <span>Last MCP use</span>
         </div>
@@ -366,7 +379,8 @@ export default function UsersPage() {
             const isExpanded = expandedUser === user.id;
             const isPermEdit = permEditMode === user.id;
             const unassignedRoles = allRoles.filter((r) => !user.roles.some((ur) => ur.id === r.id));
-            const portalBadge = ACCESS_BADGE[String(user.portal_access) as "true" | "false"];
+            const portalTier = getPortalTier(user.portal_permissions);
+            const portalBadge = PORTAL_TIER_BADGE[portalTier];
             const mcpBadge = ACCESS_BADGE[String(user.mcp_access) as "true" | "false"];
             const acctBadge = ACCOUNT_TYPE_BADGE[user.account_type] ?? ACCOUNT_TYPE_BADGE.user;
 
@@ -383,7 +397,7 @@ export default function UsersPage() {
                     if (next !== null) await loadRolePermissions(user);
                   }}
                   style={{
-                    gridTemplateColumns: "1fr 140px 180px 80px 80px 80px 100px",
+                    gridTemplateColumns: "1fr 140px 180px 80px 100px 80px 100px",
                     borderColor: i === 0 ? "transparent" : "var(--color-jda-border)",
                     opacity: isSaving ? 0.6 : 1,
                     transition: "opacity 0.15s",
@@ -478,23 +492,19 @@ export default function UsersPage() {
                     )}
                   </div>
 
-                  {/* Portal access toggle */}
+                  {/* Portal tier badge */}
                   <div>
-                    <button
-                      onClick={() => togglePortalAccess(user.id, user.portal_access)}
-                      disabled={isSaving}
+                    <span
                       className="text-xs px-2 py-0.5 rounded-full font-semibold"
                       style={{
                         background: portalBadge.bg,
                         color: portalBadge.text,
-                        border: "none",
-                        cursor: "pointer",
                         fontFamily: "var(--font-display)",
                         letterSpacing: "0.04em",
                       }}
                     >
                       {portalBadge.label}
-                    </button>
+                    </span>
                   </div>
 
                   {/* MCP access toggle */}

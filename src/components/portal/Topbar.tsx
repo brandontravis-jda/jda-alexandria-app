@@ -4,25 +4,30 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOutAction } from "@/app/sign-out/actions";
 
-const navItems = [
-  { label: "Dashboard", href: "/" },
-  { label: "Capabilities", href: "/capabilities" },
-  { label: "Content", href: "/content" },
-  { label: "Clients", href: "/clients" },
-  { label: "Users", href: "/users" },
-  { label: "Roles", href: "/roles" },
-  { label: "Practices", href: "/practices" },
-  { label: "Tools", href: "/tools" },
-  { label: "Settings", href: "/settings" },
+const navItems: { label: string; href: string; requires?: string }[] = [
+  { label: "Dashboard", href: "/",              requires: "portal:performance" },
+  { label: "Capabilities", href: "/capabilities", requires: "portal:content" },
+  { label: "Content", href: "/content",         requires: "portal:content" },
+  { label: "Clients", href: "/clients",         requires: "portal:content" },
+  { label: "Users", href: "/users",             requires: "portal:admin" },
+  { label: "Roles", href: "/roles",             requires: "portal:admin" },
+  { label: "Practices", href: "/practices",     requires: "portal:admin" },
+  { label: "Tools", href: "/tools",             requires: "portal:performance" },
+  { label: "Settings", href: "/settings",       requires: "portal:admin" },
 ];
 
 interface TopbarProps {
   userName?: string | null;
   userInitials?: string;
+  permissions?: string[];
 }
 
-export function Topbar({ userName, userInitials }: TopbarProps) {
+export function Topbar({ userName, userInitials, permissions = [] }: TopbarProps) {
   const pathname = usePathname();
+  const permSet = new Set(permissions);
+  const visibleNav = navItems.filter(
+    (item) => !item.requires || permSet.has(item.requires)
+  );
 
   return (
     <header
@@ -56,7 +61,7 @@ export function Topbar({ userName, userInitials }: TopbarProps) {
 
         {/* Nav */}
         <nav className="flex gap-1">
-          {navItems.map((item) => {
+          {visibleNav.map((item) => {
             const isActive =
               item.href === "/"
                 ? pathname === "/"

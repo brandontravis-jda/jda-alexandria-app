@@ -11,7 +11,6 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.10.1",
-    "@sanity/client": "^6.28.2",
     "postgres": "^3.4.8",
     "zod": "^3.24.2"
   },

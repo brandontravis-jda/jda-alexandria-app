@@ -1,6 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { createClient } from "@sanity/client";
 import { createHash, randomBytes } from "crypto";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import postgres from "postgres";
@@ -10,9 +9,6 @@ import { z } from "zod";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 if (!DATABASE_URL) throw new Error("DATABASE_URL is not set");
-
-const SANITY_PROJECT_ID = process.env.SANITY_PROJECT_ID;
-if (!SANITY_PROJECT_ID) throw new Error("SANITY_PROJECT_ID is not set");
 
 const AZURE_CLIENT_ID = process.env.AZURE_CLIENT_ID;
 if (!AZURE_CLIENT_ID) throw new Error("AZURE_CLIENT_ID is not set");
@@ -33,10 +29,6 @@ const GROUP_USERS = "6864b47f-e09f-4faf-bde2-738c1ac014c4"; // Alexandria-Users
 function isInAlexandriaUsers(groups: string[]): boolean {
   return groups.includes(GROUP_USERS);
 }
-
-const SANITY_DATASET = process.env.SANITY_DATASET ?? "production";
-const SANITY_API_VERSION = process.env.SANITY_API_VERSION ?? "2024-01-01";
-const SANITY_API_TOKEN = process.env.SANITY_API_TOKEN;
 
 // ── DB ────────────────────────────────────────────────────────────────────────
 
@@ -438,16 +430,6 @@ function makePermissionResolver(auth: AuthResult) {
   };
 }
 
-// ── Sanity ────────────────────────────────────────────────────────────────────
-
-const sanity = createClient({
-  projectId: SANITY_PROJECT_ID,
-  dataset: SANITY_DATASET,
-  apiVersion: SANITY_API_VERSION,
-  token: SANITY_API_TOKEN,
-  useCdn: false,
-});
-
 // ── Auth ──────────────────────────────────────────────────────────────────────
 
 interface AuthResult {
@@ -745,39 +727,42 @@ function buildServer(auth: AuthResult): McpServer {
 
       const methPerm = await checkPermission("methodology:read");
 
-      let query: string;
-      let params: Record<string, unknown>;
+      let rows: Record<string, unknown>[];
 
       if (practice) {
-        query = `*[_type == "productionMethodology" && practice->slug.current == $practice] | order(name asc) {
-          _id, name, "slug": slug.current, aiClassification, provenStatus, version,
-          "practice": practice->name
-        }`;
-        params = { practice };
+        rows = await sql`
+          SELECT m.name, m.slug, m.ai_classification, m.proven_status, m.version, p.name AS practice
+          FROM methodologies m
+          LEFT JOIN practices p ON p.id = m.practice_id
+          WHERE p.slug = ${practice} AND m.status != 'archived'
+          ORDER BY m.name ASC
+        `;
       } else if (methPerm.scope === "own_practice" && auth.practices.length > 0) {
-        query = `*[_type == "productionMethodology" && practice->name in $practices] | order(name asc) {
-          _id, name, "slug": slug.current, aiClassification, provenStatus, version,
-          "practice": practice->name
-        }`;
-        params = { practices: auth.practices };
+        rows = await sql`
+          SELECT m.name, m.slug, m.ai_classification, m.proven_status, m.version, p.name AS practice
+          FROM methodologies m
+          LEFT JOIN practices p ON p.id = m.practice_id
+          WHERE p.name IN ${sql(auth.practices)} AND m.status != 'archived'
+          ORDER BY m.name ASC
+        `;
       } else if (methPerm.scope === "own_practice" && auth.practices.length === 0) {
         return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
       } else {
-        query = `*[_type == "productionMethodology"] | order(name asc) {
-          _id, name, "slug": slug.current, aiClassification, provenStatus, version,
-          "practice": practice->name
-        }`;
-        params = {};
+        rows = await sql`
+          SELECT m.name, m.slug, m.ai_classification, m.proven_status, m.version, p.name AS practice
+          FROM methodologies m
+          LEFT JOIN practices p ON p.id = m.practice_id
+          WHERE m.status != 'archived'
+          ORDER BY m.name ASC
+        `;
       }
-
-      const rows = await sanity.fetch(query, params);
 
       if (!rows || rows.length === 0) {
         return { content: [{ type: "text", text: "No methodologies found." }] };
       }
 
       const text = rows.map((m: Record<string, unknown>) =>
-        `• ${m.name} [${m.slug}]\n  Practice: ${m.practice ?? "Unassigned"} | Classification: ${m.aiClassification ?? "—"} | Status: ${m.provenStatus ?? "—"} | v${m.version ?? "1.0"}`
+        `• ${m.name} [${m.slug}]\n  Practice: ${m.practice ?? "Unassigned"} | Classification: ${m.ai_classification ?? "—"} | Status: ${m.proven_status ?? "—"} | v${m.version ?? "1.0"}`
       ).join("\n\n");
 
       return { content: [{ type: "text", text }] };
@@ -797,25 +782,16 @@ function buildServer(auth: AuthResult): McpServer {
 
       const normalizedSlug = slug.trim().toLowerCase().replace(/[-\s]+/g, "_");
 
-      const query = `*[_type == "productionMethodology" && (
-        slug.current == $slug ||
-        slug.current == $normalizedSlug ||
-        lower(name) == $lowerName ||
-        lower(name) match $namePattern
-      )][0] {
-        _id, name, "slug": slug.current, description,
-        "practice": practice->{ name, "slug": slug.current },
-        aiClassification, toolsInvolved, requiredInputs,
-        systemInstructions, steps, outputFormat,
-        qualityChecks, qualityChecklist, failureModes, visionOfGood, tips,
-        clientRefinements, provenStatus, baselineProductionTime, aiNativeProductionTime,
-        version, author, validatedBy, includeFeedbackPrompt
-      }`;
-
-      const lowerName = slug.trim().toLowerCase();
-      const namePattern = `*${lowerName}*`;
-
-      const m = await sanity.fetch(query, { slug, normalizedSlug, lowerName, namePattern });
+      const [m] = await sql`
+        SELECT m.*, p.name AS practice_name, p.slug AS practice_slug
+        FROM methodologies m
+        LEFT JOIN practices p ON p.id = m.practice_id
+        WHERE m.slug = ${slug}
+           OR m.slug = ${normalizedSlug}
+           OR LOWER(m.name) = ${slug.trim().toLowerCase()}
+           OR LOWER(m.name) LIKE ${'%' + slug.trim().toLowerCase() + '%'}
+        LIMIT 1
+      `;
 
       if (!m) {
         return { content: [{ type: "text", text: `No methodology found for slug: ${slug}` }], isError: true };
@@ -825,13 +801,14 @@ function buildServer(auth: AuthResult): McpServer {
 
       lines.push(`# ${m.name}`);
       if (m.description) lines.push(`\n${m.description}`);
-      lines.push(`\n**Practice:** ${m.practice?.name ?? "Unassigned"}`);
-      lines.push(`**Classification:** ${m.aiClassification ?? "—"} | **Status:** ${m.provenStatus ?? "—"} | **Version:** ${m.version ?? "1.0"}`);
-      if (m.toolsInvolved?.length) lines.push(`**Tools:** ${m.toolsInvolved.join(", ")}`);
+      lines.push(`\n**Practice:** ${m.practice_name ?? "Unassigned"}`);
+      lines.push(`**Classification:** ${m.ai_classification ?? "—"} | **Status:** ${m.proven_status ?? "—"} | **Version:** ${m.version ?? "1.0"}`);
+      if (m.tools_involved?.length) lines.push(`**Tools:** ${m.tools_involved.join(", ")}`);
 
-      if (m.requiredInputs?.length) {
+      const requiredInputs = m.required_inputs as Record<string, unknown>[] | null;
+      if (requiredInputs?.length) {
         lines.push("\n## Required Inputs");
-        for (const input of m.requiredInputs) {
+        for (const input of requiredInputs) {
           lines.push(`- **${input.name}**${input.required ? " (required)" : " (optional)"}`);
           if (input.description) lines.push(`  ${input.description}`);
           if (input.promptText) lines.push(`  → Claude asks: "${input.promptText}"`);
@@ -846,32 +823,28 @@ function buildServer(auth: AuthResult): McpServer {
         checkPermission("methodology_field:checkPrompt"),
       ]);
 
-      if (m.systemInstructions) {
+      if (m.system_instructions) {
         if (canSeeSystemInstructions.allowed) {
           lines.push("\n## System Instructions (FULL — Admin/Practice Leader Access)");
-          lines.push(m.systemInstructions);
+          lines.push(m.system_instructions);
         } else {
           lines.push("\n## System Instructions");
           lines.push("_System instructions are available to practice leaders and administrators only. To execute this methodology, ask Alexandria to run it for you — Claude will apply the full methodology without exposing the instructions directly._");
         }
       }
 
-      if (m.steps?.length) {
-        // Fetch feedback prompt once if needed, inject into last step's instructions
+      const steps = m.steps as Record<string, unknown>[] | null;
+      if (steps?.length) {
         let feedbackPromptText: string | null = null;
-        if (m.includeFeedbackPrompt) {
-          const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
-            `*[_id == "platformGuide"][0]{ feedbackPrompt }`
-          );
-          feedbackPromptText = guide?.feedbackPrompt ?? "To give feedback on this methodology, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
+        if (m.include_feedback_prompt) {
+          const [guide] = await sql`SELECT feedback_prompt FROM platform_guide WHERE id = 1`;
+          feedbackPromptText = guide?.feedback_prompt ?? "To give feedback on this methodology, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
         }
 
         lines.push("\n## Steps");
-        const steps = m.steps as Record<string, unknown>[];
         steps.forEach((step, i) => {
           lines.push(`\n### Step ${i + 1}: ${step.name}`);
           let instructions = (step.instructions as string) ?? "";
-          // Inject feedback prompt into last step's instructions at render time
           if (feedbackPromptText && i === steps.length - 1) {
             instructions = instructions
               ? `${instructions}\n\nAfter delivering the output, present this to the practitioner verbatim:\n\n> ${feedbackPromptText}`
@@ -886,28 +859,30 @@ function buildServer(auth: AuthResult): McpServer {
         });
       }
 
-      if (m.outputFormat) {
+      if (m.output_format) {
         lines.push("\n## Output Format");
-        lines.push(m.outputFormat);
+        lines.push(m.output_format);
       }
 
-      if (m.qualityChecks?.length) {
+      const qualityChecks = m.quality_checks as Record<string, string>[] | null;
+      if (qualityChecks?.length) {
         lines.push("\n## Quality Checks");
-        for (const qc of m.qualityChecks as Record<string, string>[]) {
+        for (const qc of qualityChecks) {
           lines.push(`- **${qc.name}**`);
           if (qc.description) lines.push(`  ${qc.description}`);
           if (canSeeCheckPrompt.allowed && qc.checkPrompt) lines.push(`  Internal check: "${qc.checkPrompt}"`);
         }
       }
 
-      if (m.visionOfGood && canSeeVisionOfGood.allowed) {
+      if (m.vision_of_good && canSeeVisionOfGood.allowed) {
         lines.push("\n## Vision of Good");
-        lines.push(m.visionOfGood);
+        lines.push(m.vision_of_good);
       }
 
-      if (m.failureModes?.length) {
+      const failureModes = m.failure_modes as Record<string, string>[] | null;
+      if (failureModes?.length) {
         lines.push("\n## Common Failure Modes");
-        for (const fm of m.failureModes as Record<string, string>[]) {
+        for (const fm of failureModes) {
           lines.push(`- **${fm.name}**`);
           if (fm.description) lines.push(`  ${fm.description}`);
           if (fm.mitigation) lines.push(`  Mitigation: ${fm.mitigation}`);
@@ -919,27 +894,29 @@ function buildServer(auth: AuthResult): McpServer {
         lines.push(m.tips as string);
       }
 
-      if (m.clientRefinements?.length) {
+      const clientRefinements = m.client_refinements as Record<string, string>[] | null;
+      if (clientRefinements?.length) {
         lines.push("\n## Client Refinements");
-        for (const cr of m.clientRefinements as Record<string, string>[]) {
+        for (const cr of clientRefinements) {
           lines.push(`- **${cr.client}**`);
           if (cr.refinementText) lines.push(`  ${cr.refinementText}`);
           if (cr.context) lines.push(`  Context: ${cr.context}`);
         }
       }
 
-      if (m.baselineProductionTime || m.aiNativeProductionTime) {
+      if (m.baseline_production_time || m.ai_native_production_time) {
         lines.push("\n## Production Time");
-        if (m.baselineProductionTime) lines.push(`Legacy: ${m.baselineProductionTime}`);
-        if (m.aiNativeProductionTime) lines.push(`AI-native: ${m.aiNativeProductionTime}`);
+        if (m.baseline_production_time) lines.push(`Legacy: ${m.baseline_production_time}`);
+        if (m.ai_native_production_time) lines.push(`AI-native: ${m.ai_native_production_time}`);
       }
 
       // Quality checklist — appended as a handoff block AFTER production output
-      if (m.qualityChecklist?.length) {
+      const qualityChecklist = m.quality_checklist as Record<string, string>[] | null;
+      if (qualityChecklist?.length) {
         const tierLabel: Record<string, string> = { practitioner: "Practitioner", practice_leader: "Practice Leader", gatekeeper: "Gatekeeper" };
         lines.push("\n---\n## Before This Goes Downstream");
         lines.push("A human must verify the following before this output is shared with a client or used in production:\n");
-        for (const gate of m.qualityChecklist as Record<string, string>[]) {
+        for (const gate of qualityChecklist) {
           lines.push(`☐ **${gate.gate}** *(${tierLabel[gate.tier] ?? gate.tier})* — ${gate.description ?? ""}`);
         }
       }
@@ -959,17 +936,16 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_practice_areas");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      const rows = await sanity.fetch(
-        `*[_type == "practiceArea"] | order(name asc) { _id, name, "slug": slug.current, activationStatus }`,
-        {}
-      );
+      const rows = await sql`
+        SELECT id, name, slug, activation_status FROM practices ORDER BY name ASC
+      `;
 
       if (!rows || rows.length === 0) {
         return { content: [{ type: "text", text: "No practice areas found." }] };
       }
 
       const text = rows.map((p: Record<string, unknown>) =>
-        `• ${p.name} [${p.slug}] — ${p.activationStatus ?? "—"}`
+        `• ${p.name} [${p.slug}] — ${p.activation_status ?? "—"}`
       ).join("\n");
 
       return { content: [{ type: "text", text }] };
@@ -987,29 +963,31 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_deliverables");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      let query: string;
-      let params: Record<string, unknown>;
+      let rows: Record<string, unknown>[];
 
       if (practice) {
-        query = `*[_type == "deliverableClassification" && practiceArea->slug.current == $practice] | order(name asc) {
-          _id, name, "slug": slug.current, aiClassification, "practiceArea": practiceArea->name
-        }`;
-        params = { practice };
+        rows = await sql`
+          SELECT d.name, d.slug, d.ai_classification, p.name AS practice_area
+          FROM deliverable_classifications d
+          LEFT JOIN practices p ON p.id = d.practice_id
+          WHERE p.slug = ${practice}
+          ORDER BY d.name ASC
+        `;
       } else {
-        query = `*[_type == "deliverableClassification"] | order(name asc) {
-          _id, name, "slug": slug.current, aiClassification, "practiceArea": practiceArea->name
-        }`;
-        params = {};
+        rows = await sql`
+          SELECT d.name, d.slug, d.ai_classification, p.name AS practice_area
+          FROM deliverable_classifications d
+          LEFT JOIN practices p ON p.id = d.practice_id
+          ORDER BY d.name ASC
+        `;
       }
-
-      const rows = await sanity.fetch(query, params);
 
       if (!rows || rows.length === 0) {
         return { content: [{ type: "text", text: "No deliverable classifications found." }] };
       }
 
       const text = rows.map((d: Record<string, unknown>) =>
-        `• ${d.name} [${d.slug}] — ${d.aiClassification ?? "—"} | Practice: ${d.practiceArea ?? "Unassigned"}`
+        `• ${d.name} [${d.slug}] — ${d.ai_classification ?? "—"} | Practice: ${d.practice_area ?? "Unassigned"}`
       ).join("\n");
 
       return { content: [{ type: "text", text }] };
@@ -1025,22 +1003,22 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_brand_packages");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      const rows = await sanity.fetch(
-        `*[_type == "clientBrandPackage"] | order(clientName asc) {
-          _id, clientName, "slug": slug.current, extractedDate, sourceDocument, extractedBy, gaps
-        }`,
-        {}
-      );
+      const rows = await sql`
+        SELECT id, client_name, slug, extracted_date, source_document, extracted_by, gaps
+        FROM brand_packages
+        WHERE status != 'archived'
+        ORDER BY client_name ASC
+      `;
 
       if (!rows || rows.length === 0) {
         return { content: [{ type: "text", text: "No client brand packages found in Alexandria." }] };
       }
 
       const text = rows.map((p: Record<string, unknown>) => {
-        const lines = [`• ${p.clientName} [${p.slug}]`];
-        if (p.sourceDocument) lines.push(`  Source: ${p.sourceDocument}`);
-        if (p.extractedDate) lines.push(`  Extracted: ${p.extractedDate}`);
-        if (p.extractedBy) lines.push(`  By: ${p.extractedBy}`);
+        const lines = [`• ${p.client_name} [${p.slug}]`];
+        if (p.source_document) lines.push(`  Source: ${p.source_document}`);
+        if (p.extracted_date) lines.push(`  Extracted: ${p.extracted_date}`);
+        if (p.extracted_by) lines.push(`  By: ${p.extracted_by}`);
         if (p.gaps) lines.push(`  ⚠ Gaps: ${p.gaps}`);
         return lines.join("\n");
       }).join("\n\n");
@@ -1063,26 +1041,14 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
-      const p = await sanity.fetch(
-        `*[_type == "clientBrandPackage" && (
-          slug.current == $slug ||
-          slug.current == $normalizedSlug ||
-          lower(clientName) == $lowerName ||
-          lower(clientName) match $namePattern
-        )][0] {
-          _id, clientName, "slug": slug.current, abbreviations,
-          extractedDate, sourceDocument, extractedBy, gaps,
-          rawMarkdown,
-          logos[]{ variant, onBackground, svgCode, "imageUrl": imageFile.asset->url, notes },
-          logoUsageRules,
-          webFonts[]{ role, familyName, source, linkTag, cssStack, webSubstitute },
-          templateOverrides,
-          identity, colorPalette, colorUsageRules,
-          typography, voiceAndTone, brandArchitecture,
-          visualDirection, keyMessaging
-        }`,
-        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
-      );
+      const [p] = await sql`
+        SELECT * FROM brand_packages
+        WHERE slug = ${slug}
+           OR slug = ${normalizedSlug}
+           OR LOWER(client_name) = ${lowerName}
+           OR LOWER(client_name) LIKE ${'%' + lowerName + '%'}
+        LIMIT 1
+      `;
 
       if (!p) {
         return {
@@ -1094,12 +1060,13 @@ function buildServer(auth: AuthResult): McpServer {
       // Build logo section — multiple variants
       const logoLines: string[] = [];
       interface LogoVariant { variant: string; onBackground?: string; svgCode?: string; imageUrl?: string; notes?: string; }
-      if (p.logos?.length) {
+      const logos = p.logos as LogoVariant[] | null;
+      if (logos?.length) {
         logoLines.push("## Logo Variants");
-        if (p.logoUsageRules) {
-          logoLines.push(`**Usage rules:** ${p.logoUsageRules}\n`);
+        if (p.logo_usage_rules) {
+          logoLines.push(`**Usage rules:** ${p.logo_usage_rules}\n`);
         }
-        for (const logo of p.logos as LogoVariant[]) {
+        for (const logo of logos) {
           const label = [logo.variant, logo.onBackground ? `(${logo.onBackground} backgrounds)` : ""].filter(Boolean).join(" ");
           logoLines.push(`### ${label}`);
           if (logo.notes) logoLines.push(`*${logo.notes}*`);
@@ -1115,10 +1082,11 @@ function buildServer(auth: AuthResult): McpServer {
       // Build web fonts section
       const fontLines: string[] = [];
       interface WebFont { role: string; familyName: string; source?: string; linkTag?: string; cssStack: string; webSubstitute?: string; }
-      if (p.webFonts?.length) {
+      const webFonts = p.web_fonts as WebFont[] | null;
+      if (webFonts?.length) {
         fontLines.push("## Web Font Injection");
         fontLines.push("Paste all link tags into <head> before any other styles. Use cssStack values for font-family declarations.\n");
-        const linkTags = (p.webFonts as WebFont[]).filter(f => f.linkTag).map(f => f.linkTag);
+        const linkTags = webFonts.filter(f => f.linkTag).map(f => f.linkTag);
         if (linkTags.length) {
           fontLines.push("**Link tags (paste into <head>):**");
           fontLines.push("```html");
@@ -1126,7 +1094,7 @@ function buildServer(auth: AuthResult): McpServer {
           fontLines.push("```");
         }
         fontLines.push("\n**CSS font-family values:**");
-        for (const f of p.webFonts as WebFont[]) {
+        for (const f of webFonts) {
           fontLines.push(`- **${f.role}** (${f.familyName}): \`${f.cssStack}\``);
           if (f.webSubstitute) fontLines.push(`  *(Web substitute: ${f.webSubstitute})*`);
         }
@@ -1134,18 +1102,18 @@ function buildServer(auth: AuthResult): McpServer {
 
       // Build template overrides section
       const overrideLines: string[] = [];
-      if (p.templateOverrides) {
+      if (p.template_overrides) {
         overrideLines.push("## ⚠ Brand Template Overrides");
         overrideLines.push("Apply these rules on top of any base template. These are non-negotiable for this brand.");
-        overrideLines.push(p.templateOverrides);
+        overrideLines.push(p.template_overrides);
       }
 
-      if (p.rawMarkdown) {
+      if (p.raw_markdown) {
         const header = [
-          `# ${p.clientName} — Brand Package`,
+          `# ${p.client_name} — Brand Package`,
           p.abbreviations ? `**Abbreviations:** ${p.abbreviations}` : null,
-          p.sourceDocument ? `**Source:** ${p.sourceDocument}` : null,
-          p.extractedDate ? `**Extracted:** ${p.extractedDate}` : null,
+          p.source_document ? `**Source:** ${p.source_document}` : null,
+          p.extracted_date ? `**Extracted:** ${p.extracted_date}` : null,
           p.gaps ? `\n⚠ **Extraction gaps:** ${p.gaps}` : null,
           "\n---\n",
         ].filter(Boolean).join("\n");
@@ -1154,15 +1122,15 @@ function buildServer(auth: AuthResult): McpServer {
         const fontSection = fontLines.length > 0 ? fontLines.join("\n") + "\n\n---\n\n" : "";
         const overrideSection = overrideLines.length > 0 ? overrideLines.join("\n") + "\n\n---\n\n" : "";
         logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_brand_package", requestSummary: `Get brand package: ${slug}`, matchedCapability: true, capabilityType: "brand_package", capabilityId: slug });
-        return { content: [{ type: "text", text: header + overrideSection + fontSection + logoSection + p.rawMarkdown }] };
+        return { content: [{ type: "text", text: header + overrideSection + fontSection + logoSection + p.raw_markdown }] };
       }
 
       // Fallback: build from structured fields
       const lines: string[] = [];
-      lines.push(`# ${p.clientName} — Brand Package`);
+      lines.push(`# ${p.client_name} — Brand Package`);
       if (p.abbreviations) lines.push(`**Abbreviations:** ${p.abbreviations}`);
-      if (p.sourceDocument) lines.push(`**Source:** ${p.sourceDocument}`);
-      if (p.extractedDate) lines.push(`**Extracted:** ${p.extractedDate}`);
+      if (p.source_document) lines.push(`**Source:** ${p.source_document}`);
+      if (p.extracted_date) lines.push(`**Extracted:** ${p.extracted_date}`);
       if (p.gaps) lines.push(`\n⚠ **Extraction gaps:** ${p.gaps}`);
       if (overrideLines.length > 0) lines.push("\n" + overrideLines.join("\n"));
       if (fontLines.length > 0) lines.push("\n" + fontLines.join("\n"));
@@ -1177,14 +1145,15 @@ function buildServer(auth: AuthResult): McpServer {
         if (id.brandExperience) lines.push(`**Experience:** ${id.brandExperience}`);
       }
 
-      if (p.colorPalette?.length) {
+      const colorPalette = p.color_palette as Record<string, string>[] | null;
+      if (colorPalette?.length) {
         lines.push("\n## Color Palette");
         lines.push("| Color | Hex | Role | Notes |");
         lines.push("|---|---|---|---|");
-        for (const c of p.colorPalette as Record<string, string>[]) {
+        for (const c of colorPalette) {
           lines.push(`| ${c.colorName} | ${c.hex ?? "—"} | ${c.role ?? "—"} | ${c.usageNotes ?? ""} |`);
         }
-        if (p.colorUsageRules) lines.push(`\n${p.colorUsageRules}`);
+        if (p.color_usage_rules) lines.push(`\n${p.color_usage_rules}`);
       }
 
       const typo = p.typography as Record<string, string> | null;
@@ -1199,7 +1168,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (typo.officeAlternatives) lines.push(`**Office alternatives:** ${typo.officeAlternatives}`);
       }
 
-      const vt = p.voiceAndTone as Record<string, string> | null;
+      const vt = p.voice_and_tone as Record<string, string> | null;
       if (vt) {
         lines.push("\n## Voice and Tone");
         if (vt.overallVoice) lines.push(`**Voice:** ${vt.overallVoice}`);
@@ -1212,7 +1181,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (vt.underminingTraits) lines.push(`\n**Must NOT sound like:**\n${vt.underminingTraits}`);
       }
 
-      const ba = p.brandArchitecture as Record<string, string> | null;
+      const ba = p.brand_architecture as Record<string, string> | null;
       if (ba) {
         lines.push("\n## Brand Architecture");
         if (ba.parentAndSubBrands) lines.push(ba.parentAndSubBrands);
@@ -1221,7 +1190,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (ba.criticalRestrictions) lines.push(`\n⛔ **Critical restrictions (DO NOT):**\n${ba.criticalRestrictions}`);
       }
 
-      const vd = p.visualDirection as Record<string, string> | null;
+      const vd = p.visual_direction as Record<string, string> | null;
       if (vd) {
         lines.push("\n## Visual Direction");
         if (vd.photographyStyle) lines.push(`**Photography:** ${vd.photographyStyle}`);
@@ -1230,7 +1199,7 @@ function buildServer(auth: AuthResult): McpServer {
         if (vd.logoUsageRules) lines.push(`**Logo usage:** ${vd.logoUsageRules}`);
       }
 
-      const km = p.keyMessaging as Record<string, string> | null;
+      const km = p.key_messaging as Record<string, string> | null;
       if (km) {
         lines.push("\n## Key Messaging");
         if (km.missionStatement) lines.push(`\n> **Mission:** ${km.missionStatement}`);
@@ -1257,17 +1226,23 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_templates");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      const filter = format_type
-        ? `_type == "template" && status == "active" && formatType == $formatType`
-        : `_type == "template" && status == "active"`;
+      let templates: Record<string, unknown>[];
 
-      const templates = await sanity.fetch(
-        `*[${filter}] | order(title asc) {
-          title, "slug": slug.current, formatType,
-          previewUrl, useCases, featureList
-        }`,
-        { formatType: format_type ?? "" }
-      );
+      if (format_type) {
+        templates = await sql`
+          SELECT title, slug, format_type, preview_url, use_cases, feature_list
+          FROM templates
+          WHERE status = 'active' AND format_type = ${format_type}
+          ORDER BY title ASC
+        `;
+      } else {
+        templates = await sql`
+          SELECT title, slug, format_type, preview_url, use_cases, feature_list
+          FROM templates
+          WHERE status = 'active'
+          ORDER BY title ASC
+        `;
+      }
 
       if (!templates || templates.length === 0) {
         const filterNote = format_type ? ` with format type "${format_type}"` : "";
@@ -1288,10 +1263,10 @@ function buildServer(auth: AuthResult): McpServer {
       for (const t of templates) {
         lines.push(`## ${t.title}`);
         lines.push(`**Slug:** \`${t.slug}\``);
-        lines.push(`**Format:** ${formatLabels[t.formatType] ?? t.formatType}`);
-        if (t.previewUrl) lines.push(`**Preview:** ${t.previewUrl}`);
-        if (t.useCases) lines.push(`\n**Use cases:** ${t.useCases}`);
-        if (t.featureList) lines.push(`\n**Features:** ${t.featureList}`);
+        lines.push(`**Format:** ${formatLabels[t.format_type as string] ?? t.format_type}`);
+        if (t.preview_url) lines.push(`**Preview:** ${t.preview_url}`);
+        if (t.use_cases) lines.push(`\n**Use cases:** ${t.use_cases}`);
+        if (t.feature_list) lines.push(`\n**Features:** ${t.feature_list}`);
         lines.push(`\n→ Step 1: Call \`alexandria_get_template\` with slug \`${t.slug}\` to get intake questions.\n→ Step 2: Call \`alexandria_build_template\` with slug and confirmed answers to get production instructions.\n`);
       }
 
@@ -1313,18 +1288,15 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
-      const t = await sanity.fetch(
-        `*[_type == "template" && (
-          slug.current == $slug ||
-          slug.current == $normalizedSlug ||
-          lower(title) == $lowerName ||
-          lower(title) match $namePattern
-        )][0] {
-          title, "slug": slug.current, formatType, status,
-          clientAdaptationNotes
-        }`,
-        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
-      );
+      const [t] = await sql`
+        SELECT title, slug, format_type, status, client_adaptation_notes
+        FROM templates
+        WHERE slug = ${slug}
+           OR slug = ${normalizedSlug}
+           OR LOWER(title) = ${lowerName}
+           OR LOWER(title) LIKE ${'%' + lowerName + '%'}
+        LIMIT 1
+      `;
 
       if (!t) {
         return {
@@ -1358,7 +1330,7 @@ function buildServer(auth: AuthResult): McpServer {
         `\nPresent ALL of the following intake questions to the practitioner as a single message and wait for a single reply before doing anything else. Do not read any source files or fetch any brand packages yet.`,
         `\nFor questions with discrete lettered options, use an interactive poll widget if available — this lets the practitioner answer with a single click. For open-text questions (client name, source content, audience, purpose, tone, anything else), present them as plain numbered questions. The goal is a single short reply from the practitioner covering all questions at once.\n`,
         `---\n`,
-        t.clientAdaptationNotes ?? "No intake questions defined for this template.",
+        t.client_adaptation_notes ?? "No intake questions defined for this template.",
       ];
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1486,23 +1458,19 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
-      const t = await sanity.fetch(
-        `*[_type == "template" && (
-          slug.current == $slug ||
-          slug.current == $normalizedSlug ||
-          lower(title) == $lowerName ||
-          lower(title) match $namePattern
-        )][0] {
-          title, "slug": slug.current, formatType, status,
-          previewUrl, githubRawUrl, dropboxLink,
-          useCases, featureList,
-          fixedElements, variableElements, brandInjectionRules,
-          outputSpec, qualityChecks, includeFeedbackPrompt,
-          "practiceAreas": practiceAreas[]->{ name, "slug": slug.current },
-          "relatedMethodologies": relatedMethodologies[]->{ name, "slug": slug.current }
-        }`,
-        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
-      );
+      const [t] = await sql`
+        SELECT id, title, slug, format_type, status,
+               preview_url, github_raw_url, dropbox_link,
+               use_cases, feature_list,
+               fixed_elements, variable_elements, brand_injection_rules,
+               output_spec, quality_checks, include_feedback_prompt
+        FROM templates
+        WHERE slug = ${slug}
+           OR slug = ${normalizedSlug}
+           OR LOWER(title) = ${lowerName}
+           OR LOWER(title) LIKE ${'%' + lowerName + '%'}
+        LIMIT 1
+      `;
 
       if (!t) {
         return {
@@ -1518,6 +1486,18 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
+      // Fetch related practice areas and methodologies via junction tables
+      const practiceAreas = await sql`
+        SELECT p.name, p.slug FROM template_practices tp
+        JOIN practices p ON p.id = tp.practice_id
+        WHERE tp.template_id = ${t.id}
+      `;
+      const relatedMethodologies = await sql`
+        SELECT m.name, m.slug FROM template_methodologies tm
+        JOIN methodologies m ON m.id = tm.methodology_id
+        WHERE tm.template_id = ${t.id}
+      `;
+
       const formatLabels: Record<string, string> = {
         "html-deliverable": "HTML Deliverable — scroll, slide, or tabbed; all HTML formats",
         "word-document":    "Word Document (.docx)",
@@ -1527,12 +1507,12 @@ function buildServer(auth: AuthResult): McpServer {
       const lines: string[] = [];
 
       lines.push(`# ${t.title} — Production Instructions`);
-      lines.push(`**Format:** ${formatLabels[t.formatType] ?? t.formatType}`);
-      if (t.practiceAreas?.length) lines.push(`**Practice areas:** ${t.practiceAreas.map((p: { name: string }) => p.name).join(", ")}`);
-      if (t.relatedMethodologies?.length) lines.push(`**Related methodologies:** ${t.relatedMethodologies.map((m: { name: string }) => m.name).join(", ")}`);
-      if (t.previewUrl)   lines.push(`**Preview:** ${t.previewUrl}`);
-      if (t.githubRawUrl) lines.push(`**Source HTML:** ${t.githubRawUrl}`);
-      if (t.dropboxLink)  lines.push(`**Source file:** ${t.dropboxLink}`);
+      lines.push(`**Format:** ${formatLabels[t.format_type as string] ?? t.format_type}`);
+      if (practiceAreas.length) lines.push(`**Practice areas:** ${practiceAreas.map((p: Record<string, unknown>) => p.name).join(", ")}`);
+      if (relatedMethodologies.length) lines.push(`**Related methodologies:** ${relatedMethodologies.map((m: Record<string, unknown>) => m.name).join(", ")}`);
+      if (t.preview_url)      lines.push(`**Preview:** ${t.preview_url}`);
+      if (t.github_raw_url)   lines.push(`**Source HTML:** ${t.github_raw_url}`);
+      if (t.dropbox_link)     lines.push(`**Source file:** ${t.dropbox_link}`);
 
       const navLabel: Record<string, string> = { smart: "Smart nav (include if >8 sections)", always: "Always include navigation", none: "No navigation" };
       const coverLabel: Record<string, string> = { "internal": "Internal — no confidentiality line", "external-jda": "External — JDA authored", "external-client": "External — client branded" };
@@ -1555,19 +1535,17 @@ function buildServer(auth: AuthResult): McpServer {
 
       // Fetch feedback prompt once if needed, inject after quality checks (last instruction before output)
       let templateFeedbackPrompt: string | null = null;
-      if (t.includeFeedbackPrompt) {
-        const guide = await sanity.fetch<{ feedbackPrompt?: string }>(
-          `*[_id == "platformGuide"][0]{ feedbackPrompt }`
-        );
-        templateFeedbackPrompt = guide?.feedbackPrompt ?? "To give feedback on this template, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
+      if (t.include_feedback_prompt) {
+        const [guide] = await sql`SELECT feedback_prompt FROM platform_guide WHERE id = 1`;
+        templateFeedbackPrompt = guide?.feedback_prompt ?? "To give feedback on this template, say: **Alexandria, give feedback**. It takes 30 seconds and helps the practice team improve these tools.";
       }
 
-      if (t.fixedElements)      lines.push(`### Fixed Elements (do not change)\n${t.fixedElements}`);
-      if (t.variableElements)   lines.push(`\n### Variable Elements\n${t.variableElements}`);
-      if (t.brandInjectionRules) lines.push(`\n### Brand Injection Rules\n${t.brandInjectionRules}`);
-      if (t.outputSpec)         lines.push(`\n### Output Specification\n${t.outputSpec}`);
-      if (t.qualityChecks) {
-        lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.qualityChecks}`);
+      if (t.fixed_elements)       lines.push(`### Fixed Elements (do not change)\n${t.fixed_elements}`);
+      if (t.variable_elements)    lines.push(`\n### Variable Elements\n${t.variable_elements}`);
+      if (t.brand_injection_rules) lines.push(`\n### Brand Injection Rules\n${t.brand_injection_rules}`);
+      if (t.output_spec)          lines.push(`\n### Output Specification\n${t.output_spec}`);
+      if (t.quality_checks) {
+        lines.push(`\n### Quality Checks\nVerify all of the following before presenting output:\n${t.quality_checks}`);
       }
       if (templateFeedbackPrompt) {
         lines.push(`\n### Final Step\nAfter delivering the output, present this to the practitioner verbatim:\n\n> ${templateFeedbackPrompt}`);
@@ -1589,29 +1567,28 @@ function buildServer(auth: AuthResult): McpServer {
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_help", requestSummary: intent ?? "general help query", matchedCapability: null as unknown as boolean });
 
       // Fetch all live data in parallel
-      const [guide, templates, methodologies, brandPackages, capStats] = await Promise.all([
-        sanity.fetch<{
-          platformIntro?: string;
-          canonicalEntryPrompts?: Array<{ label: string; prompt: string }>;
-          examplePrompts?: Array<{ useCase: string; prompt: string }>;
-        }>(`*[_id == "platformGuide"][0]{platformIntro, canonicalEntryPrompts, examplePrompts}`),
-        sanity.fetch<Array<{ title: string; slug: { current: string }; formatType?: string; useCases?: string }>>(
-          `*[_type == "template" && status != "archived"] | order(title asc) { title, slug, formatType, useCases }`
-        ),
-        sanity.fetch<Array<{ name: string; slug: { current: string }; description?: string; practice?: { name: string }; aiClassification?: string }>>(
-          `*[_type == "productionMethodology" && provenStatus != "archived"] | order(name asc) { name, slug, description, practice->{name}, aiClassification }`
-        ),
-        sanity.fetch<Array<{ clientName: string; slug: { current: string } }>>(
-          `*[_type == "clientBrandPackage" && status != "archived"] | order(clientName asc) { clientName, slug }`
-        ),
-        sanity.fetch<{ total: number; methodology_built: number; proven_status: number }>(
-          `{
-            "total": count(*[_type == "capabilityRecord"]),
-            "methodology_built": count(*[_type == "capabilityRecord" && status == "methodology_built"]),
-            "proven_status": count(*[_type == "capabilityRecord" && status == "proven_status"])
-          }`
-        ),
+      const [guideRows, templates, methodologies, brandPackages, capStatsRows] = await Promise.all([
+        sql`SELECT platform_intro, canonical_entry_prompts, example_prompts FROM platform_guide WHERE id = 1`,
+        sql`SELECT title, slug, format_type, use_cases FROM templates WHERE status != 'archived' ORDER BY title ASC`,
+        sql`
+          SELECT m.name, m.slug, m.description, p.name AS practice_name, m.ai_classification
+          FROM methodologies m
+          LEFT JOIN practices p ON p.id = m.practice_id
+          WHERE m.proven_status != 'archived' OR m.proven_status IS NULL
+          ORDER BY m.name ASC
+        `,
+        sql`SELECT client_name, slug FROM brand_packages WHERE status != 'archived' ORDER BY client_name ASC`,
+        sql`
+          SELECT
+            COUNT(*) AS total,
+            COUNT(*) FILTER (WHERE status = 'methodology_built') AS methodology_built,
+            COUNT(*) FILTER (WHERE status = 'proven_status') AS proven_status
+          FROM capability_records
+        `,
       ]);
+
+      const guide = guideRows[0] as { platform_intro?: string; canonical_entry_prompts?: Array<{ label: string; prompt: string }>; example_prompts?: Array<{ useCase: string; prompt: string }> } | undefined;
+      const capStats = capStatsRows[0] as { total: number; methodology_built: number; proven_status: number } | undefined;
 
       const lines: string[] = [];
 
@@ -1637,16 +1614,16 @@ function buildServer(auth: AuthResult): McpServer {
 
       // ── Header ────────────────────────────────────────────────────────────
       lines.push(`# Alexandria — Platform Inventory`);
-      lines.push(`\n${guide?.platformIntro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
+      lines.push(`\n${guide?.platform_intro ?? "Alexandria is JDA's production intelligence layer — approved templates, methodologies, and brand packages, centrally maintained."}\n`);
 
       // ── Methodologies ────────────────────────────────────────────────────
       lines.push(`---\n## Methodologies`);
       if (methodologies.length === 0) {
         lines.push(`_No active methodologies yet._`);
       } else {
-        const byPractice: Record<string, typeof methodologies> = {};
+        const byPractice: Record<string, Record<string, unknown>[]> = {};
         for (const m of methodologies) {
-          const area = m.practice?.name ?? "General";
+          const area = (m.practice_name as string) ?? "General";
           if (!byPractice[area]) byPractice[area] = [];
           byPractice[area].push(m);
         }
@@ -1663,16 +1640,16 @@ function buildServer(auth: AuthResult): McpServer {
       if (templates.length === 0) {
         lines.push(`_No active templates yet._`);
       } else {
-        const byFormat: Record<string, typeof templates> = {};
+        const byFormat: Record<string, Record<string, unknown>[]> = {};
         for (const t of templates) {
-          const fmt = t.formatType ?? "Other";
+          const fmt = (t.format_type as string) ?? "Other";
           if (!byFormat[fmt]) byFormat[fmt] = [];
           byFormat[fmt].push(t);
         }
         for (const [fmt, items] of Object.entries(byFormat)) {
           lines.push(`\n**${fmt}**`);
           for (const t of items) {
-            lines.push(`- **${t.title}** — ${t.useCases ?? ""}`);
+            lines.push(`- **${t.title}** — ${t.use_cases ?? ""}`);
           }
         }
       }
@@ -1682,7 +1659,7 @@ function buildServer(auth: AuthResult): McpServer {
       if (brandPackages.length === 0) {
         lines.push(`_No brand packages loaded yet._`);
       } else {
-        lines.push(brandPackages.map((b) => b.clientName).join(", "));
+        lines.push(brandPackages.map((b) => b.client_name as string).join(", "));
       }
 
       // ── Capabilities Matrix ───────────────────────────────────────────────
@@ -1723,8 +1700,8 @@ function buildServer(auth: AuthResult): McpServer {
       // ── How to start ──────────────────────────────────────────────────────
       lines.push(`\n---\n## How to Start a Job`);
       lines.push(`Use a short entry prompt — no client, no content in the opening line. Examples:\n`);
-      if (guide?.canonicalEntryPrompts?.length) {
-        for (const ep of guide.canonicalEntryPrompts) {
+      if (guide?.canonical_entry_prompts?.length) {
+        for (const ep of guide.canonical_entry_prompts) {
           lines.push(`- "${ep.prompt}"`);
         }
       } else {
@@ -1764,29 +1741,118 @@ function buildServer(auth: AuthResult): McpServer {
         return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
       }
 
-      let filter = `_type == "capabilityRecord"`;
-      if (practice_area) {
-        filter += ` && practiceArea == "${practice_area}"`;
-      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
-        const practiceList = auth.practices.map((p) => `"${p}"`).join(", ");
-        filter += ` && practiceArea in [${practiceList}]`;
-      }
-      if (classification) filter += ` && aiClassification == "${classification}"`;
-      if (status) filter += ` && status == "${status}"`;
+      // Build dynamic query conditions
+      const conditions: string[] = [];
+      const values: unknown[] = [];
 
-      const records = await sanity.fetch<Array<{
-        deliverableName: string;
-        slug: { current: string };
-        practiceArea: string;
-        status: string;
-        aiClassification?: string;
-        linkedMethodology?: { name: string; slug: { current: string } };
-      }>>(
-        `*[${filter}] | order(practiceArea asc, deliverableName asc) {
-          deliverableName, slug, practiceArea, status, aiClassification,
-          "linkedMethodology": linkedMethodology->{ name, "slug": slug.current }
-        }`
-      );
+      if (practice_area) {
+        conditions.push(`p.name = $1`);
+        values.push(practice_area);
+      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
+        conditions.push(`p.name = ANY($1)`);
+        values.push(auth.practices);
+      }
+      if (classification) {
+        conditions.push(`cr.ai_classification = $${values.length + 1}`);
+        values.push(classification);
+      }
+      if (status) {
+        conditions.push(`cr.status = $${values.length + 1}`);
+        values.push(status);
+      }
+
+      // Use a single query with optional filters
+      let records: Record<string, unknown>[];
+      if (practice_area && classification && status) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE p.name = ${practice_area} AND cr.ai_classification = ${classification} AND cr.status = ${status}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (practice_area && classification) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE p.name = ${practice_area} AND cr.ai_classification = ${classification}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (practice_area && status) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE p.name = ${practice_area} AND cr.status = ${status}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (classification && status) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE cr.ai_classification = ${classification} AND cr.status = ${status}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (practice_area) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE p.name = ${practice_area}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (classification) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE cr.ai_classification = ${classification}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (status) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE cr.status = ${status}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          WHERE p.name IN ${sql(auth.practices)}
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      } else {
+        records = await sql`
+          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
+                 m.name AS methodology_name, m.slug AS methodology_slug
+          FROM capability_records cr
+          LEFT JOIN practices p ON p.id = cr.practice_id
+          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+          ORDER BY p.name ASC, cr.deliverable_name ASC
+        `;
+      }
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_list_capabilities", requestSummary: `list capabilities (practice: ${practice_area ?? "all"}, class: ${classification ?? "all"}, status: ${status ?? "all"})`, matchedCapability: records.length > 0 });
 
@@ -1807,24 +1873,25 @@ function buildServer(auth: AuthResult): McpServer {
       // Group by practice area
       const byPractice: Record<string, typeof records> = {};
       for (const r of records) {
-        if (!byPractice[r.practiceArea]) byPractice[r.practiceArea] = [];
-        byPractice[r.practiceArea].push(r);
+        const area = (r.practice_area as string) ?? "Unassigned";
+        if (!byPractice[area]) byPractice[area] = [];
+        byPractice[area].push(r);
       }
 
       for (const [area, items] of Object.entries(byPractice)) {
         lines.push(`## ${area}`);
         for (const r of items) {
-          const cls = r.aiClassification ? ` · ${classLabel[r.aiClassification]}` : " · Not Classified";
-          const st = statusLabel[r.status] ?? r.status;
-          const meth = r.linkedMethodology ? ` → ${r.linkedMethodology.name}` : "";
-          lines.push(`- **${r.deliverableName}** — ${st}${cls}${meth}`);
+          const cls = r.ai_classification ? ` · ${classLabel[r.ai_classification as string]}` : " · Not Classified";
+          const st = statusLabel[r.status as string] ?? r.status;
+          const meth = r.methodology_name ? ` → ${r.methodology_name}` : "";
+          lines.push(`- **${r.deliverable_name}** — ${st}${cls}${meth}`);
         }
         lines.push("");
       }
 
       // Summary counts
       const counts: Record<string, number> = { not_evaluated: 0, classified: 0, methodology_built: 0, proven_status: 0 };
-      for (const r of records) counts[r.status] = (counts[r.status] ?? 0) + 1;
+      for (const r of records) counts[r.status as string] = (counts[r.status as string] ?? 0) + 1;
       lines.push(`---\n**Summary:** ${records.length} total · ${counts.not_evaluated} not evaluated · ${counts.classified} classified · ${counts.methodology_built} methodology built · ${counts.proven_status} proven`);
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1845,37 +1912,17 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
       const lowerName = slug.trim().toLowerCase();
 
-      const r = await sanity.fetch<{
-        deliverableName: string;
-        slug: { current: string };
-        practiceArea: string;
-        status: string;
-        aiClassification?: string;
-        currentAiCeiling?: string;
-        aiSupportRole?: string;
-        recommendedToolStack?: string[];
-        ceilingLastReviewed?: string;
-        liveSearchEnabled?: boolean;
-        baselineProductionTime?: string;
-        aiNativeProductionTime?: string;
-        linkedMethodology?: { name: string; slug: string };
-        notes?: string;
-      } | null>(
-        `*[_type == "capabilityRecord" && (
-          slug.current == $slug ||
-          slug.current == $normalizedSlug ||
-          lower(deliverableName) == $lowerName ||
-          lower(deliverableName) match $namePattern
-        )][0] {
-          deliverableName, slug, practiceArea, status, aiClassification,
-          currentAiCeiling, aiSupportRole, recommendedToolStack,
-          ceilingLastReviewed, liveSearchEnabled,
-          baselineProductionTime, aiNativeProductionTime,
-          "linkedMethodology": linkedMethodology->{ name, "slug": slug.current },
-          notes
-        }`,
-        { slug, normalizedSlug, lowerName, namePattern: `*${lowerName}*` }
-      );
+      const [r] = await sql`
+        SELECT cr.*, p.name AS practice_area, m.name AS methodology_name, m.slug AS methodology_slug
+        FROM capability_records cr
+        LEFT JOIN practices p ON p.id = cr.practice_id
+        LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+        WHERE cr.slug = ${slug}
+           OR cr.slug = ${normalizedSlug}
+           OR LOWER(cr.deliverable_name) = ${lowerName}
+           OR LOWER(cr.deliverable_name) LIKE ${'%' + lowerName + '%'}
+        LIMIT 1
+      `;
 
       if (!r) {
         logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${slug}`, matchedCapability: false });
@@ -1885,7 +1932,7 @@ function buildServer(auth: AuthResult): McpServer {
         };
       }
 
-      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${r.deliverableName}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: r.slug.current });
+      logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_get_capability", requestSummary: `Get capability: ${r.deliverable_name}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: r.slug as string });
 
       const classLabel: Record<string, string> = {
         ai_led: "AI-Led",
@@ -1899,47 +1946,47 @@ function buildServer(auth: AuthResult): McpServer {
         proven_status: "Proven Status ✓",
       };
 
-      const lines: string[] = [`# ${r.deliverableName}`];
-      lines.push(`**Practice:** ${r.practiceArea} · **Status:** ${statusLabel[r.status] ?? r.status}`);
-      if (r.aiClassification) lines.push(`**AI Classification:** ${classLabel[r.aiClassification]}`);
+      const lines: string[] = [`# ${r.deliverable_name}`];
+      lines.push(`**Practice:** ${r.practice_area ?? "Unassigned"} · **Status:** ${statusLabel[r.status as string] ?? r.status}`);
+      if (r.ai_classification) lines.push(`**AI Classification:** ${classLabel[r.ai_classification as string]}`);
 
-      if (r.aiClassification === "ai_led") {
+      if (r.ai_classification === "ai_led") {
         lines.push(`\nThis is an **AI-Led** deliverable. Alexandria has a full production methodology for this.`);
-        if (r.linkedMethodology) {
-          lines.push(`\n**Production methodology:** ${r.linkedMethodology.name}`);
-          lines.push(`To build this, start with: *"I need to run the ${r.linkedMethodology.name} methodology from Alexandria."*`);
+        if (r.methodology_name) {
+          lines.push(`\n**Production methodology:** ${r.methodology_name}`);
+          lines.push(`To build this, start with: *"I need to run the ${r.methodology_name} methodology from Alexandria."*`);
         } else {
           lines.push(`\nNo methodology is linked yet. A Discovery Intensive is needed before production begins.`);
         }
-      } else if (r.aiClassification === "ai_assisted") {
+      } else if (r.ai_classification === "ai_assisted") {
         lines.push(`\nThis is an **AI-Assisted** deliverable. A human leads this work; AI accelerates specific stages.`);
-        if (r.aiSupportRole) lines.push(`\n**Where AI helps:** ${r.aiSupportRole}`);
-        if (r.currentAiCeiling) lines.push(`\n**Current AI ceiling:** ${r.currentAiCeiling}`);
-        if (r.recommendedToolStack?.length) lines.push(`\n**Recommended tools:** ${r.recommendedToolStack.join(", ")}`);
-        if (r.linkedMethodology) lines.push(`\n**Support methodology:** ${r.linkedMethodology.name} (${r.linkedMethodology.slug})`);
-      } else if (r.aiClassification === "human_led") {
+        if (r.ai_support_role) lines.push(`\n**Where AI helps:** ${r.ai_support_role}`);
+        if (r.current_ai_ceiling) lines.push(`\n**Current AI ceiling:** ${r.current_ai_ceiling}`);
+        if (r.recommended_tool_stack?.length) lines.push(`\n**Recommended tools:** ${(r.recommended_tool_stack as string[]).join(", ")}`);
+        if (r.methodology_name) lines.push(`\n**Support methodology:** ${r.methodology_name} (${r.methodology_slug})`);
+      } else if (r.ai_classification === "human_led") {
         lines.push(`\nThis is a **Human-Led** deliverable. Human judgment is primary; AI supports upstream stages only.`);
-        if (r.currentAiCeiling) {
-          const reviewNote = r.ceilingLastReviewed
-            ? ` *(Assessment last reviewed: ${new Date(r.ceilingLastReviewed).toLocaleDateString()})*`
+        if (r.current_ai_ceiling) {
+          const reviewNote = r.ceiling_last_reviewed
+            ? ` *(Assessment last reviewed: ${new Date(r.ceiling_last_reviewed as string).toLocaleDateString()})*`
             : " *(Assessment date unknown — may be stale)*";
-          lines.push(`\n**Current AI ceiling:**${reviewNote}\n${r.currentAiCeiling}`);
+          lines.push(`\n**Current AI ceiling:**${reviewNote}\n${r.current_ai_ceiling}`);
         }
-        if (r.aiSupportRole) lines.push(`\n**Where AI can help:** ${r.aiSupportRole}`);
-        if (r.recommendedToolStack?.length) lines.push(`\n**Recommended tools:** ${r.recommendedToolStack.join(", ")}`);
-        if (r.liveSearchEnabled) {
+        if (r.ai_support_role) lines.push(`\n**Where AI can help:** ${r.ai_support_role}`);
+        if (r.recommended_tool_stack?.length) lines.push(`\n**Recommended tools:** ${(r.recommended_tool_stack as string[]).join(", ")}`);
+        if (r.live_search_enabled) {
           lines.push(`\n*Performing a live search to supplement this assessment with current tool capabilities...*`);
-          lines.push(`[Search: "current AI tools for ${r.deliverableName.toLowerCase()} 2026"]`);
+          lines.push(`[Search: "current AI tools for ${(r.deliverable_name as string).toLowerCase()} 2026"]`);
         }
       } else {
         lines.push(`\nThis deliverable type has not yet been evaluated through a Discovery Intensive. No AI classification exists yet.`);
         if (r.notes) lines.push(`\n**Notes:** ${r.notes}`);
       }
 
-      if (r.baselineProductionTime || r.aiNativeProductionTime) {
+      if (r.baseline_production_time || r.ai_native_production_time) {
         lines.push(`\n---\n**Production Time**`);
-        if (r.baselineProductionTime) lines.push(`Legacy: ${r.baselineProductionTime}`);
-        if (r.aiNativeProductionTime) lines.push(`AI-native: ${r.aiNativeProductionTime}`);
+        if (r.baseline_production_time) lines.push(`Legacy: ${r.baseline_production_time}`);
+        if (r.ai_native_production_time) lines.push(`AI-native: ${r.ai_native_production_time}`);
       }
 
       return { content: [{ type: "text", text: lines.join("\n") }] };
@@ -1962,26 +2009,32 @@ function buildServer(auth: AuthResult): McpServer {
       const slug = deliverable_name.toLowerCase().replace(/[^a-z0-9\s-]/g, "").trim().replace(/\s+/g, "-");
 
       // Check if already exists
-      const existing = await sanity.fetch<{ _id: string } | null>(
-        `*[_type == "capabilityRecord" && slug.current == $slug][0]{ _id }`,
-        { slug }
-      );
+      const [existing] = await sql`
+        SELECT id FROM capability_records WHERE slug = ${slug} LIMIT 1
+      `;
 
       if (existing) {
         return { content: [{ type: "text", text: `A capability record for "${deliverable_name}" already exists (slug: ${slug}). Use alexandria_get_capability to retrieve it.` }] };
       }
 
-      const doc = {
-        _type: "capabilityRecord",
-        deliverableName: deliverable_name,
-        slug: { _type: "slug", current: slug },
-        practiceArea: practice_area ?? "Unassigned",
-        status: "not_evaluated",
-        source: "capability_gap_log",
-        notes: context ? `Gap logged from practitioner request: ${context}` : "Gap logged from practitioner request.",
-      };
+      // Resolve practice_id if provided
+      let practiceId: number | null = null;
+      if (practice_area) {
+        const [pa] = await sql`SELECT id FROM practices WHERE name = ${practice_area} OR slug = ${practice_area.toLowerCase().replace(/\s+/g, "-")} LIMIT 1`;
+        if (pa) practiceId = pa.id as number;
+      }
 
-      await sanity.create(doc);
+      await sql`
+        INSERT INTO capability_records (deliverable_name, slug, practice_id, status, source, notes)
+        VALUES (
+          ${deliverable_name},
+          ${slug},
+          ${practiceId},
+          'not_evaluated',
+          'capability_gap_log',
+          ${context ? `Gap logged from practitioner request: ${context}` : "Gap logged from practitioner request."}
+        )
+      `;
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_log_capability_gap", requestSummary: `Gap logged: ${deliverable_name}`, matchedCapability: false });
 
@@ -2012,33 +2065,46 @@ function buildServer(auth: AuthResult): McpServer {
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
-      const existing = await sanity.fetch<{ _id: string } | null>(
-        `*[_type == "capabilityRecord" && slug.current == $slug][0]{ _id }`,
-        { slug: normalizedSlug }
-      );
+      const [existing] = await sql`
+        SELECT id FROM capability_records WHERE slug = ${normalizedSlug} LIMIT 1
+      `;
 
       if (!existing) {
         return { content: [{ type: "text", text: `No capability record found for slug: ${slug}` }], isError: true };
       }
 
-      const patch: Record<string, unknown> = {};
-      if (ai_classification !== undefined) patch.aiClassification = ai_classification;
-      if (status !== undefined) patch.status = status;
-      if (current_ai_ceiling !== undefined) patch.currentAiCeiling = current_ai_ceiling;
-      if (ai_support_role !== undefined) patch.aiSupportRole = ai_support_role;
-      if (recommended_tool_stack !== undefined) patch.recommendedToolStack = recommended_tool_stack;
-      if (live_search_enabled !== undefined) patch.liveSearchEnabled = live_search_enabled;
-      if (baseline_production_time !== undefined) patch.baselineProductionTime = baseline_production_time;
-      if (ai_native_production_time !== undefined) patch.aiNativeProductionTime = ai_native_production_time;
-      if (notes !== undefined) patch.notes = notes;
-      if (status === "proven_status") patch.provenStatusAchievedAt = new Date().toISOString();
-      if (current_ai_ceiling !== undefined) patch.ceilingLastReviewed = new Date().toISOString();
+      const updates: string[] = [];
 
-      await sanity.patch(existing._id).set(patch).commit();
+      if (ai_classification !== undefined) updates.push("ai_classification");
+      if (status !== undefined) updates.push("status");
+      if (current_ai_ceiling !== undefined) updates.push("current_ai_ceiling");
+      if (ai_support_role !== undefined) updates.push("ai_support_role");
+      if (recommended_tool_stack !== undefined) updates.push("recommended_tool_stack");
+      if (live_search_enabled !== undefined) updates.push("live_search_enabled");
+      if (baseline_production_time !== undefined) updates.push("baseline_production_time");
+      if (ai_native_production_time !== undefined) updates.push("ai_native_production_time");
+      if (notes !== undefined) updates.push("notes");
+
+      await sql`
+        UPDATE capability_records SET
+          ai_classification = COALESCE(${ai_classification ?? null}, ai_classification),
+          status = COALESCE(${status ?? null}, status),
+          current_ai_ceiling = COALESCE(${current_ai_ceiling ?? null}, current_ai_ceiling),
+          ai_support_role = COALESCE(${ai_support_role ?? null}, ai_support_role),
+          recommended_tool_stack = COALESCE(${recommended_tool_stack ?? null}, recommended_tool_stack),
+          live_search_enabled = COALESCE(${live_search_enabled ?? null}, live_search_enabled),
+          baseline_production_time = COALESCE(${baseline_production_time ?? null}, baseline_production_time),
+          ai_native_production_time = COALESCE(${ai_native_production_time ?? null}, ai_native_production_time),
+          notes = COALESCE(${notes ?? null}, notes),
+          proven_status_achieved_at = CASE WHEN ${status ?? null} = 'proven_status' THEN NOW() ELSE proven_status_achieved_at END,
+          ceiling_last_reviewed = CASE WHEN ${current_ai_ceiling ?? null} IS NOT NULL THEN NOW() ELSE ceiling_last_reviewed END,
+          updated_at = NOW()
+        WHERE id = ${existing.id}
+      `;
 
       logRequest({ userId: auth.userId, accountType: auth.accountType, toolName: "alexandria_update_capability", requestSummary: `Updated capability: ${slug}`, matchedCapability: true, capabilityType: "capability_record", capabilityId: normalizedSlug });
 
-      return { content: [{ type: "text", text: `Capability record updated: ${slug}\n\nFields updated: ${Object.keys(patch).join(", ")}` }] };
+      return { content: [{ type: "text", text: `Capability record updated: ${slug}\n\nFields updated: ${updates.join(", ")}` }] };
     }
   );
 
@@ -2064,27 +2130,25 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
 
       // Check if a record already exists for this slug
-      const existing = await sanity.fetch<{ _id: string } | null>(
-        `*[_type == "clientBrandPackage" && slug.current == $slug][0]{ _id }`,
-        { slug: normalizedSlug }
-      );
+      const [existing] = await sql`
+        SELECT id FROM brand_packages WHERE slug = ${normalizedSlug} LIMIT 1
+      `;
 
       const today = new Date().toISOString().split("T")[0];
 
       if (existing) {
-        // Update existing record
-        await sanity
-          .patch(existing._id)
-          .set({
-            clientName:     client_name,
-            abbreviations:  abbreviations ?? "",
-            sourceDocument: source_document ?? "",
-            extractedBy:    extracted_by ?? "",
-            extractedDate:  today,
-            rawMarkdown:    content,
-            gaps:           notes ?? "",
-          })
-          .commit();
+        await sql`
+          UPDATE brand_packages SET
+            client_name = ${client_name},
+            abbreviations = ${abbreviations ?? ""},
+            source_document = ${source_document ?? ""},
+            extracted_by = ${extracted_by ?? ""},
+            extracted_date = ${today},
+            raw_markdown = ${content},
+            gaps = ${notes ?? ""},
+            updated_at = NOW()
+          WHERE id = ${existing.id}
+        `;
 
         return {
           content: [{
@@ -2093,18 +2157,10 @@ function buildServer(auth: AuthResult): McpServer {
           }],
         };
       } else {
-        // Create new record
-        await sanity.create({
-          _type:          "clientBrandPackage",
-          clientName:     client_name,
-          slug:           { _type: "slug", current: normalizedSlug },
-          abbreviations:  abbreviations ?? "",
-          sourceDocument: source_document ?? "",
-          extractedBy:    extracted_by ?? "",
-          extractedDate:  today,
-          rawMarkdown:    content,
-          gaps:           notes ?? "",
-        });
+        await sql`
+          INSERT INTO brand_packages (client_name, slug, abbreviations, source_document, extracted_by, extracted_date, raw_markdown, gaps, status)
+          VALUES (${client_name}, ${normalizedSlug}, ${abbreviations ?? ""}, ${source_document ?? ""}, ${extracted_by ?? ""}, ${today}, ${content}, ${notes ?? ""}, 'active')
+        `;
 
         return {
           content: [{
@@ -2163,43 +2219,38 @@ function buildServer(auth: AuthResult): McpServer {
       const normalizedSlug = slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
 
       // Resolve practice area reference if provided
-      let practiceRef: { _type: string; _ref: string } | undefined;
+      let practiceId: number | null = null;
       if (practice_area_slug) {
-        const pa = await sanity.fetch<{ _id: string } | null>(
-          `*[_type == "practiceArea" && slug.current == $slug][0]{ _id }`,
-          { slug: practice_area_slug.trim().toLowerCase().replace(/[\s_]+/g, "-") }
-        );
-        if (pa) practiceRef = { _type: "reference", _ref: pa._id };
+        const paSlug = practice_area_slug.trim().toLowerCase().replace(/[\s_]+/g, "-");
+        const [pa] = await sql`SELECT id FROM practices WHERE slug = ${paSlug} LIMIT 1`;
+        if (pa) practiceId = pa.id as number;
       }
 
-      const existing = await sanity.fetch<{ _id: string; version: number } | null>(
-        `*[_type == "productionMethodology" && slug.current == $slug][0]{ _id, version }`,
-        { slug: normalizedSlug }
-      );
-
-      const doc: Record<string, unknown> = {
-        name,
-        description,
-        aiClassification: ai_classification,
-        systemInstructions: system_instructions,
-        outputFormat: output_format ?? "",
-        visionOfGood: vision_of_good ?? "",
-        tips: tips ?? "",
-        author: author ?? "",
-      };
-
-      if (practiceRef) doc.practice = practiceRef;
-      if (required_inputs) doc.requiredInputs = required_inputs.map((i) => ({ ...i, _type: "object", _key: crypto.randomUUID() }));
-      if (steps) doc.steps = steps.map((s) => ({ ...s, _type: "object", _key: crypto.randomUUID() }));
-      if (quality_checks) doc.qualityChecks = quality_checks.map((q) => ({ ...q, _type: "object", _key: crypto.randomUUID() }));
-      if (failure_modes) doc.failureModes = failure_modes.map((f) => ({ ...f, _type: "object", _key: crypto.randomUUID() }));
+      const [existing] = await sql`
+        SELECT id, version FROM methodologies WHERE slug = ${normalizedSlug} LIMIT 1
+      `;
 
       if (existing) {
-        const nextVersion = (existing.version ?? 1) + 1;
-        await sanity
-          .patch(existing._id)
-          .set({ ...doc, version: nextVersion })
-          .commit();
+        const nextVersion = ((existing.version as number) ?? 1) + 1;
+        await sql`
+          UPDATE methodologies SET
+            name = ${name},
+            description = ${description},
+            practice_id = COALESCE(${practiceId}, practice_id),
+            ai_classification = ${ai_classification},
+            system_instructions = ${system_instructions},
+            required_inputs = ${JSON.stringify(required_inputs ?? [])},
+            steps = ${JSON.stringify(steps ?? [])},
+            output_format = ${output_format ?? ""},
+            quality_checks = ${JSON.stringify(quality_checks ?? [])},
+            failure_modes = ${JSON.stringify(failure_modes ?? [])},
+            vision_of_good = ${vision_of_good ?? ""},
+            tips = ${tips ?? ""},
+            author = ${author ?? ""},
+            version = ${nextVersion},
+            updated_at = NOW()
+          WHERE id = ${existing.id}
+        `;
 
         return {
           content: [{
@@ -2208,13 +2259,17 @@ function buildServer(auth: AuthResult): McpServer {
           }],
         };
       } else {
-        await sanity.create({
-          _type: "productionMethodology",
-          ...doc,
-          slug: { _type: "slug", current: normalizedSlug },
-          version: 1,
-          provenStatus: false,
-        });
+        await sql`
+          INSERT INTO methodologies (name, slug, description, practice_id, ai_classification, system_instructions, required_inputs, steps, output_format, quality_checks, failure_modes, vision_of_good, tips, author, version, proven_status, status)
+          VALUES (
+            ${name}, ${normalizedSlug}, ${description}, ${practiceId},
+            ${ai_classification}, ${system_instructions},
+            ${JSON.stringify(required_inputs ?? [])}, ${JSON.stringify(steps ?? [])},
+            ${output_format ?? ""}, ${JSON.stringify(quality_checks ?? [])},
+            ${JSON.stringify(failure_modes ?? [])}, ${vision_of_good ?? ""},
+            ${tips ?? ""}, ${author ?? ""}, 1, ${false}, 'active'
+          )
+        `;
 
         return {
           content: [{

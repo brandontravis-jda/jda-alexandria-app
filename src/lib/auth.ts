@@ -1,6 +1,6 @@
 import NextAuth from "next-auth";
 import MicrosoftEntraID from "next-auth/providers/microsoft-entra-id";
-import { migrate, upsertUser } from "./schema";
+import { migrate, upsertUser, getUserByObjectId, writeAuditLog } from "./schema";
 
 let migrated = false;
 
@@ -21,6 +21,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
+  session: {
+    strategy: "jwt",
+    maxAge: 90 * 24 * 60 * 60,
+    updateAge: 24 * 60 * 60,
+  },
   callbacks: {
     // signIn runs before jwt — returning false triggers the AccessDenied error page redirect
     async signIn({ account, profile }) {
@@ -38,6 +43,23 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       } catch (e) {
         console.error("Failed to fetch groups for portal sign-in:", e);
         return false;
+      }
+
+      try {
+        const oid = (profile as Record<string, unknown>).oid as string;
+        const user = await getUserByObjectId(oid);
+        if (user) {
+          await writeAuditLog({
+            actorId: user.id,
+            action: "auth.portal_signin",
+            details: {
+              email: (profile as Record<string, unknown>).mail ?? (profile as Record<string, unknown>).email,
+              name: (profile as Record<string, unknown>).displayName,
+            },
+          });
+        }
+      } catch {
+        // Audit logging is fire-and-forget — don't block sign-in
       }
 
       return true;

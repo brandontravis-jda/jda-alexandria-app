@@ -2,13 +2,6 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { requireTier } from "@/lib/portal-auth";
-import { practiceActivationLabel } from "@/lib/portal-labels";
-import { sanityFetch } from "@/sanity/lib/client";
-import {
-  allPracticeAreasQuery,
-  portalContentCountsQuery,
-  recentSanityDocumentsQuery,
-} from "@/sanity/lib/queries";
 import { PracticeRow } from "@/components/portal/PracticeRow";
 import { QuickAction } from "@/components/portal/QuickAction";
 import { StatCard } from "@/components/portal/StatCard";
@@ -27,16 +20,17 @@ interface ContentCounts {
 }
 
 interface RecentDoc {
-  _type: string;
-  _updatedAt: string;
+  type: string;
+  updated_at: string;
   title: string | null;
   slug: string | null;
+  id: number;
 }
 
 interface PracticeAreaRow {
-  _id: string;
+  slug: string;
   name: string;
-  activationStatus?: string;
+  activation_status: string | null;
 }
 
 function greeting(hour: number): string {
@@ -45,7 +39,7 @@ function greeting(hour: number): string {
   return "Good evening";
 }
 
-function activationProgress(status: string | undefined): { progress: number; status: "green" | "amber" | "gray" } {
+function activationProgress(status: string | null | undefined): { progress: number; status: "green" | "amber" | "gray" } {
   switch (status) {
     case "active":
       return { progress: 100, status: "green" };
@@ -59,14 +53,13 @@ function activationProgress(status: string | undefined): { progress: number; sta
 }
 
 function recentDocHref(row: RecentDoc): string {
-  if (!row.slug) return "/content";
-  switch (row._type) {
-    case "productionMethodology":
-      return `/content/methodologies/${row.slug}`;
+  switch (row.type) {
+    case "methodology":
+      return `/content/methodologies/${row.id}`;
     case "template":
-      return `/content/templates/${row.slug}`;
-    case "clientBrandPackage":
-      return `/clients/${row.slug}`;
+      return `/content/templates/${row.id}`;
+    case "brand_package":
+      return `/clients/${row.id}`;
     default:
       return "/content";
   }
@@ -74,11 +67,60 @@ function recentDocHref(row: RecentDoc): string {
 
 function recentDocTypeLabel(type: string): string {
   const labels: Record<string, string> = {
-    productionMethodology: "Methodology",
+    methodology: "Methodology",
     template: "Template",
-    clientBrandPackage: "Brand package",
+    brand_package: "Brand package",
   };
   return labels[type] ?? type;
+}
+
+async function getContentCounts(): Promise<ContentCounts> {
+  const [methodologies, templatesActive, templatesTotal, brandPackages, capabilities, practices] =
+    await Promise.all([
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM methodologies`,
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM templates WHERE status = 'active'`,
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM templates`,
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM brand_packages`,
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM capability_records`,
+      db<{ count: string }[]>`SELECT count(*)::text AS count FROM practices`,
+    ]);
+  return {
+    methodologyCount: Number(methodologies[0]?.count ?? 0),
+    templateActiveCount: Number(templatesActive[0]?.count ?? 0),
+    templateTotalCount: Number(templatesTotal[0]?.count ?? 0),
+    brandPackageCount: Number(brandPackages[0]?.count ?? 0),
+    capabilityCount: Number(capabilities[0]?.count ?? 0),
+    practiceAreaCount: Number(practices[0]?.count ?? 0),
+  };
+}
+
+async function getRecentDocs(): Promise<RecentDoc[]> {
+  return db<RecentDoc[]>`
+    (
+      SELECT 'methodology' AS type, updated_at::text AS updated_at, name AS title, slug, id
+      FROM methodologies ORDER BY updated_at DESC NULLS LAST LIMIT 10
+    )
+    UNION ALL
+    (
+      SELECT 'template' AS type, updated_at::text AS updated_at, title, slug, id
+      FROM templates ORDER BY updated_at DESC NULLS LAST LIMIT 10
+    )
+    UNION ALL
+    (
+      SELECT 'brand_package' AS type, updated_at::text AS updated_at, client_name AS title, slug, id
+      FROM brand_packages ORDER BY updated_at DESC NULLS LAST LIMIT 10
+    )
+    ORDER BY updated_at DESC NULLS LAST
+    LIMIT 10
+  `;
+}
+
+async function getPracticeAreas(): Promise<PracticeAreaRow[]> {
+  return db<PracticeAreaRow[]>`
+    SELECT name, slug, activation_status
+    FROM practices
+    ORDER BY name ASC
+  `;
 }
 
 async function getUserCount(): Promise<number | null> {
@@ -110,9 +152,9 @@ export default async function DashboardPage() {
   const hour = new Date().getHours();
 
   const [counts, recentDocs, practiceAreas, userCount, recentUsers] = await Promise.all([
-    sanityFetch<ContentCounts>({ query: portalContentCountsQuery }),
-    sanityFetch<RecentDoc[]>({ query: recentSanityDocumentsQuery }),
-    sanityFetch<PracticeAreaRow[]>({ query: allPracticeAreasQuery }),
+    getContentCounts(),
+    getRecentDocs(),
+    getPracticeAreas(),
     getUserCount(),
     getRecentUsers(),
   ]);
@@ -150,11 +192,11 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-7">
-        <StatCard label="Methodologies" value={String(counts.methodologyCount)} change="In Sanity" changeColor="muted" />
+        <StatCard label="Methodologies" value={String(counts.methodologyCount)} />
         <StatCard
           label="Templates"
           value={String(counts.templateActiveCount)}
-          change={`${counts.templateTotalCount} total in Sanity`}
+          change={`${counts.templateTotalCount} total`}
           changeColor="muted"
         />
         <StatCard
@@ -179,7 +221,7 @@ export default async function DashboardPage() {
 
       <div className="grid gap-5 mb-5 grid-cols-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
         <PortalPanel
-          title="Recently updated in Sanity"
+          title="Recently updated"
           action={
             <Link
               href="/content"
@@ -203,12 +245,12 @@ export default async function DashboardPage() {
             ) : (
               recentDocs.map((row, i) => (
                 <BrowseListRow
-                  key={`${row._type}-${row.slug}-${i}`}
+                  key={`${row.type}-${row.id}-${i}`}
                   href={recentDocHref(row)}
                   title={row.title ?? "Untitled"}
-                  subtitle={recentDocTypeLabel(row._type)}
+                  subtitle={recentDocTypeLabel(row.type)}
                   right={new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(
-                    new Date(row._updatedAt)
+                    new Date(row.updated_at)
                   )}
                 />
               ))
@@ -220,7 +262,7 @@ export default async function DashboardPage() {
           title="Practice areas"
           action={
             <Link
-              href="/studio"
+              href="/practices"
               className="text-xs font-semibold no-underline"
               style={{
                 fontFamily: "var(--font-display)",
@@ -229,23 +271,23 @@ export default async function DashboardPage() {
                 color: "var(--color-jda-red)",
               }}
             >
-              Studio ↗
+              Manage
             </Link>
           }
         >
           <div className="flex flex-col gap-0">
             {practiceAreas.length === 0 ? (
               <p className="text-sm" style={{ color: "var(--color-jda-warm-gray)" }}>
-                No practice areas in Sanity.
+                No practice areas found.
               </p>
             ) : (
               practiceAreas.map((p) => {
-                const { progress, status } = activationProgress(p.activationStatus);
+                const { progress, status } = activationProgress(p.activation_status);
                 return (
                   <PracticeRow
-                    key={p._id}
+                    key={p.slug}
                     name={p.name}
-                    meta={practiceActivationLabel(p.activationStatus)}
+                    meta={p.activation_status ?? "—"}
                     progress={progress}
                     status={status}
                   />
@@ -257,14 +299,6 @@ export default async function DashboardPage() {
       </div>
 
       <div className="grid gap-5 grid-cols-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
-        <PortalPanel title="MCP activity & adoption">
-          <p className="text-sm leading-relaxed" style={{ color: "var(--color-jda-cream-muted)" }}>
-            Request volume, top tools, and unsupported-request trends ship with{" "}
-            <strong style={{ color: "var(--color-jda-cream)" }}>Step 6.b</strong> (measurement dashboards) using{" "}
-            <code className="text-xs">alexandria_request_log</code> and related aggregates.
-          </p>
-        </PortalPanel>
-
         <PortalPanel title="Recent portal sign-ins">
           {recentUsers.length === 0 ? (
             <p className="text-sm" style={{ color: "var(--color-jda-warm-gray)" }}>

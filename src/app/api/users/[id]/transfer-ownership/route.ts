@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
 // POST /api/users/[id]/transfer-ownership
@@ -34,6 +34,19 @@ export async function POST(
   await db`
     UPDATE users SET account_type = 'owner' WHERE id = ${targetId}
   `;
+
+  try {
+    await writeAuditLog({
+      actorId: currentOwner.id,
+      action: "user.ownership_transfer",
+      details: {
+        from: { id: currentOwner.id, name: currentOwner.name },
+        to: { id: target.id, name: target.name },
+      },
+    });
+  } catch {
+    // Audit logging is fire-and-forget
+  }
 
   return NextResponse.json({
     transferred: true,

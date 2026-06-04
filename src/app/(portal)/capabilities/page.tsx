@@ -3,15 +3,15 @@
 import { useEffect, useState, useMemo } from "react";
 
 interface CapabilityRecord {
-  _id: string;
-  deliverableName: string;
+  id: number;
+  deliverable_name: string;
   slug: string;
-  practiceArea: string;
+  practice_area: string;
   status: "not_evaluated" | "classified" | "methodology_built" | "proven_status";
-  aiClassification?: "ai_led" | "ai_assisted" | "human_led";
-  baselineProductionTime?: string;
-  aiNativeProductionTime?: string;
-  linkedMethodology?: { name: string; slug: string };
+  ai_classification?: "ai_led" | "ai_assisted" | "human_led";
+  baseline_production_time?: string;
+  ai_native_production_time?: string;
+  linked_methodology?: { name: string; slug: string };
   source?: string;
   notes?: string;
 }
@@ -27,32 +27,6 @@ interface Stats {
   human_led: number;
 }
 
-const PRACTICE_AREAS = [
-  "Brand Creative",
-  "Campaign and Production Creative",
-  "Digital Marketing, Social, Email and Data",
-  "Development",
-  "Strategic Communications, PR and Crisis Comms",
-  "Paid Media and Search",
-  "Business Development",
-  "Account Services",
-  "Operations",
-  "Logistics",
-];
-
-const PRACTICE_SHORT: Record<string, string> = {
-  "Brand Creative": "Brand Creative",
-  "Campaign and Production Creative": "Campaign",
-  "Digital Marketing, Social, Email and Data": "Digital / Social / Email",
-  "Development": "Development",
-  "Strategic Communications, PR and Crisis Comms": "Comms / PR",
-  "Paid Media and Search": "Paid Media",
-  "Business Development": "Business Dev",
-  "Account Services": "Account Services",
-  "Operations": "Operations",
-  "Logistics": "Logistics",
-};
-
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string; dot: string }> = {
   not_evaluated:    { label: "Not Evaluated",     color: "var(--color-jda-text-muted)", bg: "rgba(255,255,255,0.04)", dot: "#555" },
   classified:       { label: "Classified",         color: "#f59e0b",                    bg: "rgba(245,158,11,0.15)",  dot: "#f59e0b" },
@@ -66,7 +40,7 @@ const CLASS_CONFIG: Record<string, { label: string; color: string; bg: string }>
   human_led:   { label: "Human-Led",   color: "#94a3b8", bg: "rgba(148,163,184,0.12)" },
 };
 
-type SortKey = "deliverableName" | "practiceArea" | "aiClassification" | "status";
+type SortKey = "deliverable_name" | "practice_area" | "ai_classification" | "status";
 type SortDir = "asc" | "desc";
 
 function Pill({
@@ -147,13 +121,13 @@ function SortHeader({
 function exportCSV(records: CapabilityRecord[]) {
   const cols = ["Deliverable", "Practice Area", "AI Classification", "Status", "Linked Methodology", "Baseline Time", "AI-Native Time", "Notes"];
   const rows = records.map((r) => [
-    `"${r.deliverableName}"`,
-    `"${r.practiceArea}"`,
-    r.aiClassification ? CLASS_CONFIG[r.aiClassification]?.label ?? "" : "",
+    `"${r.deliverable_name}"`,
+    `"${r.practice_area}"`,
+    r.ai_classification ? CLASS_CONFIG[r.ai_classification]?.label ?? "" : "",
     STATUS_CONFIG[r.status]?.label ?? r.status,
-    r.linkedMethodology?.name ?? "",
-    r.baselineProductionTime ?? "",
-    r.aiNativeProductionTime ?? "",
+    r.linked_methodology?.name ?? "",
+    r.baseline_production_time ?? "",
+    r.ai_native_production_time ?? "",
     `"${(r.notes ?? "").replace(/"/g, "'")}"`,
   ]);
   const csv = [cols.join(","), ...rows.map((r) => r.join(","))].join("\n");
@@ -171,14 +145,12 @@ export default function CapabilitiesPage() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Pill filter state
   const [activePractices, setActivePractices] = useState<Set<string>>(new Set());
   const [activeClasses, setActiveClasses] = useState<Set<string>>(new Set());
   const [activeStatuses, setActiveStatuses] = useState<Set<string>>(new Set());
 
-  // Search + sort
   const [search, setSearch] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("practiceArea");
+  const [sortKey, setSortKey] = useState<SortKey>("practice_area");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
   async function load() {
@@ -193,6 +165,14 @@ export default function CapabilitiesPage() {
   }
 
   useEffect(() => { load(); }, []);
+
+  const practiceNames = useMemo(() => {
+    const names = new Set<string>();
+    for (const r of records) {
+      if (r.practice_area) names.add(r.practice_area);
+    }
+    return Array.from(names).sort();
+  }, [records]);
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
@@ -223,12 +203,12 @@ export default function CapabilitiesPage() {
 
   const filtered = useMemo(() => {
     let rows = records;
-    if (activePractices.size > 0) rows = rows.filter((r) => activePractices.has(r.practiceArea));
-    if (activeClasses.size > 0) rows = rows.filter((r) => r.aiClassification && activeClasses.has(r.aiClassification));
+    if (activePractices.size > 0) rows = rows.filter((r) => activePractices.has(r.practice_area));
+    if (activeClasses.size > 0) rows = rows.filter((r) => r.ai_classification && activeClasses.has(r.ai_classification));
     if (activeStatuses.size > 0) rows = rows.filter((r) => activeStatuses.has(r.status));
     if (search.trim()) {
       const q = search.toLowerCase();
-      rows = rows.filter((r) => r.deliverableName.toLowerCase().includes(q) || r.practiceArea.toLowerCase().includes(q));
+      rows = rows.filter((r) => r.deliverable_name.toLowerCase().includes(q) || r.practice_area.toLowerCase().includes(q));
     }
     return [...rows].sort((a, b) => {
       const av = (a[sortKey] ?? "") as string;
@@ -345,11 +325,11 @@ export default function CapabilitiesPage() {
 
       {/* Pill filters */}
       <div className="space-y-2.5 mb-4">
-        {/* Practice area pills */}
+        {/* Practice area pills — derived from data */}
         <div className="flex flex-wrap gap-1.5 items-center">
           <span className="text-xs uppercase tracking-wider mr-1 flex-shrink-0" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 10 }}>Practice</span>
-          {PRACTICE_AREAS.map((p) => (
-            <Pill key={p} label={PRACTICE_SHORT[p] ?? p} active={activePractices.has(p)} onClick={() => togglePractice(p)} />
+          {practiceNames.map((p) => (
+            <Pill key={p} label={p} active={activePractices.has(p)} onClick={() => togglePractice(p)} />
           ))}
         </div>
         {/* Classification + status pills */}
@@ -403,9 +383,9 @@ export default function CapabilitiesPage() {
             background: "rgba(255,255,255,0.02)",
           }}
         >
-          <SortHeader label="Deliverable" sortKey="deliverableName" current={sortKey} dir={sortDir} onSort={toggleSort} />
-          <SortHeader label="Practice Area" sortKey="practiceArea" current={sortKey} dir={sortDir} onSort={toggleSort} />
-          <SortHeader label="Classification" sortKey="aiClassification" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Deliverable" sortKey="deliverable_name" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Practice Area" sortKey="practice_area" current={sortKey} dir={sortDir} onSort={toggleSort} />
+          <SortHeader label="Classification" sortKey="ai_classification" current={sortKey} dir={sortDir} onSort={toggleSort} />
           <SortHeader label="Status" sortKey="status" current={sortKey} dir={sortDir} onSort={toggleSort} />
           <span className="text-xs font-bold uppercase tracking-wider" style={{ color: "var(--color-jda-text-muted)", fontFamily: "var(--font-display)", fontSize: 11 }}>Methodology</span>
         </div>
@@ -417,7 +397,7 @@ export default function CapabilitiesPage() {
         ) : (
           filtered.map((r, i) => (
             <div
-              key={r._id}
+              key={r.id}
               className="grid items-center px-5 py-3"
               style={{
                 gridTemplateColumns: "2.5fr 1.6fr 140px 160px 160px",
@@ -425,20 +405,20 @@ export default function CapabilitiesPage() {
               }}
             >
               <p className="text-sm pr-4" style={{ color: "var(--color-jda-cream)" }}>
-                {r.deliverableName}
+                {r.deliverable_name}
               </p>
               <p className="text-xs pr-4" style={{ color: "var(--color-jda-text-muted)" }}>
-                {PRACTICE_SHORT[r.practiceArea] ?? r.practiceArea}
+                {r.practice_area}
               </p>
               <div>
-                <ClassBadge classification={r.aiClassification} />
+                <ClassBadge classification={r.ai_classification} />
               </div>
               <div>
                 <StatusBadge status={r.status} />
               </div>
               <div>
-                {r.linkedMethodology ? (
-                  <span className="text-xs" style={{ color: "#60a5fa" }}>{r.linkedMethodology.name}</span>
+                {r.linked_methodology ? (
+                  <span className="text-xs" style={{ color: "#60a5fa" }}>{r.linked_methodology.name}</span>
                 ) : (
                   <span className="text-xs" style={{ color: "var(--color-jda-text-muted)" }}>—</span>
                 )}
@@ -449,8 +429,7 @@ export default function CapabilitiesPage() {
       </div>
 
       <p className="text-xs mt-3" style={{ color: "var(--color-jda-text-muted)" }}>
-        Records seed from Discovery Intensives. To classify a record or link a methodology, open it in{" "}
-        <a href="/studio" style={{ color: "#60a5fa" }}>Sanity Studio</a>.{" "}
+        Records seed from Discovery Intensives. To classify a record or link a methodology, edit it in the Content section.{" "}
         Export CSV to share with leadership.
       </p>
     </div>

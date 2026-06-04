@@ -1,5 +1,5 @@
 import { apiRequireTier } from "@/lib/portal-auth";
-import { client } from "@/sanity/lib/client";
+import { db } from "@/lib/db";
 import { NextResponse } from "next/server";
 
 export async function GET(req: Request) {
@@ -11,39 +11,42 @@ export async function GET(req: Request) {
   const classification = searchParams.get("classification");
   const status = searchParams.get("status");
 
-  let filter = `_type == "capabilityRecord"`;
-  // Scoping: owner/admin sees all; users with a practice assignment see own practice by default
-  const isAdmin = ["owner", "admin"].includes(user.account_type as string);
-  if (!isAdmin && user.practice && !practiceArea) {
-    filter += ` && practiceArea == "${user.practice}"`;
-  } else if (practiceArea) {
-    filter += ` && practiceArea == "${practiceArea}"`;
-  }
-  if (classification) filter += ` && aiClassification == "${classification}"`;
-  if (status) filter += ` && status == "${status}"`;
+  const records = await db`
+    SELECT
+      cr.id,
+      cr.deliverable_name,
+      cr.slug,
+      p.name AS practice_area,
+      cr.status,
+      cr.ai_classification,
+      cr.baseline_production_time,
+      cr.ai_native_production_time,
+      CASE WHEN m.id IS NOT NULL
+        THEN json_build_object('name', m.name, 'slug', m.slug)
+        ELSE NULL
+      END AS linked_methodology,
+      cr.source,
+      cr.notes
+    FROM capability_records cr
+    LEFT JOIN practices p ON p.id = cr.practice_id
+    LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
+    WHERE
+      (${practiceArea}::text IS NULL OR p.name = ${practiceArea})
+      AND (${classification}::text IS NULL OR cr.ai_classification = ${classification})
+      AND (${status}::text IS NULL OR cr.status = ${status})
+    ORDER BY p.name ASC NULLS LAST, cr.deliverable_name ASC
+  `;
 
-  const records = await client.fetch(
-    `*[${filter}] | order(practiceArea asc, deliverableName asc) {
-      _id, deliverableName, "slug": slug.current, practiceArea, status,
-      aiClassification, baselineProductionTime, aiNativeProductionTime,
-      "linkedMethodology": linkedMethodology->{ name, "slug": slug.current },
-      source, notes, ceilingLastReviewed, liveSearchEnabled
-    }`,
-    {},
-    { cache: "no-store" }
-  );
-
-  // Summary stats
   const stats = {
     total: records.length,
-    not_evaluated: records.filter((r: { status: string }) => r.status === "not_evaluated").length,
-    classified: records.filter((r: { status: string }) => r.status === "classified").length,
-    methodology_built: records.filter((r: { status: string }) => r.status === "methodology_built").length,
-    proven_status: records.filter((r: { status: string }) => r.status === "proven_status").length,
-    ai_led: records.filter((r: { aiClassification: string }) => r.aiClassification === "ai_led").length,
-    ai_assisted: records.filter((r: { aiClassification: string }) => r.aiClassification === "ai_assisted").length,
-    human_led: records.filter((r: { aiClassification: string }) => r.aiClassification === "human_led").length,
+    not_evaluated: records.filter((r) => r.status === "not_evaluated").length,
+    classified: records.filter((r) => r.status === "classified").length,
+    methodology_built: records.filter((r) => r.status === "methodology_built").length,
+    proven_status: records.filter((r) => r.status === "proven_status").length,
+    ai_led: records.filter((r) => r.ai_classification === "ai_led").length,
+    ai_assisted: records.filter((r) => r.ai_classification === "ai_assisted").length,
+    human_led: records.filter((r) => r.ai_classification === "human_led").length,
   };
 
-  return NextResponse.json({ records, stats, userAccountType: user.account_type, userPractice: user.practice });
+  return NextResponse.json({ records, stats });
 }

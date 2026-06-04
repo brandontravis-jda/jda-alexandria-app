@@ -165,7 +165,7 @@ async function migrate() {
       id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       role_id    UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
       action     TEXT NOT NULL,
-      scope      TEXT NOT NULL DEFAULT 'own_practice'
+      scope      TEXT NOT NULL DEFAULT 'all'
                    CHECK (scope IN ('own_practice', 'all', 'none')),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(role_id, action)
@@ -257,18 +257,18 @@ async function migrate() {
     INSERT INTO role_permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
     (VALUES
       ('methodology:read',                                  'all'),
-      ('methodology:write',                                 'own_practice'),
-      ('methodology:update',                                'own_practice'),
+      ('methodology:write',                                 'all'),
+      ('methodology:update',                                'all'),
       ('brand_package:read',                                'all'),
-      ('brand_package:write',                               'own_practice'),
-      ('brand_package:update',                              'own_practice'),
+      ('brand_package:write',                               'all'),
+      ('brand_package:update',                              'all'),
       ('capability_record:read',                            'all'),
-      ('capability_record:write',                           'own_practice'),
-      ('capability_record:update',                          'own_practice'),
-      ('mcp_tool:alexandria_save_brand_package',            'own_practice'),
-      ('mcp_tool:alexandria_update_capability',             'own_practice'),
-      ('portal:access',                                     'own_practice'),
-      ('portal:dashboard',                                  'own_practice'),
+      ('capability_record:write',                           'all'),
+      ('capability_record:update',                          'all'),
+      ('mcp_tool:alexandria_save_brand_package',            'all'),
+      ('mcp_tool:alexandria_update_capability',             'all'),
+      ('portal:access',                                     'all'),
+      ('portal:dashboard',                                  'all'),
       ('methodology_field:systemInstructions',              'all'),
       ('methodology_field:visionOfGood',                    'all'),
       ('methodology_field:tips',                            'all'),
@@ -282,12 +282,12 @@ async function migrate() {
     WITH r AS (SELECT id FROM roles WHERE slug = 'practitioner')
     INSERT INTO role_permissions (role_id, action, scope) SELECT r.id, v.action, v.scope FROM r,
     (VALUES
-      ('methodology:read',         'own_practice'),
+      ('methodology:read',         'all'),
       ('brand_package:read',       'all'),
-      ('capability_record:read',   'own_practice'),
-      ('template:read',            'own_practice'),
+      ('capability_record:read',   'all'),
+      ('template:read',            'all'),
       ('portal:access',            'none'),
-      ('mcp_tool:standard_production', 'own_practice')
+      ('mcp_tool:standard_production', 'all')
     ) AS v(action, scope)
     ON CONFLICT (role_id, action) DO NOTHING
   `;
@@ -350,7 +350,7 @@ async function logRequest(opts: {
 // Caches results for the duration of a single request via the returned Map.
 // Do NOT share this cache across requests.
 
-type PermissionScope = "own_practice" | "all" | "none";
+type PermissionScope = "all" | "none";
 
 interface ResolvedPermission {
   allowed: boolean;
@@ -412,7 +412,7 @@ function makePermissionResolver(auth: AuthResult) {
           result = { allowed: true, scope: override.scope as PermissionScope };
         }
       } else if (roleRows.length > 0) {
-        const scopeRank: Record<string, number> = { all: 2, own_practice: 1, none: 0 };
+        const scopeRank: Record<string, number> = { all: 2, none: 0 };
         const best = roleRows.reduce((a, b) =>
           (scopeRank[b.scope] ?? 0) > (scopeRank[a.scope] ?? 0) ? b : a
         );
@@ -725,8 +725,6 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_methodologies");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      const methPerm = await checkPermission("methodology:read");
-
       let rows: Record<string, unknown>[];
 
       if (practice) {
@@ -737,16 +735,6 @@ function buildServer(auth: AuthResult): McpServer {
           WHERE p.slug = ${practice} AND m.status != 'archived'
           ORDER BY m.name ASC
         `;
-      } else if (methPerm.scope === "own_practice" && auth.practices.length > 0) {
-        rows = await sql`
-          SELECT m.name, m.slug, m.ai_classification, m.proven_status, m.version, p.name AS practice
-          FROM methodologies m
-          LEFT JOIN practices p ON p.id = m.practice_id
-          WHERE p.name IN ${sql(auth.practices)} AND m.status != 'archived'
-          ORDER BY m.name ASC
-        `;
-      } else if (methPerm.scope === "own_practice" && auth.practices.length === 0) {
-        return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
       } else {
         rows = await sql`
           SELECT m.name, m.slug, m.ai_classification, m.proven_status, m.version, p.name AS practice
@@ -1735,33 +1723,6 @@ function buildServer(auth: AuthResult): McpServer {
       const blocked = await gateCheck("alexandria_list_capabilities");
       if (blocked) return { content: [{ type: "text", text: blocked }], isError: true };
 
-      const capPerm = await checkPermission("capability_record:read");
-
-      if (!practice_area && capPerm.scope === "own_practice" && auth.practices.length === 0) {
-        return { content: [{ type: "text", text: "Your account has no practice area assigned. Ask your practice leader or admin to assign you to a practice." }] };
-      }
-
-      // Build dynamic query conditions
-      const conditions: string[] = [];
-      const values: unknown[] = [];
-
-      if (practice_area) {
-        conditions.push(`p.name = $1`);
-        values.push(practice_area);
-      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
-        conditions.push(`p.name = ANY($1)`);
-        values.push(auth.practices);
-      }
-      if (classification) {
-        conditions.push(`cr.ai_classification = $${values.length + 1}`);
-        values.push(classification);
-      }
-      if (status) {
-        conditions.push(`cr.status = $${values.length + 1}`);
-        values.push(status);
-      }
-
-      // Use a single query with optional filters
       let records: Record<string, unknown>[];
       if (practice_area && classification && status) {
         records = await sql`
@@ -1831,16 +1792,6 @@ function buildServer(auth: AuthResult): McpServer {
           LEFT JOIN practices p ON p.id = cr.practice_id
           LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
           WHERE cr.status = ${status}
-          ORDER BY p.name ASC, cr.deliverable_name ASC
-        `;
-      } else if (capPerm.scope === "own_practice" && auth.practices.length > 0) {
-        records = await sql`
-          SELECT cr.deliverable_name, cr.slug, p.name AS practice_area, cr.status, cr.ai_classification,
-                 m.name AS methodology_name, m.slug AS methodology_slug
-          FROM capability_records cr
-          LEFT JOIN practices p ON p.id = cr.practice_id
-          LEFT JOIN methodologies m ON m.id = cr.linked_methodology_id
-          WHERE p.name IN ${sql(auth.practices)}
           ORDER BY p.name ASC, cr.deliverable_name ASC
         `;
       } else {

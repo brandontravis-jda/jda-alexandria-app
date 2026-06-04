@@ -1,6 +1,6 @@
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { getUserByObjectId } from "@/lib/schema";
+import { getUserByObjectId, writeAuditLog } from "@/lib/schema";
 import { createHash, randomBytes } from "crypto";
 import { NextResponse } from "next/server";
 
@@ -43,6 +43,12 @@ export async function POST(request: Request) {
     VALUES (${user.id}, ${keyHash}, ${keyPrefix}, ${name})
   `;
 
+  try {
+    await writeAuditLog({ actorId: user.id, action: "apikey.create", details: { name, keyPrefix } });
+  } catch {
+    // Audit logging is fire-and-forget
+  }
+
   // Return the raw key once — it cannot be retrieved again
   return NextResponse.json({ key: rawKey, prefix: keyPrefix, name });
 }
@@ -65,6 +71,12 @@ export async function DELETE(request: Request) {
 
   if (result.length === 0) {
     return NextResponse.json({ error: "Key not found" }, { status: 404 });
+  }
+
+  try {
+    await writeAuditLog({ actorId: user.id, action: "apikey.revoke", details: { keyId: id } });
+  } catch {
+    // Audit logging is fire-and-forget
   }
 
   return NextResponse.json({ deleted: true });

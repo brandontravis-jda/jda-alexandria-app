@@ -1382,7 +1382,7 @@ function buildServer(auth: AuthResult): McpServer {
 
       await sql`
         UPDATE intake_sessions
-        SET status = 'intake_complete', answers = ${JSON.stringify(answers)}, submitted_at = NOW()
+        SET status = 'intake_complete', answers = ${sql.json(answers)}, submitted_at = NOW()
         WHERE session_id = ${session_id}
       `;
 
@@ -2190,11 +2190,11 @@ function buildServer(auth: AuthResult): McpServer {
             practice_id = COALESCE(${practiceId}, practice_id),
             ai_classification = ${ai_classification},
             system_instructions = ${system_instructions},
-            required_inputs = ${JSON.stringify(required_inputs ?? [])},
-            steps = ${JSON.stringify(steps ?? [])},
+            required_inputs = ${sql.json(required_inputs ?? [])},
+            steps = ${sql.json(steps ?? [])},
             output_format = ${output_format ?? ""},
-            quality_checks = ${JSON.stringify(quality_checks ?? [])},
-            failure_modes = ${JSON.stringify(failure_modes ?? [])},
+            quality_checks = ${sql.json(quality_checks ?? [])},
+            failure_modes = ${sql.json(failure_modes ?? [])},
             vision_of_good = ${vision_of_good ?? ""},
             tips = ${tips ?? ""},
             author = ${author ?? ""},
@@ -2215,9 +2215,9 @@ function buildServer(auth: AuthResult): McpServer {
           VALUES (
             ${name}, ${normalizedSlug}, ${description}, ${practiceId},
             ${ai_classification}, ${system_instructions},
-            ${JSON.stringify(required_inputs ?? [])}, ${JSON.stringify(steps ?? [])},
-            ${output_format ?? ""}, ${JSON.stringify(quality_checks ?? [])},
-            ${JSON.stringify(failure_modes ?? [])}, ${vision_of_good ?? ""},
+            ${sql.json(required_inputs ?? [])}, ${sql.json(steps ?? [])},
+            ${output_format ?? ""}, ${sql.json(quality_checks ?? [])},
+            ${sql.json(failure_modes ?? [])}, ${vision_of_good ?? ""},
             ${tips ?? ""}, ${author ?? ""}, 1, ${false}, 'active'
           )
         `;

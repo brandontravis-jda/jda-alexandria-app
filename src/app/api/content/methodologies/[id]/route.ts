@@ -1,5 +1,5 @@
 import { apiRequireTier } from "@/lib/portal-auth";
-import { db } from "@/lib/db";
+import { db, jsonb } from "@/lib/db";
 import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
@@ -58,7 +58,7 @@ export async function PATCH(
   for (const key of allowedFields) {
     if (fields[key] !== undefined) {
       updateFields[key] = jsonFields.has(key)
-        ? JSON.stringify(fields[key])
+        ? jsonb(fields[key])
         : fields[key];
     }
   }

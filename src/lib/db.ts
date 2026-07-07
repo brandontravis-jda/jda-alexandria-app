@@ -12,3 +12,8 @@ export const db =
   });
 
 if (process.env.NODE_ENV !== "production") globalForDb.db = db;
+
+/** Type-safe wrapper for db.json() that accepts unknown values from parsed request bodies */
+export function jsonb(value: unknown) {
+  return db.json(value as Parameters<typeof db.json>[0]);
+}

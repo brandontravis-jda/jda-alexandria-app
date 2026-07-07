@@ -1,5 +1,5 @@
 import { apiRequireTier } from "@/lib/portal-auth";
-import { db } from "@/lib/db";
+import { db, jsonb } from "@/lib/db";
 import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
@@ -59,23 +59,23 @@ export async function POST(request: Request) {
         ${(client_name as string).trim()},
         ${slug},
         ${(abbreviations as string) ?? null},
-        ${JSON.stringify(logos ?? [])},
+        ${jsonb(logos ?? [])},
         ${(logo_usage_rules as string) ?? ""},
         ${(extracted_date as string) ?? null},
         ${(source_document as string) ?? null},
         ${(extracted_by as string) ?? null},
         ${(gaps as string) ?? ""},
         ${(raw_markdown as string) ?? ""},
-        ${JSON.stringify(identity ?? {})},
-        ${JSON.stringify(color_palette ?? [])},
+        ${jsonb(identity ?? {})},
+        ${jsonb(color_palette ?? [])},
         ${(color_usage_rules as string) ?? ""},
-        ${JSON.stringify(typography ?? {})},
-        ${JSON.stringify(web_fonts ?? [])},
+        ${jsonb(typography ?? {})},
+        ${jsonb(web_fonts ?? [])},
         ${(template_overrides as string) ?? ""},
-        ${JSON.stringify(voice_and_tone ?? {})},
-        ${JSON.stringify(brand_architecture ?? {})},
-        ${JSON.stringify(visual_direction ?? {})},
-        ${JSON.stringify(key_messaging ?? {})},
+        ${jsonb(voice_and_tone ?? {})},
+        ${jsonb(brand_architecture ?? {})},
+        ${jsonb(visual_direction ?? {})},
+        ${jsonb(key_messaging ?? {})},
         ${(status as string) ?? "active"}
       )
       RETURNING *

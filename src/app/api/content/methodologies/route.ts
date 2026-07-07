@@ -1,5 +1,5 @@
 import { apiRequireTier } from "@/lib/portal-auth";
-import { db } from "@/lib/db";
+import { db, jsonb } from "@/lib/db";
 import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
@@ -68,16 +68,16 @@ export async function POST(request: Request) {
         ${(practice_id as number) ?? null},
         ${(ai_classification as string) ?? null},
         ${(tools_involved as string[]) ?? []},
-        ${JSON.stringify(required_inputs ?? [])},
+        ${jsonb(required_inputs ?? [])},
         ${(system_instructions as string) ?? ""},
-        ${JSON.stringify(steps ?? [])},
+        ${jsonb(steps ?? [])},
         ${(output_format as string) ?? ""},
-        ${JSON.stringify(quality_checks ?? [])},
-        ${JSON.stringify(failure_modes ?? [])},
+        ${jsonb(quality_checks ?? [])},
+        ${jsonb(failure_modes ?? [])},
         ${(vision_of_good as string) ?? ""},
         ${(tips as string) ?? ""},
-        ${JSON.stringify(client_refinements ?? [])},
-        ${JSON.stringify(quality_checklist ?? [])},
+        ${jsonb(client_refinements ?? [])},
+        ${jsonb(quality_checklist ?? [])},
         ${(baseline_production_time as string) ?? null},
         ${(ai_native_production_time as string) ?? null},
         ${(proven_status as boolean) ?? false},

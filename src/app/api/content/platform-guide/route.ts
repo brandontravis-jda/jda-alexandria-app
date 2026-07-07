@@ -1,5 +1,5 @@
 import { apiRequireTier } from "@/lib/portal-auth";
-import { db } from "@/lib/db";
+import { db, jsonb } from "@/lib/db";
 import { writeAuditLog } from "@/lib/schema";
 import { NextResponse } from "next/server";
 
@@ -31,15 +31,15 @@ export async function PATCH(request: Request) {
     VALUES (
       1,
       ${body.platform_intro ?? ""},
-      ${JSON.stringify(body.canonical_entry_prompts ?? [])},
+      ${jsonb(body.canonical_entry_prompts ?? [])},
       ${body.feedback_prompt ?? ""},
-      ${JSON.stringify(body.example_prompts ?? [])}
+      ${jsonb(body.example_prompts ?? [])}
     )
     ON CONFLICT (id) DO UPDATE SET
       platform_intro = COALESCE(${body.platform_intro ?? null}, platform_guide.platform_intro),
-      canonical_entry_prompts = COALESCE(${body.canonical_entry_prompts ? JSON.stringify(body.canonical_entry_prompts) : null}::jsonb, platform_guide.canonical_entry_prompts),
+      canonical_entry_prompts = COALESCE(${body.canonical_entry_prompts ? jsonb(body.canonical_entry_prompts) : null}, platform_guide.canonical_entry_prompts),
       feedback_prompt = COALESCE(${body.feedback_prompt ?? null}, platform_guide.feedback_prompt),
-      example_prompts = COALESCE(${body.example_prompts ? JSON.stringify(body.example_prompts) : null}::jsonb, platform_guide.example_prompts),
+      example_prompts = COALESCE(${body.example_prompts ? jsonb(body.example_prompts) : null}, platform_guide.example_prompts),
       updated_at = NOW()
     RETURNING *
   `;

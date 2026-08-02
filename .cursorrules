@@ -1,60 +1,66 @@
-# JDA Catalyst — Cursor Rules
+# Alexandria — Cursor Rules
 
 ## Project
-Next.js 16 App Router. TypeScript strict mode. Tailwind CSS v4. Sanity CMS.
-All content fetched via GROQ in server components.
+Alexandria is JDA's AI-native operational platform. This repo has two deployables:
+- **The Portal** (repo root) — Next.js 16 App Router admin app. The live app is the `(portal)` route group.
+- **The Bridge** (`mcp/`) — a standalone MCP server (`mcp/src/index.ts`) exposing `alexandria_*` tools to Claude.
 
-## File Structure
-- Components: `/src/components/` — PascalCase directories
-- Page builder modules: `/src/components/modules/`
-- Global components (nav, footer): `/src/components/global/`
-- UI primitives (button, container): `/src/components/ui/`
-- Sanity schemas: `/src/sanity/schemas/documents/` and `/src/sanity/schemas/objects/`
-- GROQ queries: `/src/sanity/lib/queries.ts` or co-located with page
-- Utilities: `/src/lib/`
+TypeScript strict mode throughout. Tailwind CSS v4. Path alias `@/*` → `src/*`.
+
+## Leftover starter code — do not build on it
+This repo was forked from a Next.js + Sanity starter. These files are unused by the live app:
+- `src/components/modules/`, `src/components/global/`, `src/components/PageBuilder.tsx`
+Ignore them. If they get in the way, prefer deleting over extending.
+
+## File structure
+- Portal pages: `src/app/(portal)/` — all share `(portal)/layout.tsx`
+- JSON API routes: `src/app/api/`
+- Portal UI components: `src/components/portal/`
+- UI primitives: `src/components/ui/` — one directory per component, `index.tsx` default export, optional `types.ts`
+- Postgres access: `src/lib/db.ts` (connection) + `src/lib/schema.ts` (queries + `migrate()`)
+- Auth: `src/lib/auth.ts`, gate enforced by `src/middleware.ts`
+- Sanity: schemas in `src/sanity/schemas/`, queries in `src/sanity/lib/queries.ts`, client in `src/sanity/lib/client.ts`
+
+## Data — two stores
+- **Postgres** holds users, roles, permissions, sessions, intake & feedback.
+- **Sanity** holds editorial content (methodologies, templates, brand packages, capabilities, platform guide).
+- Fetch Sanity content ONLY in server components, via `sanityFetch()` from `@/sanity/lib/client`. Never fetch in client components — pass data as props.
+- GROQ queries use tagged template literals.
+
+## Database migrations
+- There is NO migration tool. The schema IS the idempotent statements in `migrate()`.
+- To change the schema, add `CREATE TABLE IF NOT EXISTS` / `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` statements to `migrate()` — `src/lib/schema.ts` for portal tables, `mcp/src/index.ts` for Bridge tables.
+- Never assume a fresh database; existing deployments re-run `migrate()`.
+
+## Auth
+- One auth gate: Azure AD `Alexandria-Users` group membership (`GROUP_USERS` constant).
+- Authorization (`account_type`, roles, `role_permissions`) is app-managed in Postgres — never derive it from Azure.
+- The Azure Object ID (`oid`) is the stable user key: `session.user.id` and `users.object_id`.
+
+## MCP server
+- The entire Bridge is one file: `mcp/src/index.ts`. Tools are registered with `server.tool(...)`.
+- Adding/removing a tool requires practitioners to reconnect the connector — note this when you do.
 
 ## Components
-- One directory per component with `index.tsx` and optional `types.ts`
-- Default exports only
-- Props interface named `[ComponentName]Props`
-- Use `cn()` from `@/lib/utils` for conditional Tailwind classes
-- All images use `SanityImage` component (not next/image directly)
-
-## Sanity Schemas
-- Use `defineType`, `defineField`, `defineArrayMember` from `sanity`
-- Document types in `/schemas/documents/`, object types in `/schemas/objects/`
-- All image fields must include `alt` as a required string field
-- All slugs use `isUnique` validator from `@/sanity/lib/isUnique`
-- Page builder field: `defineField({ name: 'modules', type: 'pageBuilder' })`
-
-## Data Fetching
-- Fetch ONLY in server components using `sanityFetch()` from `@/sanity/lib/client`
-- Never fetch in client components — pass data as props
-- Use `revalidateTag` for ISR cache invalidation
-- GROQ queries use tagged template literals for syntax highlighting
+- Default exports only. Props interface named `[ComponentName]Props`.
+- Use `cn()` from `@/lib/utils` for conditional Tailwind classes.
 
 ## Styling
-- Tailwind utility classes exclusively. No custom CSS files
-- Use design tokens from `src/app/globals.css` (`@theme` block) — never hardcode colors or spacing
-- Responsive: mobile-first (`sm:`, `md:`, `lg:`, `xl:`)
-- Dark mode: not implemented by default (add per project if needed)
+- Tailwind utility classes only. No CSS modules or styled-components.
+- Theme tokens in the `@theme` block of `src/app/globals.css`; portal UI also uses `var(--color-jda-*)` CSS variables. Never hardcode colors.
+- Map enum-like DB/Sanity values to display strings via `src/lib/portal-labels.ts`.
+- Mobile-first responsive (`sm:`, `md:`, `lg:`, `xl:`).
 
 ## TypeScript
-- Strict mode. Never use `any`
-- Sanity query results typed with manually defined interfaces (add sanity-typegen later)
-- Prefer `interface` over `type` for object shapes
+- Strict mode. Never use `any`.
+- Prefer `interface` over `type` for object shapes.
 
 ## Accessibility
-- Semantic HTML elements: nav, main, article, section, aside, header, footer
-- All interactive elements keyboard accessible
-- ARIA attributes on custom widgets (accordion, carousel, dropdown)
-- Skip-to-content link in root layout
-- Heading hierarchy enforced by component structure, not editor choice
+- Semantic HTML landmarks; keyboard-accessible interactive elements; ARIA on custom widgets.
 
 ## Avoid
-- Pages Router (use App Router only)
-- CSS modules or styled-components
-- Fetching in client components
+- Pages Router (App Router only)
+- Fetching Sanity data in client components
 - `use client` unless genuinely needed for interactivity
-- Installing packages without checking if functionality exists in current stack
-- Hardcoded strings (use Sanity fields or constants)
+- Hardcoded strings and colors
+- Building on the leftover starter code listed above

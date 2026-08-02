@@ -1,162 +1,94 @@
-# JDA Catalyst — Next.js + Sanity Starter
+# Alexandria
 
-A modern, accessible starter template for JDA client projects. Built with Next.js 16 (App Router), TypeScript, Tailwind CSS v4, and Sanity CMS.
+JDA's AI-native operational platform. Practitioners do their work inside **Claude**; Alexandria feeds Claude the right operational context — methodologies, templates, client brand packages, capabilities — for each practitioner's role, practice, and client.
 
-> **Setting up a new client project?** See [SETUP.md](./SETUP.md) for the full step-by-step guide.
+This repository holds two of the platform's four components:
+
+- **The Portal** (repo root) — a Next.js web app, gated to a small admin group via Azure AD. It manages all platform content (with Sanity Studio embedded at `/studio`) and handles user/role administration. Most practitioners never open it.
+- **The Bridge** (`mcp/`) — a remote MCP server that exposes the portal's content to Claude as `alexandria_*` tools. This is how practitioners actually use the platform. Deployed separately and connected once at the Claude Teams org level.
+
+The other two components — the n8n automation layer and per-practice Claude Projects — live outside this repo.
+
+> **New here?** See **[SETUP.md](./SETUP.md)** for step-by-step local setup, and **[CLAUDE.md](./CLAUDE.md)** for an architecture orientation.
 
 ## Stack
 
-- **Framework:** Next.js 16 (App Router, React 19)
-- **Language:** TypeScript (strict mode)
-- **Styling:** Tailwind CSS v4 with design tokens
-- **CMS:** Sanity (embedded Studio at `/studio`, Presentation live preview)
-- **Forms:** Resend (email) + Cloudflare Turnstile (bot protection)
-- **SEO:** JSON-LD (Organization, WebPage, Article, FAQPage), Open Graph, sitemap, robots.txt
-- **Analytics:** Vercel Analytics + Speed Insights
-- **Hosting:** Vercel
+- **Framework:** Next.js 16 (App Router, React 19), TypeScript strict mode
+- **Styling:** Tailwind CSS v4 with CSS-variable design tokens
+- **Auth:** Auth.js v5 + Microsoft Entra ID (single-tenant Azure AD SSO)
+- **Databases:** PostgreSQL (users, roles, permissions, sessions, intake & feedback) + Sanity (editorial content)
+- **MCP server:** `@modelcontextprotocol/sdk` over Streamable HTTP, deployed to Railway
+- **Hosting:** Railway (both the portal and the MCP server)
 
-## Getting Started
-
-### Prerequisites
-
-- Node.js 20+
-- npm 10+
-- A Sanity account ([sanity.io](https://sanity.io))
-
-### Setup
+## Quick start
 
 ```bash
-# Install dependencies
+# 1. Install dependencies (portal)
 npm install
 
-# Copy environment variables
-cp .env.local.example .env.local
+# 2. Configure environment
+cp .env.local.example .env.local   # then fill in every value — see SETUP.md
 
-# Fill in your Sanity project ID, dataset, and API token in .env.local
-
-# Seed demo content (optional — populates Sanity with sample pages, navigation, blog post, and placeholder images)
-npm run seed
-
-# Start development server
+# 3. Run the portal
 npm run dev
 ```
 
-Visit [http://localhost:3000](http://localhost:3000) for the site and [http://localhost:3000/studio](http://localhost:3000/studio) for Sanity Studio.
+The portal runs at [localhost:3000](http://localhost:3000); Sanity Studio is embedded at [localhost:3000/studio](http://localhost:3000/studio).
 
-### Initialize Sanity
+To run the MCP server locally, see [SETUP.md](./SETUP.md#5-mcp-server-the-bridge).
 
-If starting a new Sanity project:
+## Commands
 
-```bash
-npx sanity@latest init --env .env.local
-```
+| Command | Description |
+|---|---|
+| `npm run dev` | Start the portal (Next.js dev server) |
+| `npm run build` | Production build |
+| `npm run lint` | ESLint |
+| `npm run seed` | Seed Sanity with baseline content (`scripts/seed.mjs`) |
 
-## Project Structure
+Additional `scripts/seed-*.mjs` files seed specific content sets. Run any of them with `node --env-file=.env.local scripts/<file>.mjs`.
+
+MCP server commands live in `mcp/package.json` and are run from inside `mcp/`.
+
+There is no automated test suite.
+
+## Project structure
 
 ```
 src/
 ├── app/
-│   ├── (site)/              # Public routes (grouped with shared layout)
-│   │   ├── page.tsx         # Homepage
-│   │   ├── [slug]/          # Dynamic pages
-│   │   └── blog/            # Blog listing + posts
-│   ├── studio/              # Embedded Sanity Studio
-│   ├── api/                 # API routes (contact, draft-mode, revalidate, turnstile)
-│   ├── layout.tsx           # Root layout (skip link, metadata)
-│   ├── sitemap.ts           # Dynamic sitemap
-│   └── robots.ts            # Robots.txt
+│   ├── (portal)/          # The live app — all portal pages share this layout
+│   │   ├── page.tsx       # Dashboard
+│   │   ├── content/       # Methodologies, templates, deliverables, platform guide
+│   │   ├── clients/       # Client brand packages
+│   │   ├── capabilities/  # Capability matrix
+│   │   ├── tools/         # LOB tools
+│   │   ├── users/ roles/  # User & role administration
+│   │   └── settings/
+│   ├── api/               # JSON endpoints (me, users, roles, capabilities, keys, …)
+│   ├── studio/            # Embedded Sanity Studio
+│   └── sign-in/ sign-out/
 ├── components/
-│   ├── modules/             # Page builder modules (12 total)
-│   ├── global/              # Navigation, Footer, SkipLink
-│   ├── ui/                  # Button, Container, SanityImage, PortableText
-│   └── PageBuilder.tsx      # Module resolver/renderer
-├── sanity/
-│   ├── schemas/             # Document + object type definitions
-│   ├── lib/                 # Client, queries, resolve, structure
-│   ├── studio/
-│   │   ├── logo.tsx         # Custom Studio logo component
-│   │   └── WelcomeWidget.tsx # Dashboard overview widget
-│   └── sanity.config.ts     # Studio configuration
-└── lib/
-    ├── utils.ts             # cn() helper, formatDate
-    ├── jsonLd.tsx           # Schema.org JSON-LD generators + renderer
-    └── metadata.ts          # Shared metadata builder
+│   ├── portal/            # Portal UI (Topbar, StatCard, rows, panels)
+│   ├── ui/                # Primitives (Button, Container, SanityImage, …)
+│   ├── global/ modules/   # ⚠️ Leftover starter code — not wired into any route
+│   └── PageBuilder.tsx    # ⚠️ Leftover starter code
+├── lib/                   # auth.ts, db.ts, schema.ts (Postgres), utils, labels
+├── middleware.ts          # Auth gate for all non-public routes
+└── sanity/                # Client, GROQ queries, schemas, Studio config
+
+mcp/                       # The Bridge — standalone MCP server (own package.json)
+scripts/                   # Sanity seed scripts
+ref/                        # Planning docs (see portal-implementation-plan.md)
 ```
 
-## Page Builder Modules
+> The `src/components/global/`, `src/components/modules/`, and `PageBuilder.tsx` files are inherited from the "JDA Catalyst" starter template this repo was forked from. They are **not used** by the live app — do not build on them.
 
-All modules are managed in Sanity and rendered via the `PageBuilder` component:
+## Architecture in brief
 
-| Module | Description |
-|--------|-------------|
-| Hero | Full-bleed with background image, heading, CTA |
-| TextBlock | Rich text via Portable Text |
-| CTA | Call to action with configurable background |
-| FeatureGrid | Responsive grid of features with icons |
-| StatsCounter | Animated number count-up on scroll |
-| LogoBar | Client/partner logos with hover effect |
-| ImageGallery | Responsive image grid with lightbox |
-| VideoEmbed | YouTube/Vimeo with facade pattern |
-| Testimonials | Quote cards — grid or carousel layout |
-| FAQ | Accessible accordion with FAQPage JSON-LD |
-| TeamGrid | Team member grid from Sanity references |
-| ContactForm | Full form with validation, Resend, Turnstile |
+- **One auth gate:** membership in the Azure AD `Alexandria-Users` group. Sign-in checks group membership via Microsoft Graph and rejects everyone else.
+- **App-managed authorization:** once signed in, a user's `account_type` (`owner`/`admin`/`user`), roles, and permissions live in Postgres and are managed through the portal — Azure only authenticates.
+- **No migration tool:** the database schema is defined by idempotent statements in `migrate()` (`src/lib/schema.ts` for the portal, `mcp/src/index.ts` for the Bridge). The portal's `migrate()` runs lazily on first sign-in.
+- **Content lives in Sanity:** fetched in server components only, via `sanityFetch()` from `src/sanity/lib/client.ts`.
 
-## Design Tokens
-
-Brand colors, fonts, spacing, and other tokens are defined in `src/app/globals.css` using Tailwind v4's `@theme` directive. This is the primary file to customize per client:
-
-```css
-@theme inline {
-  --color-brand-primary: #1A1018;
-  --color-brand-secondary: #ED1A3B;
-  --font-display: Georgia, serif;
-  --font-body: Arial, sans-serif;
-  /* ... */
-}
-```
-
-## Adding a New Page Builder Module
-
-1. Create the Sanity object schema in `src/sanity/schemas/objects/yourModule.ts`
-2. Add it to `src/sanity/schemas/objects/pageBuilder.ts`
-3. Register it in `src/sanity/schemas/index.ts`
-4. Create the component in `src/components/modules/YourModule/` with `index.tsx` and `types.ts`
-5. Import and add to the `moduleMap` in `src/components/PageBuilder.tsx`
-
-## Environment Variables
-
-| Variable | Description |
-|----------|-------------|
-| `NEXT_PUBLIC_SANITY_PROJECT_ID` | Sanity project ID |
-| `NEXT_PUBLIC_SANITY_DATASET` | Sanity dataset (usually `production`) |
-| `NEXT_PUBLIC_SANITY_API_VERSION` | Sanity API version |
-| `SANITY_API_TOKEN` | Sanity editor token (form submissions + Presentation visual editing) |
-| `RESEND_API_KEY` | Resend API key for email |
-| `CONTACT_FORM_SENDER` | Sender address for contact emails (must match verified domain) |
-| `CONTACT_FORM_RECIPIENT` | Default recipient for contact form submissions |
-| `NEXT_PUBLIC_TURNSTILE_SITE_KEY` | Cloudflare Turnstile site key |
-| `TURNSTILE_SECRET_KEY` | Cloudflare Turnstile secret |
-| `SANITY_REVALIDATE_SECRET` | Secret for Sanity webhook ISR |
-| `NEXT_PUBLIC_SITE_URL` | Production site URL |
-
-## Deployment
-
-See [SETUP.md](./SETUP.md) for detailed, step-by-step deployment and configuration instructions. The short version:
-
-1. Push to GitHub
-2. Import in Vercel — framework auto-detected as Next.js
-3. Add all environment variables (see table above, plus per-environment values in SETUP.md)
-4. Set up Sanity webhook for ISR: `https://yourdomain.com/api/revalidate` with `x-sanity-secret` header
-5. Verify Resend sending domain (DNS records)
-6. Add client hostname to shared Turnstile widget
-
-## Accessibility
-
-Built to WCAG AA standards:
-- Skip-to-content link
-- Semantic HTML landmarks
-- Keyboard-navigable menus and accordions
-- ARIA attributes on all interactive widgets
-- Form labels, error announcements, and `aria-live` regions
-- Focus-visible styles throughout
+See [CLAUDE.md](./CLAUDE.md) for the full orientation and `ref/portal-implementation-plan.md` for the platform plan and deployment details.

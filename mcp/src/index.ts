@@ -2538,28 +2538,80 @@ function buildServer(auth: AuthResult): McpServer {
 
 const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
+const MCP_RESOURCE = `${MCP_BASE_URL}/mcp`;
+const PRM_URL = `${MCP_BASE_URL}/.well-known/oauth-protected-resource`;
+const CORS_HEADERS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, MCP-Protocol-Version",
+  "Access-Control-Expose-Headers": "WWW-Authenticate",
+};
+
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
+) {
+  res.writeHead(status, {
+    "Content-Type": "application/json",
+    ...CORS_HEADERS,
+    ...extraHeaders,
+  });
+  res.end(JSON.stringify(body));
+}
+
+function authorizationServerMetadata() {
+  return {
+    issuer: MCP_BASE_URL,
+    authorization_endpoint: `${MCP_BASE_URL}/authorize`,
+    token_endpoint: `${MCP_BASE_URL}/token`,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code"],
+    code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    client_id_metadata_document_supported: true,
+  };
+}
+
+function protectedResourceMetadata() {
+  return {
+    resource: MCP_RESOURCE,
+    authorization_servers: [MCP_BASE_URL],
+    bearer_methods_supported: ["header"],
+  };
+}
+
 const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
   const urlObj = new URL(req.url!, `http://localhost`);
-  const pathname = urlObj.pathname;
+  const pathname = urlObj.pathname.replace(/\/+$/, "") || "/";
 
-  // ── Health check ───────────────────────────────────────────────────────────
-  if (pathname === "/health") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ status: "ok", service: "alexandria-mcp", version: "0.2.0" }));
+  if (req.method === "OPTIONS") {
+    res.writeHead(204, CORS_HEADERS);
+    res.end();
     return;
   }
 
-  // ── OAuth discovery metadata (Claude reads this to find token endpoint) ────
-  if (pathname === "/.well-known/oauth-authorization-server") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
-      issuer: MCP_BASE_URL,
-      authorization_endpoint: `${MCP_BASE_URL}/authorize`,
-      token_endpoint: `${MCP_BASE_URL}/token`,
-      response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code"],
-      code_challenge_methods_supported: ["S256"],
-    }));
+  // ── Health check ───────────────────────────────────────────────────────────
+  if (pathname === "/health") {
+    sendJson(res, 200, { status: "ok", service: "alexandria-mcp", version: "0.2.0" });
+    return;
+  }
+
+  // ── OAuth discovery (Claude + ChatGPT / CIMD) ─────────────────────────────
+  if (
+    pathname === "/.well-known/oauth-authorization-server" ||
+    pathname === "/.well-known/oauth-authorization-server/mcp"
+  ) {
+    sendJson(res, 200, authorizationServerMetadata());
+    return;
+  }
+
+  if (
+    pathname === "/.well-known/oauth-protected-resource" ||
+    pathname === "/.well-known/oauth-protected-resource/mcp"
+  ) {
+    sendJson(res, 200, protectedResourceMetadata());
     return;
   }
 
@@ -2649,17 +2701,18 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
       expiresAt: Date.now() + 5 * 60 * 1000, // 5 minutes
     });
 
-    // Redirect back to Claude with our code
+    // Redirect back to the MCP client with our code (RFC 9207 iss)
     const callbackParams = new URLSearchParams({
       code: ourCode,
       state: flow.claudeState,
+      iss: MCP_BASE_URL,
     });
     res.writeHead(302, { Location: `${flow.claudeRedirectUri}?${callbackParams}` });
     res.end();
     return;
   }
 
-  // ── OAuth: Step 3 — Claude exchanges our code for an access token ─────────
+  // ── OAuth: Step 3 — client exchanges our code for an access token ─────────
   if (pathname === "/token" || pathname === "/oauth/token") {
     let body = "";
     for await (const chunk of req) body += chunk;
@@ -2670,16 +2723,14 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
     const codeVerifier = params.get("code_verifier");
 
     if (grantType !== "authorization_code" || !code) {
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "invalid_request" }));
+      sendJson(res, 400, { error: "invalid_request" });
       return;
     }
 
     const pending = pendingCodes.get(code);
     if (!pending || pending.expiresAt < Date.now()) {
       pendingCodes.delete(code);
-      res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "invalid_grant", error_description: "Code expired or not found" }));
+      sendJson(res, 400, { error: "invalid_grant", error_description: "Code expired or not found" });
       return;
     }
 
@@ -2690,8 +2741,7 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
         .digest("base64url");
       if (digest !== pending.codeChallenge) {
         pendingCodes.delete(code);
-        res.writeHead(400, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ error: "invalid_grant", error_description: "PKCE verification failed" }));
+        sendJson(res, 400, { error: "invalid_grant", error_description: "PKCE verification failed" });
         return;
       }
     }
@@ -2700,12 +2750,11 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
     const accessToken = await createSessionToken(pending.userId);
 
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
+    sendJson(res, 200, {
       access_token: accessToken,
       token_type: "bearer",
       expires_in: 7776000, // 90 days
-    }));
+    });
     return;
   }
 
@@ -2718,11 +2767,12 @@ const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse
 
   const auth = await resolveAuth(req);
   if (!auth) {
-    res.writeHead(401, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({
+    sendJson(res, 401, {
       error: "Unauthorized. Use Authorization: Bearer <token> with an OAuth session token or API key.",
       oauth_url: `${MCP_BASE_URL}/oauth/authorize`,
-    }));
+    }, {
+      "WWW-Authenticate": `Bearer FAKESECRET_g3h4i5j6k7l8m9n0o1p2="${PRM_URL}", error="invalid_token", error_description="Authentication required"`,
+    });
     return;
   }
 
